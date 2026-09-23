@@ -407,7 +407,13 @@
   .vwCGo{flex:none;padding:8px 13px;border-radius:99px;border:0;cursor:pointer;
     font-family:inherit;font-size:12px;font-weight:700;background:var(--accent);color:#fff}
   #shWhy{flex-basis:100%;order:9;font-size:10.5px;color:var(--text-muted);margin-top:3px}
+  /* 출처 배지 — 한 핀에 하나. 남의 것에는 안 붙인다(기본값이라 붙이면 소음이 된다) */
+  .csrc{margin-left:5px;padding:1px 5px;border-radius:99px;font-size:9.5px;font-weight:700}
+  .csrc-mine{background:rgba(232,97,77,.18);color:#E8614D}
+  .csrc-shared{background:rgba(127,168,196,.18);color:#7FA8C4}
   /* 신뢰 필터 — 사진 수가 아니라 **사람 수**로 자른다 (§13.10) */
+  #scopes{display:flex;gap:6px;overflow-x:auto;padding:0 14px 8px;scrollbar-width:none}
+  #scopes::-webkit-scrollbar{display:none}
   #trust{display:flex;gap:6px;overflow-x:auto;padding:0 14px 8px;scrollbar-width:none}
   #trust::-webkit-scrollbar{display:none}
   .tchip{flex:none;display:flex;align-items:center;gap:5px;padding:6px 11px;border-radius:99px;
@@ -1081,6 +1087,9 @@
     </span>
   </div>
   <div id="chips"></div>
+  <!-- ★ 함께 채운 지도 (§12.28) — 지도는 하나, 무엇을 볼지만 고른다.
+       신뢰 칩(몇 명이 다녀갔나) **위**에 둔다: 누구 것을 볼지가 먼저고, 그 안에서 거른다. -->
+  <div id="scopes"></div>
   <div id="trust"></div>
   <div id="list"></div>
 </div>
@@ -1877,6 +1886,21 @@ let SERVER_PINS = [];
    요금과 배터리가 화면을 미는 손가락에 비례한다. */
 let LOADED_BOX = null;
 let SERVER_MORE = false;
+let LOADED_SCOPE = 'all';
+/* ★ 함께 채운 지도 (§12.28 · 037) — **지도는 하나**고 무엇을 볼지만 고른다.
+   지도를 셋으로 나누면 §12.27에서 접었던 '정리함'과 같은 실수가 된다.
+     all    전부 (볼 수 있는 것 모두)
+     mine   내가 올린 것 — 나만 보기도 포함한다
+     shared 내가 속한 스페이스에 올라온 것 — 내가 올린 것 + 남이 올린 것
+     public 공개된 것
+   ★ 셋은 **겹친다.** 배타적 3분할이 아니다 — 그래서 칩은 '필터'지 '분류'가 아니다. */
+const SCOPES = [
+  { v: "all",    k: "전부",   d: "볼 수 있는 기록 전부" },
+  { v: "mine",   k: "내 지도", d: "내가 올린 것 — 나만 보기도 포함" },
+  { v: "shared", k: "함께",   d: "스페이스에서 함께 보는 기록" },
+  { v: "public", k: "모두의", d: "공개된 기록" },
+];
+const SRC_LABEL = { mine: "내 것", shared: "함께", other: "" };
 /* 뷰포트보다 넉넉히 읽는다. 조금씩 미는 동안은 공짜가 된다.
    ★ 크게 잡을수록 왕복은 줄지만 한 번에 오는 양이 는다. 0.4(=화면의 1.8배 넓이)는
      "한 화면 밀어도 안 부른다"를 만족하는 가장 작은 값이다. */
@@ -1896,12 +1920,14 @@ async function loadServerPins(force){
 
   const b0 = map.getBounds();
   const view = { w:b0.getWest(), s:b0.getSouth(), e:b0.getEast(), n:b0.getNorth() };
-  if(!force && inside(view, LOADED_BOX)) return 0;
+  // ★ 스코프가 바뀌면 이미 읽은 상자는 소용없다 — 서버가 다른 집합을 준다
+  if(!force && LOADED_SCOPE === (state.scope||'all') && inside(view, LOADED_BOX)) return 0;
   const box = padBox(view);
 
-  const r = await API.pinsInBBox(box, { limit: 300, cat: state.cat==='all' ? null : state.cat });
+  const r = await API.pinsInBBox(box, {
+    limit: 300, cat: state.cat==='all' ? null : state.cat, scope: state.scope || 'all' });
   if(!r.ok) return 0;
-  LOADED_BOX = box; SERVER_MORE = r.more;
+  LOADED_BOX = box; SERVER_MORE = r.more; LOADED_SCOPE = state.scope || 'all';
 
   const seen = new Set(SERVER_PINS.map(f=>f.properties.pinId));
   let added = 0;
@@ -1920,6 +1946,27 @@ async function loadServerPins(force){
 }
 window.loadServerPins = loadServerPins;
 
+/* 스코프를 바꾼다. ★ 이전 스코프의 핀을 **걷어낸다** — 안 걷으면 '내 지도'를 골랐는데
+   남의 핀이 그대로 남아 있고, 그건 필터가 아니라 그냥 더하기가 된다. */
+function setScope(v){
+  if((state.scope||'all') === v) return;
+  state.scope = v;
+  poi.features = poi.features.filter(f => !f.properties.server);
+  SERVER_PINS = []; LOADED_BOX = null; SERVER_MORE = false;
+  renderScopes();
+  loadServerPins(true).then(()=>{ try{ refreshPoi(); }catch(e){} });
+}
+window.setScope = setScope;
+
+function renderScopes(){
+  const box = $('#scopes'); if(!box) return;
+  const cur = state.scope || 'all';
+  box.innerHTML = SCOPES.map(sc =>
+    `<button class="tchip" data-scope="${sc.v}" aria-pressed="${cur===sc.v}" title="${sc.d}">${sc.k}</button>`
+  ).join('');
+}
+window.renderScopes = renderScopes;
+
 let listTimer=null;
 function renderList(){
   const feats = visiblePois();
@@ -1937,7 +1984,12 @@ function renderList(){
   renderTrust();                          // 화면이 바뀌면 칩의 곳 수도 바뀐다
   /* ★ 서버가 자른 것을 말한다. 안 말하면 사용자는 "내 기록이 왜 없지"를 겪고,
      그건 §13.24 가 막으려던 것과 같은 모양의 침묵이다. */
-  $('#shWhy').textContent = SERVER_MORE && feats.length
+  /* ★ 겹치는 스코프를 숫자로 풀어 준다 — "모두의 지도 120곳" 안에 내 것이 몇 개인지
+     안 보이면 사용자는 자기 기록이 올라갔는지 확인할 방법이 없다. */
+  const srcN = feats.reduce((a,f)=>{ const k=f.properties.src; if(k) a[k]=(a[k]||0)+1; return a; }, {});
+  const srcLine = (srcN.mine||srcN.shared)
+    ? `내 것 ${srcN.mine||0}곳 · 함께 ${srcN.shared||0}곳 · 남 ${srcN.other||0}곳` : '';
+  $('#shWhy').textContent = srcLine && !SERVER_MORE ? srcLine : SERVER_MORE && feats.length
     ? '이 화면에 기록이 더 있습니다 — 확대하면 다 보입니다'
     : !feats.length ? ''
     : state.region ? `${state.region.name}에서 사람들이 남긴 기록입니다`
@@ -1959,7 +2011,9 @@ function renderList(){
           <span>·</span>${p.rn||''}<span>·</span><b class="cnu">${p.nu}명</b>
           <span>·</span>${p.np}장
           ${p.d!=null&&state.anchor?`<span>·</span><span class="cdist">${fmtDist(p.d)} · ${fmtWalk(p.d)}</span>`:''}</div>
-        <div class="cauthor" data-au="${p.au}">${USER[p.au].handle}<span class="cver${
+        <div class="cauthor" data-au="${p.au}">${USER[p.au].handle}${
+          p.src && SRC_LABEL[p.src] ? `<span class="csrc csrc-${p.src}">${SRC_LABEL[p.src]}</span>` : ''
+        }<span class="cver${
           p.ver==='live'?' live':''}">${p.ver==='live'?'현장 인증':'사진 정보'}</span></div>
       </div></div>`;
   }).join('');
@@ -2314,6 +2368,7 @@ function bench(){
     render();
     renderChips();
     renderLensMenu();
+    renderScopes();
     refreshPoi();
 
     map.on('moveend', ()=>{
@@ -2476,6 +2531,11 @@ function bench(){
   });
 
   $('#regionX').addEventListener('click', clearRegionScope);
+
+  $('#scopes').addEventListener('click', ev=>{
+    const b=ev.target.closest('.tchip'); if(!b) return;
+    setScope(b.dataset.scope);
+  });
 
   $('#trust').addEventListener('click', ev=>{
     const b=ev.target.closest('.tchip'); if(!b) return;

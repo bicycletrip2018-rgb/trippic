@@ -1216,5 +1216,87 @@ select pg_temp.ok(
     where place_id='aaaaaaaa-0000-0000-0000-000000000002') = 0,
   '★ 나만 보기 사진은 계절 축에서도 빠진다 — 공개 자격과 같은 기준이다');
 
+-- ── 037 함께 채운 지도 — 한 지도, 세 스코프 ──────────────────────────
+-- ★ 여기서 지켜야 할 것은 "셋이 겹친다"와 "나가면 사라진다" 둘이다.
+--   겹침을 배타적 3분할로 만들면 어느 스코프에 넣어도 거짓말이 되고,
+--   나간 뒤에도 보이면 스페이스가 닫힌 방이 아니게 된다.
+select pg_temp.login('11111111-1111-1111-1111-111111111111');
+
+-- 상태를 직접 세운다: A(사용자1)의 핀 하나를 공개 + 스페이스 공유까지 한다
+update public.pins set is_public = true, place_id = 'aaaaaaaa-0000-0000-0000-000000000002'
+  where id = '77777777-0000-0000-0000-000000000002';
+insert into public.pin_spaces (pin_id, space_id) values
+  ('77777777-0000-0000-0000-000000000002', '55555555-0000-0000-0000-000000000001')
+  on conflict do nothing;
+
+create or replace function pg_temp.scope(sc text) returns int language sql as $$
+  select count(*)::int from public.api_pins_in_bbox(129.79, 35.15, 129.81, 35.17, 300, null, sc)
+   where id = '77777777-0000-0000-0000-000000000002' $$;
+
+select pg_temp.ok(pg_temp.scope('mine') = 1 and pg_temp.scope('shared') = 1
+                  and pg_temp.scope('public') = 1 and pg_temp.scope('all') = 1,
+  '★ 한 핀이 세 스코프에 동시에 있다 — 스코프는 핀을 분류하는 게 아니라 무엇을 볼지 고르는 것이다');
+
+select pg_temp.ok(
+  (select source from public.api_pins_in_bbox(129.79,35.15,129.81,35.17,300,null,'all')
+    where id='77777777-0000-0000-0000-000000000002') = 'mine',
+  '★ 배지는 하나다 — 내 것이면 공개·공유 여부와 상관없이 "내 것"이다');
+
+-- ★ 나만 보기 핀도 내 지도에는 있다 (공개 여부와 무관)
+update public.pins set is_public = false where id = '77777777-0000-0000-0000-000000000001';
+select pg_temp.ok(
+  (select count(*) from public.api_pins_in_bbox(129.79,35.15,129.81,35.17,300,null,'mine')
+    where id='77777777-0000-0000-0000-000000000001') = 1,
+  '★ 나만 보기 핀도 내 지도에는 있다 — 내가 올린 것은 내가 봐야 한다');
+select pg_temp.ok(
+  (select count(*) from public.api_pins_in_bbox(129.79,35.15,129.81,35.17,300,null,'public')
+    where id='77777777-0000-0000-0000-000000000001') = 0,
+  '그런데 모두의 지도에는 없다');
+
+-- ── 남의 눈으로: 같은 스페이스 멤버(B) ──
+select pg_temp.login('22222222-2222-2222-2222-222222222222');
+select pg_temp.ok(
+  (select source from public.api_pins_in_bbox(129.79,35.15,129.81,35.17,300,null,'all')
+    where id='77777777-0000-0000-0000-000000000002') = 'shared',
+  '★ 같은 스페이스 멤버에게는 "함께"로 보인다 — 내가 안 올렸어도 우리가 채운 것이다');
+select pg_temp.ok(
+  (select count(*) from public.api_pins_in_bbox(129.79,35.15,129.81,35.17,300,null,'shared')
+    where id='77777777-0000-0000-0000-000000000002') = 1,
+  '친구 스코프에 그 핀이 들어온다');
+
+-- ★ 나만 보기인데 스페이스에 공유한 핀 — 멤버는 본다. 이게 스페이스의 존재 이유다.
+select pg_temp.login('11111111-1111-1111-1111-111111111111');
+update public.pins set is_public = false where id = '77777777-0000-0000-0000-000000000002';
+select pg_temp.login('22222222-2222-2222-2222-222222222222');
+select pg_temp.ok(
+  (select count(*) from public.api_pins_in_bbox(129.79,35.15,129.81,35.17,300,null,'shared')
+    where id='77777777-0000-0000-0000-000000000002') = 1,
+  '★ 나만 보기라도 스페이스에 넣었으면 멤버가 본다 — 기준은 공개가 아니라 스페이스다 (028과 같다)');
+select pg_temp.ok(
+  (select count(*) from public.api_pins_in_bbox(129.79,35.15,129.81,35.17,300,null,'public')
+    where id='77777777-0000-0000-0000-000000000002') = 0,
+  '그래도 모두의 지도에는 안 뜬다 — 두 문은 따로다');
+
+-- ★ 스페이스에서 나가면 **바로** 사라진다
+delete from public.space_members
+  where space_id='55555555-0000-0000-0000-000000000001'
+    and user_id='22222222-2222-2222-2222-222222222222';
+select pg_temp.ok(
+  (select count(*) from public.api_pins_in_bbox(129.79,35.15,129.81,35.17,300,null,'all')
+    where id='77777777-0000-0000-0000-000000000002') = 0,
+  '★ 스페이스에서 나가면 그 핀이 바로 사라진다 — 닫힌 방이라는 말이 지켜진다');
+
+-- ── 아무 스페이스에도 없는 남(C) ──
+select pg_temp.login('11111111-1111-1111-1111-111111111111');
+update public.pins set is_public = true where id = '77777777-0000-0000-0000-000000000002';
+select pg_temp.login('33333333-3333-3333-3333-333333333333');
+select pg_temp.ok(
+  (select source from public.api_pins_in_bbox(129.79,35.15,129.81,35.17,300,null,'all')
+    where id='77777777-0000-0000-0000-000000000002') = 'other',
+  '★ 남에게는 "남"으로 보인다 — 출처를 안 적으면 누가 올린 건지 모른 채 믿게 된다');
+select pg_temp.ok(
+  (select count(*) from public.api_pins_in_bbox(129.79,35.15,129.81,35.17,300,null,'shared')) = 0,
+  '스페이스가 없으면 친구 스코프는 비어 있다');
+
 reset role;
 rollback;   -- 아무것도 남기지 않는다

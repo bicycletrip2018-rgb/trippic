@@ -486,11 +486,13 @@
        두 응답의 시점이 어긋나 지도가 깜빡인다.
      ★ `more` 는 개수가 아니라 "더 있다"는 사실이다 — 정확한 개수를 알려면
        뷰포트 전체를 세야 하는데, 그게 이 함수가 피하려는 일이다. */
+  /* ★ `scope` 는 **무엇을 볼지**다 — 핀을 분류하는 값이 아니다(037).
+     mine · shared · public 은 겹친다. 한 핀이 셋 모두에 있을 수 있다. */
   async function pinsInBBox(b, opts) {
     const o = opts || {};
     const r = await rpc("api_pins_in_bbox", {
       p_w: b.w, p_s: b.s, p_e: b.e, p_n: b.n,
-      p_limit: o.limit || 300, p_cat: safeCat(o.cat),
+      p_limit: o.limit || 300, p_cat: safeCat(o.cat), p_scope: o.scope || "all",
     });
     if (!r.ok) return { ok: false, via: "local", data: [], more: false };
     const rows = r.data || [];
@@ -523,6 +525,8 @@
         c: r.category || "etc", rn: "", likes: 0,
         server: true, pinId: r.id, tripId: r.trip_id,
         mine: r.is_mine !== undefined ? !!r.is_mine : true, pub: !!r.is_public, au: "u1",
+        /* 출처 배지 — 'mine' | 'shared' | 'other'. 한 핀에 배지는 하나다(037). */
+        src: r.source || null,
         ver: r.verification === "live" ? "live" : "exif",
         photoUrl: m ? m.url : null,
         nu: 1, np: r.media_url ? 1 : (r.media || []).length,
