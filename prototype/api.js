@@ -65,9 +65,23 @@
   /* ── 후보 ─────────────────────────────────────────────────────
      사진 좌표 주변의 장소. 로컬은 반경 계산을 브라우저에서 하고,
      서버는 GiST 인덱스로 한다 — 46만 곳에서 그 차이가 크다. */
-  async function candidates(lat, lng, acc) {
-    const r = await rpc("api_place_candidates",
-      { p_lat: lat, p_lng: lng, p_accuracy_m: acc || 15 });
+  /* ★ 서버 enum `pin_category` 에 없는 값을 보내면 **400 (22P02)** 이다.
+     프로토타입에는 데모 전용 `sight` 가 있고 index.html 주석에도
+     *"실제 enum에는 없다"* 고 적혀 있는데, 그대로 보내서 후보 조회가 통째로 실패했다.
+     ★ 모르는 값을 `etc` 로 바꿔 보내면 안 된다 — 카테고리 일치 가중치가 3.0 이라
+       **틀린 힌트가 순서를 흔든다.** 모를 때는 **힌트를 안 주는 것**이 맞다(null). */
+  const PIN_CATEGORY = ["nature","beach","heritage","activity","food",
+                        "cafe","bar","stay","shop","event","etc"];
+  const safeCat = (c) => (PIN_CATEGORY.includes(c) ? c : null);
+
+  async function candidates(lat, lng, acc, cat, conf, limit) {
+    /* ★ 인자 이름이 틀리면 PostgREST 는 **함수를 못 찾는다**(404).
+       실제 시그니처: (p_lng, p_lat, p_cat, p_cat_conf, p_gps_acc_m, p_limit) */
+    const r = await rpc("api_place_candidates", {
+      p_lng: lng, p_lat: lat,
+      p_cat: safeCat(cat), p_cat_conf: safeCat(cat) ? (conf == null ? 0 : conf) : 0,
+      p_gps_acc_m: acc || 15, p_limit: limit || 10,
+    });
     return r.ok ? { ok: true, via: "server", data: r.data }
                 : { ok: false, via: "local", data: null };
   }
@@ -101,5 +115,5 @@
     return { ok: r.ok, via: r.via, note: r.ok ? "서버 연결됨" : (r.error || "연결 실패") };
   }
 
-  window.API = Object.assign(API, { rpc, search, candidates, flushCoverEvents, ping });
+  window.API = Object.assign(API, { rpc, search, candidates, flushCoverEvents, ping, safeCat, PIN_CATEGORY });
 })();

@@ -1549,7 +1549,7 @@
 
     o.querySelector("#upSheet").addEventListener("click", (e) => {
       if (e.target.closest(".upX")) return close();
-      if (e.target.closest(".upBack")) return screenPick(stop);
+      if (e.target.closest(".upBack")) return void screenPick(stop);
       const b = e.target.closest("[data-ocr]");
       if (!b) return;
       UP.placeOf[stop.id] = { name: b.dataset.ocr, source: "ocr" };
@@ -1995,15 +1995,35 @@
     return !!f;
   };
 
-  function screenPick(stop) {
-    const { rad, total, list } = candidatesFor(stop);
+  /* ★ 후보 랭킹 공식이 **두 벌**이다 — 여기(2.5/3.0/0.6/2.0/0.3)와 007의 SQL.
+     지금은 값이 같지만 한쪽만 고치는 날 프로토타입과 앱이 다른 순서를 보여준다.
+     그때 어느 쪽이 맞는지 알 방법이 없다.
+     → 서버가 살아 있으면 **서버 것을 쓴다.** 로컬 공식은 폴백으로만 남긴다.
+       속도(46만 곳 GiST)보다 이게 더 중요한 이유다. */
+  async function candidatesRemote(stop) {
+    if (!(window.API && API.on)) return null;
+    const guess = stop.items[0].poi && stop.items[0].poi.properties.c;
+    const r = await API.candidates(stop.c.lat, stop.c.lng,
+                                   stop.worstAcc || 15, guess, 0.7, 10);
+    if (!r.ok || !Array.isArray(r.data) || !r.data.length) return null;
+    return {
+      rad: candRadius(stop.worstAcc || 15),
+      total: r.data.length,
+      via: "server",
+      list: r.data.map((x) => ({ n: x.name, cat: x.category, d: x.dist_m,
+                                 ground: true, score: x.score, addr: x.address })),
+    };
+  }
+
+  async function screenPick(stop) {
+    const { rad, total, list, via } = (await candidatesRemote(stop)) || candidatesFor(stop);
     const noGps = !stop.items.some((x) => x.gps);
     const row = (x, i) => {
       const cat = CAT[x.cat] || CAT.etc;
       return `<button class="ckRow${i === 0 ? " top" : ""}" data-pick="${esc(x.n)}">
         <span class="ckDot" style="background:${cat.c}"></span>
         <span class="ckMain"><b>${esc(x.n)}</b><small>${cat.k} · ${Math.round(x.d)}m${
-          x.ground ? "" : " · 상층"}</small></span>
+          x.ground ? "" : " · 상층"}${x.addr ? " · " + esc(x.addr.split(" ").slice(1, 4).join(" ")) : ""}</small></span>
         ${UP.tripPicks[x.n] ? `<em class="ckAgain">이 여행에서 고름</em>` : ""}
       </button>`;
     };
@@ -2012,6 +2032,8 @@
       <div class="upNote">
         사진 ${stop.items.length}장 · GPS 정확도 ±${Math.round(stop.worstAcc || 15)}m →
         반경 <b>${Math.round(rad)}m</b> 안에 <b>${total}곳</b> — 상위 ${Math.min(10, total)}개.
+        <span class="ckVia${via === "server" ? " on" : ""}">${via === "server"
+          ? "전국 46만 곳에서 서버가 골랐습니다" : "로컬 목록에서 골랐습니다 · 5만 곳뿐"}</span>
         ${noGps ? `<br><b style="color:var(--warn,#c98a6e)">EXIF 위치가 없어 후보를 못 찾습니다.</b>
           지도에서 직접 찍을 수 있지만 <b>모두의 지도에는 올라가지 않습니다.</b>` : ""}
       </div>
@@ -2346,7 +2368,7 @@
         return screenCrop(st, st.items.find((v) => v.id === +cb.dataset.crop));
       }
       const ck = e.target.closest(".ckChip");
-      if (ck) return screenPick(UP.stops.find((x) => x.id === ck.dataset.stop));
+      if (ck) return void screenPick(UP.stops.find((x) => x.id === ck.dataset.stop));
       const sp = e.target.closest(".stopSplit");
       if (sp) {                                   // 잘못 합쳐진 정거장을 쪼갠다
         UP.stops = splitStop(UP.stops, sp.dataset.stop);

@@ -247,6 +247,17 @@
     chips[0].click();
     const cand = await waitFor(() => $$(".ckRow").length ? $$(".ckRow") : null);
     ok(cand, "후보 목록이 뜬다 (실제 장소 DB)");
+    /* ★ 후보 랭킹 공식이 두 벌이었다 — 프로토타입(JS)과 007(SQL).
+       지금은 값이 같지만 한쪽만 고치면 서로 다른 순서를 보여주고,
+       그때 어느 쪽이 맞는지 알 방법이 없다. 서버가 살아 있으면 서버 것을 쓴다. */
+    ok(!!$(".ckVia"), "★ 후보를 어디서 골랐는지 적는다 — 순서가 다를 때 어느 쪽인지 알아야 한다");
+    ok(!API.on || $(".ckVia.on"),
+       `★ 서버가 붙어 있으면 **서버 랭킹**을 쓴다 (${txt($(".ckVia"))}) — 공식을 두 벌 유지하지 않는다`);
+    /* ★ 프로토타입에는 데모 전용 카테고리 `sight` 가 있다 (index.html 주석에도 적혀 있다).
+       그대로 보냈더니 서버가 400(22P02) 을 냈고 후보 조회가 통째로 실패했다.
+       모르는 값을 `etc` 로 바꿔 보내는 것도 안 된다 — 일치 가중치가 3.0 이라 순서를 흔든다. */
+    ok(API.safeCat("sight") === null && API.safeCat("cafe") === "cafe",
+       "★ 서버 enum 에 없는 카테고리는 **힌트를 안 준다** — 틀린 힌트는 순서를 흔든다");
     const picked = txt(cand[0].querySelector("b"));
     cand[0].click();
     await waitFor(() => $$(".ckChip.done").length > 0);
