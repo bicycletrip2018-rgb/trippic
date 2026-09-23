@@ -769,6 +769,32 @@
       ok(Object.keys(API.links).some((k) => k.startsWith("pin:")) &&
          Object.keys(API.links).some((k) => k.startsWith("sp:")),
          "★ 댓글을 달 때 **스페이스와 핀이 같이 생긴다** — 잎사귀만 심을 수는 없다");
+      /* ── 사진 올리기 (§13.22) ────────────────────────────────
+         ★ 축소는 **기기에서** 한다. 서버에서 하면 업로드마다 함수가 돌고
+           사용자 수에 비례해 비용이 는다. 폰의 캔버스로 하면 0원이다.
+           그리고 이 숫자가 곧 **사용자의 데이터 요금**이다. */
+      const blob = await (await fetch("photos/p1.jpg")).blob();
+      const file = new File([blob], "p1.jpg", { type: "image/jpeg" });
+      const sm = await API.shrink(file, 1600, 0.85);
+      ok(sm.blob.size < file.size,
+         `★ 기기에서 줄인다 (${Math.round(file.size / 1024)}KB → ${Math.round(sm.blob.size / 1024)}KB · ${sm.w}×${sm.h})`);
+      ok(sm.blob.type === "image/webp", "WebP 로 바꾼다 (원본 기획서 §11)");
+
+      const up = await API.uploadPhoto(file);
+      ok(up.ok, `★ 실제로 올라간다 (${up.ok ? up.path : up.why})`);
+      if (up.ok) {
+        ok(up.path.startsWith(API.session.user_id + "/"),
+           "★ 경로 첫 칸이 주인이다 — 남의 폴더에는 못 쓴다 (030)");
+        const pub = await fetch(up.url);
+        ok(pub.ok, "★ 비로그인도 읽는다 — 공개 자격은 파일이 아니라 pins.is_public 이 판단한다");
+        const pinId = Object.values(API.links).find((v) => /^[0-9a-f-]{36}$/.test(v));
+        const pin = API.links["pin:" + Object.keys(API.links).find((k) => k.startsWith("pin:"))?.slice(4)];
+        if (pin) {
+          const m = await API.attachMedia(pin, up);
+          ok(m.ok, "★ 저장소에만 있으면 아무도 못 본다 — media 행으로 기록에 붙는다");
+        }
+      }
+
       const anchor = $(".vwCRow[data-sid]");
       if (anchor) {
         const back = await API.listComments(anchor.closest("[data-c]").dataset.c);

@@ -219,6 +219,12 @@
         <code>${esc(String(s.user_id || "").slice(0, 8))}…</code>
         ${s.anonymous ? `<em>이 기기에만</em>` : ""}
       </div>
+      <div class="myUp">
+        <label class="myUpBtn">사진 한 장 올려보기
+          <input type="file" id="myUpFile" accept="image/*" hidden>
+          <span>기기에서 줄여서 올립니다 — 원본을 그대로 보내지 않습니다</span></label>
+        <div class="myUpOut" id="myUpOut"></div>
+      </div>
       ${s.anonymous ? `<div class="myAcctWarn">
         앱을 지우거나 기기를 바꾸면 <b>기록이 사라집니다.</b>
         <small>나중에 카카오·애플로 이어 두면 옮길 수 있습니다 — 지금은 준비 중입니다.</small>
@@ -240,6 +246,27 @@
     }
   }
 
+  /* ★ 올린 결과를 **숫자로** 보여준다. "올렸습니다"만으로는
+     기기에서 줄인 것이 실제로 효과가 있었는지 알 수 없다 —
+     이 숫자가 곧 사용자의 데이터 요금이고 우리의 저장비다. */
+  async function onPickFile(file) {
+    const out = $("#myUpOut");
+    if (!out) return;
+    out.textContent = "줄이는 중…";
+    const up = await API.uploadPhoto(file);
+    if (!up.ok) { out.innerHTML = `<b class="bad">올리지 못했습니다</b><small>${esc(up.why || "")}</small>`; return; }
+    const kb = (n) => Math.round(n / 1024).toLocaleString();
+    const cut = Math.round((1 - up.bytes / up.originalBytes) * 100);
+    out.innerHTML = `
+      <img src="${esc(up.url)}" alt="">
+      <div>
+        <b>올라갔습니다</b>
+        <small>${kb(up.originalBytes)}KB → <b>${kb(up.bytes)}KB</b>
+          ${up.shrunk ? `(${cut}% 줄임 · ${up.w}×${up.h})` : "(원본 그대로 — 축소 실패)"}</small>
+        <small class="dim">${esc(up.path)}</small>
+      </div>`;
+  }
+
   window.initMy = function () {
     document.body.appendChild(el(`<div id="myPanel" class="glass"><div id="myBody"></div></div>`));
     const tb = $("#tabbar");
@@ -251,6 +278,11 @@
           document.querySelectorAll("#tabbar button").forEach((x) => x.setAttribute("aria-pressed", x === t));
       });
     }
+    $("#myBody").addEventListener("change", (e) => {
+      const f = e.target.closest("#myUpFile");
+      if (f && f.files && f.files[0]) onPickFile(f.files[0]);
+    });
+
     $("#myBody").addEventListener("click", async (e) => {
       if (e.target.closest("[data-back]")) { MY.view = "home"; return render(); }
       if (e.target.closest("[data-share]")) return renderShare();

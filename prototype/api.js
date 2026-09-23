@@ -300,6 +300,73 @@
     return select("comments", `pin_id=eq.${pinId}&deleted_at=is.null&order=created_at.asc&select=id,body,user_id,created_at`);
   }
 
+  /* ── 사진 올리기 (§13.22) ─────────────────────────────────────
+     ★ **축소는 기기에서 한다.** 견적에서 "이미지 변환 비용 0"이라고 적은 것이
+       이 한 줄이다 — 서버에서 변환하면 업로드마다 함수가 돌고, 그게 사용자 수에
+       비례해 늘어난다. 폰이 이미 갖고 있는 캔버스로 하면 **0원**이다.
+     ★ 그리고 올리는 용량이 줄어든다. 원본 4MB 를 그대로 올리면 사용자의 데이터도
+       쓴다 — 3G 에서 사진 한 장에 20초면 아무도 안 올린다.
+
+     ★ 원본을 버리지 않는다. 나중에 더 좋은 압축이 나와도 다시 만들 수 없기 때문이다.
+       (저장비는 전체의 1~3% 라 아끼는 의미가 없다 — 견적에서 이미 쟀다) */
+  const MAX_EDGE = 1600;       // 긴 변. 폰 화면에서 이보다 크면 보이지도 않는다
+  const WEBP_Q = 0.85;         // 원본 기획서 §11 이 적어 둔 값
+
+  async function shrink(file, maxEdge, quality) {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, (maxEdge || MAX_EDGE) / Math.max(bmp.width, bmp.height));
+    const w = Math.round(bmp.width * scale), h = Math.round(bmp.height * scale);
+    const cv = document.createElement("canvas");
+    cv.width = w; cv.height = h;
+    cv.getContext("2d").drawImage(bmp, 0, 0, w, h);
+    bmp.close && bmp.close();
+    const blob = await new Promise((res) => cv.toBlob(res, "image/webp", quality || WEBP_Q));
+    return { blob, w, h };
+  }
+
+  /* 한 장을 올린다. 경로 첫 칸이 주인이라 남의 폴더에는 못 쓴다(030). */
+  async function uploadPhoto(file, opts) {
+    if (!ON) return { ok: false, why: "서버 연결 없음" };
+    if (!SESSION.access_token) return { ok: false, why: "로그인 필요" };
+    const uid = SESSION.user_id;
+    const id = crypto.randomUUID();
+    let body = file, w = null, h = null, ext = "jpg", mime = file.type || "image/jpeg";
+    try {
+      const sm = await shrink(file, (opts && opts.maxEdge) || MAX_EDGE, (opts && opts.q) || WEBP_Q);
+      if (sm.blob && sm.blob.size < file.size) {
+        body = sm.blob; w = sm.w; h = sm.h; ext = "webp"; mime = "image/webp";
+      }
+    } catch (e) {
+      /* ★ 축소가 실패해도 **올리기는 막지 않는다.** 원본이라도 올라가는 것이
+         한 장도 안 올라가는 것보다 낫다. 대신 그 사실을 돌려준다. */
+      console.warn("[api] 축소 실패 — 원본으로 올린다", e);
+    }
+    const path = `${uid}/${id}.${ext}`;
+    const r = await fetch(`${CFG.url}/storage/v1/object/photos/${path}`, {
+      method: "POST",
+      headers: { apikey: CFG.anonKey, Authorization: `Bearer ${SESSION.access_token}`,
+                 "Content-Type": mime, "x-upsert": "false" },
+      body,
+    });
+    if (!r.ok) {
+      const t = await r.text();
+      API.lastError = `upload ${r.status} ${t.slice(0, 140)}`;
+      return { ok: false, why: API.lastError };
+    }
+    return { ok: true, path, w, h,
+             url: `${CFG.url}/storage/v1/object/public/photos/${path}`,
+             bytes: body.size, originalBytes: file.size,
+             shrunk: body !== file };
+  }
+
+  /* 올린 사진을 기록(핀)에 붙인다 — 저장소에만 있으면 아무도 못 본다 */
+  async function attachMedia(pinId, up, extra) {
+    return insert("media", Object.assign({
+      pin_id: pinId, type: "photo", url: up.url,
+      width: up.w, height: up.h,
+    }, extra || {}));
+  }
+
   /* 서버가 살아 있는지 — 화면 구석에 표시한다 */
   async function ping() {
     if (!ON) return { ok: false, via: "off", note: "anonKey 미설정 — 로컬 JSON으로 돕니다" };
@@ -309,5 +376,6 @@
 
   window.API = Object.assign(API, { rpc, search, candidates, flushCoverEvents, ping,
     safeCat, PIN_CATEGORY, signInAnonymously, refresh, clearSession, session: SESSION,
-    insert, select, addComment, listComments, links: LINKS });
+    insert, select, addComment, listComments, links: LINKS,
+    shrink, uploadPhoto, attachMedia, ensurePin, ensureSpace });
 })();

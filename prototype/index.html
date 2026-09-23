@@ -506,6 +506,19 @@
     padding:2px 8px;border-radius:99px;background:rgba(224,169,74,.15);color:#e0a94a}
   .myAcctRow.off{display:block;color:var(--text-muted);font-size:12.5px}
   .myAcctRow.off small{display:block;font-size:11px;margin-top:3px}
+  /* 사진 올리기 — 줄인 결과를 숫자로 보여준다 (§13.22) */
+  .myUp{margin-top:8px}
+  .myUpBtn{display:block;width:100%;padding:13px;border-radius:13px;cursor:pointer;text-align:center;
+    font-size:13px;font-weight:700;color:var(--accent);border:1px dashed var(--surface-line)}
+  .myUpBtn span{display:block;font-size:10.5px;font-weight:500;color:var(--text-muted);margin-top:4px}
+  .myUpOut{margin-top:8px;font-size:12px;color:var(--text-muted)}
+  .myUpOut:not(:empty){display:flex;gap:10px;align-items:center;padding:10px;
+    border-radius:13px;border:1px solid var(--surface-line)}
+  .myUpOut img{width:54px;height:54px;border-radius:11px;object-fit:cover;flex:none;background:#222}
+  .myUpOut b{display:block;font-size:12.5px;color:var(--text-primary)}
+  .myUpOut b.bad{color:#e0a94a}
+  .myUpOut small{display:block;font-size:11px;margin-top:2px}
+  .myUpOut small.dim{opacity:.55;font-size:10px;word-break:break-all}
   .myAcctWarn{margin-top:7px;padding:10px 12px;border-radius:12px;font-size:11.5px;line-height:1.6;
     border:1px solid rgba(224,169,74,.35);background:rgba(224,169,74,.07);color:#e0a94a}
   .myAcctWarn b{font-weight:700}
