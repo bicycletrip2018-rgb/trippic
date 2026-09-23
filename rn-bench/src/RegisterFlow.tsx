@@ -1,0 +1,452 @@
+/**
+ * 등록 플로우 (§6) — 앨범 → 여행 → 정거장 → 장소 → 올리기
+ *
+ * ★ 웹판(upload.js 2,710줄) 중 **판정과 경로만** 옮겼다. 드래그 이동·크롭·OCR 은
+ *   화면에 붙은 코드라 이식이 아니라 재작성이다 — 지금 필요한 건 §6 의
+ *   **끝에서 끝까지가 RN 에서 도는가** 이고, 그 답에 저 셋은 필요 없다.
+ *
+ * ★ 화면 수를 웹의 절반으로 줄였다. 웹은 마우스라 한 화면에 많이 놓을 수 있지만,
+ *   폰에서는 목록 하나에 한 가지만 물어야 한다.
+ */
+import { useCallback, useMemo, useState } from "react";
+import {
+  ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text,
+  TextInput, View,
+} from "react-native";
+import { C, CAT } from "./theme";
+import * as API from "./api";
+import { ensurePermission, scanAlbum, SCAN_MAX, UNKNOWN_ACC_M } from "./album";
+import {
+  clusterTrips, findOrphans, splitStop, fmtRange,
+  type Photo, type Trip, type Stop,
+} from "./cluster";
+
+type Step = "intro" | "trips" | "stops" | "place" | "done";
+
+export function RegisterFlow({ onClose }: { onClose: () => void }) {
+  const [step, setStep] = useState<Step>("intro");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [album, setAlbum] = useState<Photo[]>([]);
+  const [trips, setTrips] = useState<Trip[]>([]);
+  const [trip, setTrip] = useState<Trip | null>(null);
+  const [stops, setStops] = useState<Stop[]>([]);
+  const [picks, setPicks] = useState<Record<string, string[]>>({});
+  const [memos, setMemos] = useState<Record<string, string>>({});
+  const [placeOf, setPlaceOf] = useState<Record<string, any>>({});
+  const [pickFor, setPickFor] = useState<Stop | null>(null);
+  const [isPublic, setIsPublic] = useState(true);
+  const [result, setResult] = useState<any>(null);
+
+  const uriOf = useCallback(
+    (id: string) => album.find((p) => p.id === id)?.uri, [album]);
+
+  async function scan() {
+    const perm = await ensurePermission();
+    if (!perm.granted && perm.status !== "granted") {
+      setBusy(null);
+      setResult({ ok: false, why: "사진 접근이 허용되지 않았습니다" });
+      return setStep("done");
+    }
+    setBusy("앨범을 읽는 중…");
+    const a = await scanAlbum((d, t) => setBusy(`사진 ${d} / ${t}`));
+    const ts = clusterTrips(a);
+    const orph = findOrphans(a, ts);
+    setAlbum(a);
+    setTrips(orph.stops.length ? [...ts, orph] : ts);
+    setBusy(null);
+    setStep("trips");
+  }
+
+  function openTrip(t: Trip) {
+    setTrip(t);
+    setStops(t.stops);
+    /* ★ 기본은 **정거장마다 첫 사진 한 장**. 전부 켜 두면 첫 등록에 수십 장이
+       올라가고, 다 꺼 두면 아무것도 안 올라간다. 대표 1장이 §6 의 약속이다. */
+    const p: Record<string, string[]> = {};
+    t.stops.forEach((st) => { if (st.items[0]) p[st.id] = [st.items[0].id]; });
+    setPicks(p); setMemos({}); setPlaceOf({});
+    setStep("stops");
+  }
+
+  async function commit() {
+    setBusy("올리는 중…");
+    if (!API.SESSION.access_token) await API.signInAnonymously();
+    const r = await API.pushTrip(trip, stops, {
+      picks, placeOf, memos, uriOf, isPublic,
+      onStep: (d, t) => setBusy(`올리는 중 ${d} / ${t}`),
+    });
+    setBusy(null); setResult(r); setStep("done");
+  }
+
+  const chosen = useMemo(
+    () => stops.filter((st) => (picks[st.id] || []).length), [stops, picks]);
+
+  return (
+    <Modal visible animationType="slide" onRequestClose={onClose}>
+      <View style={s.root}>
+        <View style={s.head}>
+          <Pressable onPress={step === "stops" ? () => setStep("trips") : onClose} hitSlop={12}>
+            <Text style={s.headBtn}>{step === "stops" ? "‹ 여행" : "✕"}</Text>
+          </Pressable>
+          <Text style={s.headTitle}>
+            {step === "intro" ? "기록 추가" : step === "trips" ? "찾은 여행"
+              : step === "stops" ? (trip?.title ?? "") : "완료"}
+          </Text>
+          <View style={{ width: 44 }} />
+        </View>
+
+        {busy ? (
+          <View style={s.center}>
+            <ActivityIndicator color={C.accent} />
+            <Text style={s.busy}>{busy}</Text>
+            <Text style={s.hint}>
+              사진은 기기 안에서만 읽습니다. 올릴 사진은 직접 고른 것뿐입니다.
+            </Text>
+          </View>
+        ) : step === "intro" ? (
+          <Intro onScan={scan} />
+        ) : step === "trips" ? (
+          <TripList trips={trips} onOpen={openTrip} />
+        ) : step === "stops" ? (
+          <StopList
+            stops={stops} picks={picks} memos={memos} placeOf={placeOf}
+            isPublic={isPublic} uriOf={uriOf} count={chosen.length}
+            onToggle={(st, id) => setPicks((p) => {
+              const cur = p[st.id] || [];
+              return { ...p, [st.id]: cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id] };
+            })}
+            onSplit={(id) => setStops((ss) => splitStop(ss, id))}
+            onMemo={(id, v) => setMemos((m) => ({ ...m, [id]: v }))}
+            onPickPlace={setPickFor}
+            onPublic={setIsPublic}
+            onCommit={commit}
+          />
+        ) : (
+          <Done result={result} onClose={onClose} />
+        )}
+
+        {pickFor && (
+          <PlacePicker
+            stop={pickFor}
+            onClose={() => setPickFor(null)}
+            onPick={(pl) => {
+              setPlaceOf((m) => ({ ...m, [pickFor.id]: pl }));
+              setPickFor(null);
+            }}
+          />
+        )}
+      </View>
+    </Modal>
+  );
+}
+
+/* ── S1 진입 ─────────────────────────────────────────────────── */
+function Intro({ onScan }: { onScan: () => void }) {
+  return (
+    <ScrollView contentContainerStyle={s.body}>
+      <Pressable style={s.entry} onPress={onScan}>
+        <Text style={s.entryIcon}>🖼️</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={s.entryT}>사진에서</Text>
+          <Text style={s.entryS}>앨범을 스캔해 여행 단위로 한 번에 — 소급 등록</Text>
+        </View>
+        <Text style={s.entryArrow}>›</Text>
+      </Pressable>
+      <View style={s.note}>
+        <Text style={s.noteT}>무엇을 읽습니까</Text>
+        <Text style={s.noteB}>
+          촬영 시각과 좌표, 두 가지뿐입니다. 파일 이름·얼굴·앨범 이름은 읽지 않습니다.{"\n"}
+          최근 {SCAN_MAX}장까지 살펴 여행을 묶고, 그중 직접 고르신 사진만 올라갑니다.
+        </Text>
+      </View>
+    </ScrollView>
+  );
+}
+
+/* ── S2 여행 목록 ────────────────────────────────────────────── */
+function TripList({ trips, onOpen }: { trips: Trip[]; onOpen: (t: Trip) => void }) {
+  if (!trips.length)
+    return (
+      <View style={s.center}>
+        <Text style={s.empty}>여행으로 묶을 사진을 찾지 못했습니다</Text>
+        <Text style={s.hint}>
+          좌표가 있는 사진이 이틀 안에 두 장 이상이어야 한 여행이 됩니다.
+        </Text>
+      </View>
+    );
+  return (
+    <ScrollView contentContainerStyle={s.body}>
+      {trips.map((t) => (
+        <Pressable key={t.id} style={s.card} onPress={() => onOpen(t)}>
+          <View style={{ flex: 1 }}>
+            <Text style={s.cardT}>{t.title}</Text>
+            <Text style={s.cardS}>
+              {fmtRange(t.start, t.end)} · 정거장 {t.stops.length}곳 · 사진 {t.items.length}장
+            </Text>
+          </View>
+          <Text style={s.entryArrow}>›</Text>
+        </Pressable>
+      ))}
+    </ScrollView>
+  );
+}
+
+/* ── S3 정거장 ───────────────────────────────────────────────── */
+function StopList(p: {
+  stops: Stop[]; picks: Record<string, string[]>; memos: Record<string, string>;
+  placeOf: Record<string, any>; isPublic: boolean; count: number;
+  uriOf: (id: string) => string | undefined;
+  onToggle: (st: Stop, id: string) => void; onSplit: (id: string) => void;
+  onMemo: (id: string, v: string) => void; onPickPlace: (st: Stop) => void;
+  onPublic: (v: boolean) => void; onCommit: () => void;
+}) {
+  return (
+    <>
+      <ScrollView contentContainerStyle={[s.body, { paddingBottom: 120 }]}>
+        {p.stops.map((st, i) => {
+          const sel = p.picks[st.id] || [];
+          const pl = p.placeOf[st.id];
+          return (
+            <View key={st.id} style={s.stop}>
+              <View style={s.stopHead}>
+                <Text style={s.stopN}>{i + 1}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.cardT}>{pl ? pl.name : "장소를 고르지 않았습니다"}</Text>
+                  <Text style={s.cardS}>
+                    {new Date(st.start).toLocaleString("ko-KR", {
+                      month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                    {" · 사진 "}{st.items.length}장
+                    {st.noGpsCount ? ` · 좌표 없음 ${st.noGpsCount}장` : ""}
+                  </Text>
+                </View>
+                {st.items.length > 1 && (
+                  <Pressable onPress={() => p.onSplit(st.id)} hitSlop={8}>
+                    <Text style={s.split}>쪼개기</Text>
+                  </Pressable>
+                )}
+              </View>
+
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                          contentContainerStyle={s.strip}>
+                {st.items.slice(0, 20).map((it) => {
+                  const on = sel.includes(it.id);
+                  return (
+                    <Pressable key={it.id} onPress={() => p.onToggle(st, it.id)}>
+                      <Image source={{ uri: it.uri }} style={[s.thumb, on && s.thumbOn]} />
+                      {on && <Text style={s.tick}>
+                        {sel[0] === it.id ? "대표" : "✓"}
+                      </Text>}
+                      {!it.gps && <Text style={s.noGps}>위치 없음</Text>}
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+
+              <Pressable style={s.row} onPress={() => p.onPickPlace(st)}>
+                <Text style={s.rowK}>장소</Text>
+                <Text style={[s.rowV, !pl && { color: C.warn }]}>
+                  {pl ? pl.name : "고르기 ›"}
+                </Text>
+              </Pressable>
+              <TextInput
+                style={s.memo} placeholder="한 줄 메모 (선택)" placeholderTextColor={C.muted}
+                value={p.memos[st.id] || ""} onChangeText={(v) => p.onMemo(st.id, v)}
+              />
+            </View>
+          );
+        })}
+      </ScrollView>
+
+      <View style={s.foot}>
+        <Pressable style={s.pubRow} onPress={() => p.onPublic(!p.isPublic)}>
+          <Text style={[s.box, p.isPublic && s.boxOn]}>{p.isPublic ? "✓" : ""}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={s.rowK}>모두의 지도에 올립니다</Text>
+            {/* ★ 판정만 하고 말하지 않으면 "왜 안 뜨지"를 겪는다 — 올리기 전에 말한다 */}
+            <Text style={s.hint}>장소를 고른 정거장만 지도에 뜹니다</Text>
+          </View>
+        </Pressable>
+        <Pressable
+          style={[s.cta, !p.count && s.ctaOff]} disabled={!p.count} onPress={p.onCommit}>
+          <Text style={s.ctaT}>{p.count}곳 등록</Text>
+        </Pressable>
+      </View>
+    </>
+  );
+}
+
+/* ── 장소 고르기 — 서버가 순서를 정한다 (§13.20) ───────────────── */
+function PlacePicker(
+  { stop, onPick, onClose }: { stop: Stop; onPick: (p: any) => void; onClose: () => void },
+) {
+  const [list, setList] = useState<any[] | null>(null);
+  const [q, setQ] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+
+  useMemo(() => {
+    (async () => {
+      /* ★ `stop.worstAcc` 가 아니라 UNKNOWN_ACC_M 이다 — 앨범 사진은 정확도를
+         안 들고 온다(album.ts 의 실측 주석). 정거장 반경과는 다른 숫자다. */
+      const r = await API.candidates(stop.c.lat, stop.c.lng, UNKNOWN_ACC_M, null, 0, 12);
+      if (r.ok) setList(r.data || []);
+      else { setList([]); setErr(r.error || "서버에 닿지 못했습니다"); }
+    })();
+  }, [stop.id]);
+
+  async function doSearch(text: string) {
+    setQ(text);
+    if (text.trim().length < 2) return;
+    const r = await API.search(text.trim(), 14);
+    if (r.ok) setList(r.data || []);
+  }
+
+  return (
+    <Modal visible animationType="slide" onRequestClose={onClose}>
+      <View style={s.root}>
+        <View style={s.head}>
+          <Pressable onPress={onClose} hitSlop={12}><Text style={s.headBtn}>✕</Text></Pressable>
+          <Text style={s.headTitle}>장소 고르기</Text>
+          <View style={{ width: 44 }} />
+        </View>
+        <TextInput
+          style={s.search} value={q} onChangeText={doSearch}
+          placeholder="이름으로 찾기" placeholderTextColor={C.muted} />
+        {list === null ? (
+          <View style={s.center}><ActivityIndicator color={C.accent} /></View>
+        ) : (
+          <ScrollView contentContainerStyle={s.body}>
+            {err && <Text style={s.err}>{err}</Text>}
+            {!list.length && <Text style={s.empty}>후보가 없습니다</Text>}
+            {list.map((c: any) => (
+              <Pressable
+                key={c.place_id ?? c.id}
+                style={s.card}
+                onPress={() => onPick({
+                  placeId: c.place_id ?? c.id, name: c.name, category: c.category,
+                })}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.cardT}>{c.name}</Text>
+                  <Text style={s.cardS}>
+                    {(CAT[c.category]?.k) || c.category || "기타"}
+                    {c.dist_m != null ? ` · ${Math.round(c.dist_m)}m` : ""}
+                    {c.region_name ? ` · ${c.region_name}` : ""}
+                  </Text>
+                </View>
+              </Pressable>
+            ))}
+          </ScrollView>
+        )}
+      </View>
+    </Modal>
+  );
+}
+
+/* ── 완료 — 못 올린 것을 **숨기지 않는다** ─────────────────────── */
+function Done({ result, onClose }: { result: any; onClose: () => void }) {
+  const failed = result?.failed || [];
+  return (
+    <ScrollView contentContainerStyle={s.body}>
+      <Text style={s.doneT}>
+        {result?.why ? result.why
+          : `기록 ${result?.pins ?? 0}곳 · 사진 ${result?.media ?? 0}장을 올렸습니다`}
+      </Text>
+      {!!result?.bytes && (
+        <Text style={s.hint}>올린 용량 {(result.bytes / 1024 / 1024).toFixed(2)}MB</Text>
+      )}
+      {!!failed.length && (
+        <View style={s.note}>
+          <Text style={s.noteT}>올리지 못한 것 {failed.length}건</Text>
+          {failed.map((f: any, i: number) => (
+            <Text key={i} style={s.noteB}>· {f.what} — {String(f.why).slice(0, 120)}</Text>
+          ))}
+        </View>
+      )}
+      <Pressable style={s.cta} onPress={onClose}><Text style={s.ctaT}>닫기</Text></Pressable>
+    </ScrollView>
+  );
+}
+
+const s = StyleSheet.create({
+  root: { flex: 1, backgroundColor: C.bg, paddingTop: 54 },
+  head: {
+    flexDirection: "row", alignItems: "center", paddingHorizontal: 14,
+    paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.line,
+  },
+  headBtn: { color: C.text, fontSize: 16, width: 44 },
+  headTitle: { flex: 1, color: C.text, fontSize: 16, fontWeight: "700", textAlign: "center" },
+  body: { padding: 14, gap: 10 },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 10, padding: 30 },
+  busy: { color: C.text, fontSize: 14 },
+  hint: { color: C.muted, fontSize: 12, lineHeight: 18 },
+  empty: { color: C.muted, fontSize: 14, textAlign: "center" },
+  err: { color: C.warn, fontSize: 12 },
+
+  entry: {
+    flexDirection: "row", alignItems: "center", gap: 12, padding: 16,
+    backgroundColor: C.surface, borderRadius: 14, borderWidth: 1, borderColor: C.line,
+  },
+  entryIcon: { fontSize: 24 },
+  entryT: { color: C.text, fontSize: 15, fontWeight: "700" },
+  entryS: { color: C.muted, fontSize: 12, marginTop: 2 },
+  entryArrow: { color: C.muted, fontSize: 20 },
+
+  note: { backgroundColor: C.surface, borderRadius: 12, padding: 14, gap: 6 },
+  noteT: { color: C.text, fontSize: 13, fontWeight: "700" },
+  noteB: { color: C.muted, fontSize: 12, lineHeight: 19 },
+
+  card: {
+    flexDirection: "row", alignItems: "center", gap: 10, padding: 14,
+    backgroundColor: C.surface, borderRadius: 12, borderWidth: 1, borderColor: C.line,
+  },
+  cardT: { color: C.text, fontSize: 14, fontWeight: "600" },
+  cardS: { color: C.muted, fontSize: 12, marginTop: 3 },
+
+  stop: {
+    backgroundColor: C.surface, borderRadius: 14, padding: 12, gap: 10,
+    borderWidth: 1, borderColor: C.line,
+  },
+  stopHead: { flexDirection: "row", alignItems: "center", gap: 10 },
+  stopN: {
+    width: 24, height: 24, borderRadius: 12, textAlign: "center", lineHeight: 24,
+    backgroundColor: "rgba(255,255,255,0.10)", color: C.text, fontSize: 12, fontWeight: "700",
+  },
+  split: { color: C.warn, fontSize: 12, fontWeight: "600" },
+  strip: { gap: 8 },
+  thumb: { width: 74, height: 74, borderRadius: 10, backgroundColor: "#222" },
+  thumbOn: { borderWidth: 2, borderColor: C.accent },
+  tick: {
+    position: "absolute", right: 4, bottom: 4, color: "#fff", fontSize: 10,
+    fontWeight: "700", backgroundColor: C.accent, paddingHorizontal: 5,
+    paddingVertical: 1, borderRadius: 6, overflow: "hidden",
+  },
+  noGps: {
+    position: "absolute", left: 4, top: 4, color: C.bg, fontSize: 9, fontWeight: "700",
+    backgroundColor: C.warn, paddingHorizontal: 4, borderRadius: 5, overflow: "hidden",
+  },
+  row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  rowK: { color: C.text, fontSize: 13, fontWeight: "600" },
+  rowV: { color: C.muted, fontSize: 13 },
+  memo: {
+    backgroundColor: "rgba(255,255,255,0.05)", borderRadius: 10, paddingHorizontal: 12,
+    paddingVertical: 10, color: C.text, fontSize: 13,
+  },
+  search: {
+    margin: 14, backgroundColor: C.surface, borderRadius: 12, paddingHorizontal: 14,
+    paddingVertical: 12, color: C.text, fontSize: 14, borderWidth: 1, borderColor: C.line,
+  },
+
+  foot: {
+    position: "absolute", left: 0, right: 0, bottom: 0, padding: 14, gap: 10,
+    backgroundColor: "rgba(14,15,19,0.96)", borderTopWidth: 1, borderTopColor: C.line,
+  },
+  pubRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  box: {
+    width: 22, height: 22, borderRadius: 6, borderWidth: 1, borderColor: C.line,
+    textAlign: "center", lineHeight: 22, color: "#fff", fontSize: 13,
+  },
+  boxOn: { backgroundColor: C.accent, borderColor: C.accent },
+  cta: { backgroundColor: C.accent, borderRadius: 13, paddingVertical: 15, alignItems: "center" },
+  ctaOff: { opacity: 0.4 },
+  ctaT: { color: "#fff", fontSize: 15, fontWeight: "700" },
+  doneT: { color: C.text, fontSize: 16, fontWeight: "700", lineHeight: 24 },
+});

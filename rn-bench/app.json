@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "rn-bench",
+    "slug": "rn-bench",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.trippic.bench",
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true,
+          "NSAllowsArbitraryLoads": true
+        },
+        "NSPhotoLibraryUsageDescription": "찍으신 사진의 촬영 시각과 위치만 읽어 여행을 자동으로 묶습니다. 사진은 기기 밖으로 나가지 않으며, 올릴 사진은 직접 고르십니다."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "app.trippic.bench"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "@maplibre/maplibre-react-native",
+      "expo-media-library"
+    ]
+  }
+}

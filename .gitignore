@@ -12,14 +12,12 @@ data/out/
 # 빌드 산출물
 node_modules/
 rn-port/node_modules/
-rn-bench/ios/Pods/
-rn-bench/ios/build/
 
 # macOS
 .DS_Store
 
-# 다른 저장소 (별도 관리)
-rn-bench/
+# rn-bench/ 는 자기 .gitignore 를 갖고 있다 (node_modules · /ios · /android · src/config.ts).
+# git 은 하위 .gitignore 를 그대로 적용하므로 여기서 따로 적지 않는다.
 
 # 서버 연결 키 (공개 키지만 이력에 남기지 않는다)
 prototype/config.js
