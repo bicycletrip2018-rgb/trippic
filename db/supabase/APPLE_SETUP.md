@@ -17,9 +17,18 @@ curl -s "$SUPABASE_URL/auth/v1/settings" -H "apikey: $ANON_KEY" | grep -o '"appl
 → **캘린더에 6개월 반복 일정을 지금 걸어 두십시오.** 이건 코드로 막을 수 없다.
 → `.p8` 파일은 **한 번만 내려받을 수 있다.** 잃으면 새로 만들어야 한다.
 
-★ **네이티브 흐름(`signInWithIdToken`)은 이 갱신이 없다.** iOS 앱에서는 그쪽이 맞고,
-화면도 매끄럽다(Face ID, 브라우저로 안 나감). 대신 `expo-apple-authentication` 을
-넣어야 하고 **재빌드가 한 번** 붙는다. 출시 전에 옮기는 것을 권한다 — §13.44 참조.
+★ **네이티브 흐름은 이미 붙였다 (§13.45).** `expo-apple-authentication` 으로
+`id_token` 을 받아 Supabase 에 넘긴다 — **6개월 갱신이 필요 없다.**
+앱에서는 그쪽이 기본이고, 웹 OAuth 는 **계정을 얹을 때**(임시 계정 id 를 지키며
+애플을 추가할 때)만 쓴다. 둘의 쓰임이 다르다:
+
+| | 언제 | 계정 id | 6개월 갱신 |
+|---|---|---|---|
+| **네이티브 `id_token`** | 앱에서 애플로 **들어갈 때** | **바뀐다** (→ 합치기 §13.40) | **없다** |
+| 웹 OAuth | 지금 계정에 애플을 **얹을 때** | 그대로 | **있다** |
+
+→ 앱만 쓸 거면 **Services ID·Key 없이** App ID 하나로 끝난다. 아래 2·3번은
+웹 OAuth(얹기)를 쓸 때만 필요하다.
 
 ## 1. Apple Developer (유료 프로그램 $99/년이 필요하다 — iOS 출시에 어차피 드는 돈)
 
@@ -37,7 +46,8 @@ curl -s "$SUPABASE_URL/auth/v1/settings" -H "apikey: $ANON_KEY" | grep -o '"appl
 Authentication → Providers → **Apple** → Enable
 
 - **Client IDs**: App ID 와 Services ID 를 **둘 다** 넣는다
-  (네이티브는 App ID 로, 웹은 Services ID 로 온다)
+  (네이티브는 App ID `app.trippic.bench` 로, 웹은 Services ID 로 온다)
+  ★ 네이티브만 쓸 거면 App ID 만 넣어도 된다.
 - **Secret Key**: Team ID · Key ID · `.p8` 로 만든 JWT
 - Authentication → URL Configuration → **Redirect URLs** 에 우리가 돌아올 주소:
   - 웹: `http://localhost:3012/index.html` (배포되면 실제 주소)
@@ -53,3 +63,17 @@ curl -s "$SUPABASE_URL/auth/v1/settings" -H "apikey: $ANON_KEY" | grep -o '"appl
 **카카오 로그인을 안 넣으면 안 켜도 된다.** 심사 지침 4.8 은 *"third-party 로그인을 쓰면
 동등한 다른 로그인을 같이 내놓으라"* 이고, 우리 계정 체계(익명 + 이메일)만 쓰면
 조항이 적용되지 않는다 — 자세한 것은 PLAN §13.43.
+
+
+## ★ entitlement 은 로컬 빌드를 막는다 (실제로 겪었다)
+`ios/rnbench/rnbench.entitlements` 에 `com.apple.developer.applesignin` 을 넣으면
+**시뮬레이터 빌드까지** 서명 프로파일을 요구한다:
+
+```
+CommandError: No code signing certificates are available to use.
+```
+
+유료 계정이 있어야 그 capability 가 붙은 프로파일을 받는다.
+→ 로컬 `ios/` 에서는 빼 두고 **`app.json` 의 `ios.usesAppleSignIn: true`** 만 남겼다.
+실제 배포 빌드는 prebuild 가 app.json 을 보고 다시 넣는다.
+**유료 계정을 만드신 뒤에 한 번 더 빌드해야 실제로 동작한다.**

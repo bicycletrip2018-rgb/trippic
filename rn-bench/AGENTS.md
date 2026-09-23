@@ -26,3 +26,17 @@ iOS 는 문구 없는 권한 요청을 크래시로 다룬다.
 ```
 
 또는 `npx expo prebuild -p ios --clean` (네이티브 수정이 있으면 날아간다).
+
+## Sign in with Apple entitlement 은 로컬 빌드를 막는다
+
+`ios/rnbench/rnbench.entitlements` 에 `com.apple.developer.applesignin` 을 넣으면
+**시뮬레이터 빌드도** 서명 프로파일을 요구한다:
+
+```
+CommandError: No code signing certificates are available to use.
+```
+
+유료 Apple Developer 계정이 있어야 그 capability 가 붙은 프로파일을 받는다.
+→ **로컬 `ios/` 에서는 빼 두고**, `app.json` 의 `ios.usesAppleSignIn: true` 만 남긴다.
+실제 배포 빌드는 prebuild 가 app.json 을 보고 다시 넣는다.
+(`ios/` 는 .gitignore 라 이 파일이 진짜 출처다 — §13.29 와 같은 구조)

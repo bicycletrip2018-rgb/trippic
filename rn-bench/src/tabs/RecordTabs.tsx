@@ -12,6 +12,8 @@ import * as API from "../api";
 import { C, CAT } from "../theme";
 import { DayCourse } from "../DayCourse";
 import { openSocial } from "../oauth";
+import { isAvailable as appleAvailable, signInWithApple } from "../appleAuth";
+import { Alert } from "react-native";
 
 type Pin = {
   id: string; category: string; visited_at: string; memo: string | null;
@@ -145,9 +147,26 @@ export function MyTab() {
      `Unsupported provider` 를 본다 (§13.41). */
   const [socials, setSocials] = useState<API.Social[]>([]);
   const [kakaoMsg, setKakaoMsg] = useState<string | null>(null);
+  const [appleNative, setAppleNative] = useState(false);
   useEffect(() => {
     void API.providers().then((p) => setSocials(API.SOCIALS.filter((k) => p[k])));
+    /* ★ 애플은 **기기가 되는지**도 본다. provider 가 켜져 있어도 이 기기에서
+       안 되면(안드로이드·구형 iOS) 버튼을 두면 안 된다. */
+    void appleAvailable().then(setAppleNative).catch(() => setAppleNative(false));
   }, []);
+
+  /* ★ 네이티브 애플은 계정을 **얹지 못하고 바꾼다**(§13.45). 그래서 §13.39 의
+     경고와 §13.40 의 합치기가 여기 붙는다 — 말없이 두고 가면 안 된다. */
+  const askSwitch = (what: { pins: number; photos: number; spaces: number }) =>
+    new Promise<"merge" | "leave" | "cancel">((resolve) => {
+      const line = `기록 ${what.pins}곳 · 사진 ${what.photos}장`
+        + (what.spaces ? ` · 스페이스 ${what.spaces}곳` : "");
+      Alert.alert("이 기기의 임시 계정", `${line}이 있습니다.`, [
+        { text: "함께 옮기기", onPress: () => resolve("merge") },
+        { text: "두고 가기", style: "destructive", onPress: () => resolve("leave") },
+        { text: "그만두기", style: "cancel", onPress: () => resolve("cancel") },
+      ], { cancelable: false });
+    });
 
   useEffect(() => { void API.myTrips().then((r) => setTrips(r.data ?? [])); }, [rows.length]);
 
@@ -192,6 +211,31 @@ export function MyTab() {
             </Pressable>
           ))}
           {!!kakaoMsg && <Text style={s.warn}>{kakaoMsg}</Text>}
+        </View>
+      )}
+
+      {/* ★ 네이티브 애플 — 6개월 키 갱신이 없는 쪽(§13.45). provider 가 켜져 있고
+          **이 기기가 지원할 때만** 보인다. */}
+      {socials.includes("apple") && appleNative && (
+        <View style={s.box}>
+          <Text style={s.boxT}>애플로 들어가기</Text>
+          <Text style={s.boxV}>
+            이 기기의 애플 계정으로 들어갑니다. 다른 기기에서도 같은 기록이 보입니다.
+          </Text>
+          <Pressable style={s.cta} onPress={async () => {
+            setKakaoMsg(null);
+            const r = await signInWithApple(askSwitch);
+            if ((r as any).cancelled) return;
+            if (!r.ok) return setKakaoMsg(r.why ?? "들어가지 못했습니다");
+            const mv: any = (r as any).moved;
+            setKakaoMsg("들어왔습니다."
+              + (mv?.failed ? ` 다만 옮기지 못했습니다 — ${mv.failed}`
+                 : mv ? ` 기록 ${mv.pins}곳을 함께 옮겼습니다.` : ""));
+            setUid(API.SESSION.user_id);
+            void load();
+          }}>
+            <Text style={s.ctaT}>애플로 들어가기</Text>
+          </Pressable>
         </View>
       )}
 

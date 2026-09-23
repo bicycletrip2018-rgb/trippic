@@ -190,6 +190,45 @@ export async function providerSignInUrl(provider: Social, redirectTo: string) {
     + `&redirect_to=${encodeURIComponent(redirectTo)}` };
 }
 
+/* ── 네이티브 애플 로그인 (§13.45) ───────────────────────────────
+   ★ 웹 OAuth 는 애플 **client secret 이 6개월이면 만료**된다 — 잊으면 어느 날
+     모든 애플 로그인이 조용히 죽는다(§13.44). 네이티브 흐름(`id_token`)에는
+     **그 갱신이 없다.** 그게 옮기는 이유고, 화면이 매끄러운 것은 덤이다.
+   ★ 대신 **계정을 얹지 못한다.** `id_token` 은 그 애플 계정으로 **들어가는** 문이라
+     지금 임시 계정과는 다른 계정이 된다 — 그래서 §13.40 의 합치기가 여기 붙는다.
+     (얹기는 웹 OAuth 만 할 수 있다. 두 문의 쓰임이 다르다.) */
+export async function signInWithAppleIdToken(idToken: string, nonce?: string) {
+  if (!isOn()) return { ok: false, why: "서버 연결 없음" };
+  const prev = { ...SESSION };
+  try {
+    const r = await fetch(`${CFG.url}/auth/v1/token?grant_type=id_token`, {
+      method: "POST",
+      headers: { apikey: CFG.anonKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ provider: "apple", token: idToken, ...(nonce ? { nonce } : {}) }),
+    });
+    const j: any = await r.json().catch(() => ({}));
+    if (!r.ok || !j.access_token) {
+      return { ok: false, why: j?.error_description ?? j?.msg ?? `HTTP ${r.status}` };
+    }
+    SESSION.access_token = j.access_token;
+    SESSION.refresh_token = j.refresh_token;
+    SESSION.user_id = j.user?.id ?? null;
+    SESSION.anonymous = !!j.user?.is_anonymous;
+    if (!SESSION.user_id) { Object.assign(SESSION, prev); return { ok: false, why: "계정을 확인하지 못했습니다" }; }
+    await saveSession();
+    return { ok: true, user: SESSION.user_id };
+  } catch (e: any) {
+    Object.assign(SESSION, prev);
+    return { ok: false, why: String(e?.message ?? e) };
+  }
+}
+
+/* 계정 합치기 (§13.40) — 네이티브 로그인은 계정이 **바뀌므로** 이 두 개가 붙는다 */
+export const mergePrepare = () => rpc<any>("api_merge_prepare").then((r) => r.data ?? { ok: false });
+export const mergeClaim = (token: string) =>
+  rpc<any>("api_merge_claim", { p_token: token }, ).then((r) => r.data ?? { ok: false });
+export const accountSummary = () => rpc<any>("api_account_summary").then((r) => r.data ?? null);
+
 /* 돌아왔다. 웹은 `location.hash`, 앱은 **딥링크 문자열**이라 URL 을 받아서 푼다.
    ★ **확인되기 전에는 세션으로 받아들이지 않는다.** 먼저 저장했다가 토큰이 가짜면
      `user_id` 가 null 인 채 "로그인됨" 이 남고, 그 상태에서는 쓰기가 전부 튕긴다
