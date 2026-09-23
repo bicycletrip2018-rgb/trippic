@@ -214,6 +214,16 @@
     ok($$("#searchRes .sres").length > 0, "★ 서버가 꺼져 있어도 검색이 결과를 준다 (로컬 폴백)");
     ok(!!$("#searchRes .sVia"),
        `★ 결과가 어디서 왔는지 적는다 (${txt($("#searchRes .sVia"))}) — 모르면 디버깅이 추측이 된다`);
+    /* ★ 서버 응답을 poi 모양에 억지로 끼워 맞췄더니 카테고리가 전부 '기타',
+       지역은 빈칸, 썸네일은 전부 같은 사진이 됐다. 있는 필드를 그대로 쓴다. */
+    ok($$("#searchRes .sres small").every((e) => txt(e).length > 0),
+       "★ 결과마다 설명 줄이 채워져 있다 — 없는 필드를 만들어 붙이면 빈칸이 된다");
+    if (API.on) {
+      const far = await API.search("전주한옥마을", 5);
+      const localHit = poi.features.filter((f) => f.properties.n.includes("전주한옥마을")).length;
+      ok(far.ok && far.data.length > localHit,
+         `★ 로컬에 없는 곳도 찾는다 (로컬 ${localHit} → 서버 ${far.ok ? far.data.length : "?"}) — 로컬 파일은 46만 중 5만 곳뿐이다`);
+    }
     $("#searchWrap").classList.remove("open");
 
     /* ★ 익명 로그는 **보내지 않는다.** anon 키는 공개 키라 누구든 남의 후보 노출을

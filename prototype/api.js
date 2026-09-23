@@ -21,6 +21,18 @@
 
   const API = { on: ON, url: CFG.url || "", calls: 0, fails: 0, lastError: null };
 
+  /* ★ Supabase가 키 체계를 바꿨다.
+       옛 키: `anon` — JWT(`eyJ...`). `Authorization: Bearer` 에 그대로 넣어도 된다.
+       새 키: `publishable` — `sb_publishable_...`. **JWT가 아니라서**
+              Bearer 로 보내면 파싱에 실패할 수 있다. `apikey` 헤더로만 보낸다.
+       둘 다 받도록 형식을 보고 가른다 — 대시보드가 어느 쪽을 주든 돌아야 한다. */
+  function authHeaders() {
+    const k = CFG.anonKey || "";
+    const h = { "Content-Type": "application/json", apikey: k };
+    if (k.startsWith("eyJ")) h.Authorization = `Bearer ${k}`;   // 옛 JWT 키일 때만
+    return h;
+  }
+
   async function rpc(fn, args) {
     if (!ON) return { ok: false, via: "off", data: null };
     API.calls++;
@@ -29,8 +41,7 @@
     try {
       const r = await fetch(`${CFG.url}/rest/v1/rpc/${fn}`, {
         method: "POST", signal: ctl.signal,
-        headers: { "Content-Type": "application/json",
-                   apikey: CFG.anonKey, Authorization: `Bearer ${CFG.anonKey}` },
+        headers: authHeaders(),
         body: JSON.stringify(args || {}),
       });
       if (!r.ok) throw new Error(`${fn} ${r.status} ${(await r.text()).slice(0, 120)}`);

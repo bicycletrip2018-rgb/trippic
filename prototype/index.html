@@ -1514,17 +1514,20 @@ async function runSearch(q){
      서버가 안 되면 조용히 로컬로 떨어진다 — 화면은 항상 돈다. */
   let places = poi.features.filter(f=>f.properties.n.includes(q)).sort(
                     (a,b)=>b.properties.likes-a.properties.likes).slice(0,14);
-  let via = 'local';
+  let via = 'local', srv = null;
   if (window.API && API.on) {
     const r = await API.search(q, 14);
     if (r.ok && Array.isArray(r.data) && r.data.length) {
       via = 'server';
-      places = r.data.map(x => ({ properties:{ n:x.name, c:x.category||'etc',
-                 rn:x.region_name||x.region_code||'', likes:x.score||0, img:'ph0' },
-                 geometry:{ coordinates:[x.lng, x.lat] } }));
+      /* ★ 서버 응답을 poi 모양에 억지로 끼워 맞추지 않는다.
+         처음엔 `{n, c, rn, likes, img}` 로 변환했는데 서버에는 그런 필드가 없어
+         **카테고리가 전부 '기타', 지역은 빈칸, 썸네일은 전부 같은 사진**이 됐다.
+         `api_search` 는 `{kind, id, name, sub, lng, lat, cover_url}` 을 준다 —
+         `sub` 에 '지역 · 카테고리'가 이미 들어 있다. 있는 것을 그대로 쓴다. */
+      srv = r.data.filter(x => x.kind === 'place');
     }
   }
-  if(!regions.length && !places.length){
+  if(!regions.length && !places.length && !(srv && srv.length)){
     box.innerHTML = `<div id="searchHint">"${q}" 결과가 없습니다.</div>`; return;
   }
   const row = (icon,title,sub,data,anchor) =>
@@ -1538,12 +1541,15 @@ async function runSearch(q){
       return row(`<div class="ic">◈</div>`, f.properties.name, `${f.properties.sido} · 지역`,
                  `data-x="${cx}" data-y="${cy}" data-z="11" data-label="${f.properties.name}"`);
     }).join('') +
-    places.map(f=>{
-      const p=f.properties, [x,y]=f.geometry.coordinates;
-      return row(`<img src="${PHOTOS[+p.img.slice(2)]}" loading="lazy" alt="">`,
-                 p.n, `${CAT[p.c].k} · ${p.rn} · ♥ ${p.likes}`,
-                 `data-x="${x}" data-y="${y}" data-z="15" data-label="${p.n}" data-place="${p.n}"`);
-    }).join('');
+    (srv
+      ? srv.map(x => row(`<div class="ic">◉</div>`, x.name, x.sub || '',
+          `data-x="${x.lng}" data-y="${x.lat}" data-z="15" data-label="${x.name}" data-place="${x.name}"`)).join('')
+      : places.map(f=>{
+          const p=f.properties, [x,y]=f.geometry.coordinates;
+          return row(`<img src="${PHOTOS[+p.img.slice(2)]}" loading="lazy" alt="">`,
+                     p.n, `${CAT[p.c].k} · ${p.rn} · ♥ ${p.likes}`,
+                     `data-x="${x}" data-y="${y}" data-z="15" data-label="${p.n}" data-place="${p.n}"`);
+        }).join(''));
 }
 
 /* ================= 레이어 · 카테고리 · 뷰포트 연동 리스트 =================
