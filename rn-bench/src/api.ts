@@ -183,6 +183,26 @@ export const myTrips = () =>
         `user_id=eq.${SESSION.user_id}&order=start_date.desc&limit=100&select=id,title,start_date,end_date`)
     : Promise.resolve({ ok: false, via: "off", data: [] } as R<any[]>);
 
+/* ── 집계 코스 (§13.33 · 033) ─────────────────────────────────────
+   "여기 간 사람들이 다음에 간 곳". ★ 지금은 거의 항상 **못 보여준다** — 그게 정상이다.
+   그래서 답(`rows`)과 **진행 상황**(`base` / `need`)을 같이 받는다:
+   못 보여줄 때 화면이 "아직 2팀입니다"라고 말할 수 있어야 한다. */
+export type NextPlaces = {
+  base: number;      // A 에서 **다음 곳을 기록한** 일행 수 (관측 안 한 이동은 안 센다)
+  need: number;      // 열리는 데 필요한 일행 수
+  floor: number;     // Wilson 하한 문턱
+  ready: boolean;
+  rows: { place_id: string; name: string; category: string;
+          parties: number; lower_bound: number; gap_min: number }[];
+};
+
+export async function nextPlaces(placeId: string, limit = 5) {
+  const r = await rpc<NextPlaces>("api_next_places", { p_place_id: placeId, p_limit: limit });
+  return r.ok && r.data
+    ? r.data
+    : { base: 0, need: 5, floor: 0.3, ready: false, rows: [] } as NextPlaces;
+}
+
 /* 노출 로그 — 웹과 같은 규칙: 보낸 것은 지운다(분모가 부풀면 순위가 흐려진다) */
 export const logCoverEvents = (rows: any[]) =>
   rpc<number>("api_log_cover_events", { p_rows: rows });

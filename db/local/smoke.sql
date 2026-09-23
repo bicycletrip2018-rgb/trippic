@@ -42,6 +42,10 @@ update public.profiles set handle='charlie', nickname='찰리'
   where id='33333333-3333-3333-3333-333333333333';
 select pg_temp.ok((select count(*) from public.profiles) = 3,
                   '트리거: auth.users 가입이 profiles를 자동 생성한다');
+-- 033 집계 코스 검사용 일행들. ★ 여기서 만든다 — 아래는 authenticated 라 auth.users 를 못 건드린다.
+insert into auth.users (id, email)
+select ('d0d0d0d0-0000-0000-0000-0000000000' || lpad(i::text,2,'0'))::uuid, 'd'||i||'@t.io'
+from generate_series(1, 8) i;
 
 -- 참조 장소 4곳: 해운대 한 건물 안팎. 후보 랭킹 검증용
 insert into public.places (id, name, category, address, geom, source, is_ground, floor_no) values
@@ -1011,6 +1015,78 @@ select pg_temp.ok(
   (select media_url is not null from public.api_pins_in_bbox(129.79, 35.15, 129.81, 35.17, 300, null)
     where id='77777777-0000-0000-0000-000000000001'),
   '★ 비공개 핀에서는 내 사진이 그대로 보인다 — 공개 자격은 공개할 때만 따진다');
+
+-- ── 033 집계 코스 — "여기 간 사람들이 다음에 간 곳" ─────────────────
+-- ★ 이 게이트의 값어치는 **안 보여주는 것**에 있다. 근거가 모자랄 때 그럴듯한
+--   코스를 내놓으면 그건 우리가 지어낸 것이고, 사용자는 그걸 믿고 일정을 짠다.
+select pg_temp.login('11111111-1111-1111-1111-111111111111');
+
+-- 일행 n 팀이 A→B 로 움직인다. 팀마다 다른 사용자 · 다른 날.
+create or replace function pg_temp.move_ab(nth int, n int, dest uuid, sp uuid default null)
+returns void language plpgsql as $$
+declare i int; u uuid; d timestamptz; p1 uuid; p2 uuid;
+begin
+  for i in nth + 1 .. nth + n loop
+    u := ('d0d0d0d0-0000-0000-0000-0000000000' || lpad(i::text,2,'0'))::uuid;
+    d := timestamptz '2026-04-01 10:00+09' + (i*3 || ' days')::interval;
+    perform pg_temp.login(u);
+    -- 스페이스 참가는 **본인만** 넣을 수 있다(space_members_join) — 그래서 여기서 한다
+    if sp is not null then
+      insert into public.space_members (space_id, user_id, role) values (sp, u, 'member')
+        on conflict do nothing;
+    end if;
+    insert into public.pins (user_id, place_id, geom, category, visited_at, is_public, verification)
+      values (u, 'aaaaaaaa-0000-0000-0000-000000000001',
+              ST_SetSRID(ST_MakePoint(129.8000, 35.1580), 4326), 'food', d, true, 'exif')
+      returning id into p1;
+    insert into public.pins (user_id, place_id, geom, category, visited_at, is_public, verification)
+      values (u, dest, ST_SetSRID(ST_MakePoint(129.8001, 35.1580), 4326), 'cafe',
+              d + interval '90 min', true, 'exif')
+      returning id into p2;
+    if sp is not null then
+      insert into public.pin_spaces (pin_id, space_id) values (p1, sp), (p2, sp);
+    end if;
+  end loop;
+  perform pg_temp.login('11111111-1111-1111-1111-111111111111');
+end $$;
+
+create or replace function pg_temp.gate(k text) returns text language sql as $$
+  select (public.api_next_places('aaaaaaaa-0000-0000-0000-000000000001'))->>k $$;
+
+select pg_temp.move_ab(0, 2, 'aaaaaaaa-0000-0000-0000-000000000002');
+select pg_temp.ok(pg_temp.gate('ready') = 'false'
+  and jsonb_array_length((public.api_next_places('aaaaaaaa-0000-0000-0000-000000000001'))->'rows') = 0,
+  '★ 일행 2팀으로는 아무것도 안 보여준다 — 근거가 모자랄 때 침묵하는 것이 이 게이트의 값어치다');
+select pg_temp.ok(pg_temp.gate('base') = '2',
+  '대신 얼마나 모였는지는 말한다 (2팀) — 화면이 "아직 2팀입니다"라고 할 수 있다');
+
+select pg_temp.move_ab(2, 3, 'aaaaaaaa-0000-0000-0000-000000000002');
+select pg_temp.ok(pg_temp.gate('ready') = 'true'
+  and jsonb_array_length((public.api_next_places('aaaaaaaa-0000-0000-0000-000000000001'))->'rows') = 1,
+  '★ 5팀이 되면 열린다 (5팀 전부 같은 곳 → 하한 56.6%)');
+select pg_temp.ok(
+  ((public.api_next_places('aaaaaaaa-0000-0000-0000-000000000001'))->'rows'->0->>'gap_min') = '90',
+  '얼마나 있다 갔는지도 같이 준다 (90분) — "다음에"가 몇 시간 뒤인지가 코스의 절반이다');
+
+-- ★ 같은 일행은 1표다. 둘이 같이 간 여행은 독립 관측 2개가 아니다.
+insert into public.spaces (id, title, owner_id) values
+  ('5a5a5a5a-0000-0000-0000-000000000009', '같이 간 둘', '11111111-1111-1111-1111-111111111111');
+-- 스페이스에 올리려면 멤버여야 한다 — 그 규칙이 곧 '같이 갔다'의 증거다
+insert into public.space_members (space_id, user_id, role) values
+  ('5a5a5a5a-0000-0000-0000-000000000009', '11111111-1111-1111-1111-111111111111', 'owner');
+select pg_temp.move_ab(5, 2, 'aaaaaaaa-0000-0000-0000-000000000002',
+                       '5a5a5a5a-0000-0000-0000-000000000009');
+select pg_temp.ok(pg_temp.gate('base') = '6',
+  '★ 같이 간 2명은 1표다 (5 → 6, 7이 아니다) — 커플 한 쌍이 "5명"을 만들면 그 숫자는 아무것도 보장하지 않는다');
+
+-- ★ 비공개 기록은 추천의 재료가 아니다. 숨긴 사람의 동선이 추천 모양으로 새면 안 된다.
+--   ★ **본인이** 숨겨야 한다 — 남의 핀은 RLS 가 애초에 못 건드리게 한다.
+select pg_temp.login('d0d0d0d0-0000-0000-0000-000000000001');
+update public.pins set is_public = false
+  where user_id = 'd0d0d0d0-0000-0000-0000-000000000001';
+select pg_temp.login('11111111-1111-1111-1111-111111111111');
+select pg_temp.ok(pg_temp.gate('base') = '5',
+  '★ 한 팀이 나만 보기로 돌리면 집계에서 그 팀이 빠진다 (6 → 5) — 숨긴 동선은 추천으로도 새지 않는다');
 
 reset role;
 rollback;   -- 아무것도 남기지 않는다

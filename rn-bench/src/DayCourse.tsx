@@ -15,6 +15,7 @@ import {
 import * as API from "./api";
 import { buildCourses, dur, hhmm, ymd, type Course, type CoursePin } from "./course";
 import { C, CAT } from "./theme";
+import { NextPlaces } from "./NextPlaces";
 
 export function DayCourse({ onClose }: { onClose: () => void }) {
   const [rows, setRows] = useState<any[] | null>(null);
@@ -35,7 +36,7 @@ export function DayCourse({ onClose }: { onClose: () => void }) {
         const m = (p.media || []).slice().sort(
           (a: any, b: any) => Number(b.is_main) - Number(a.is_main) || a.sort_order - b.sort_order)[0];
         return {
-          id: p.id, visited_at: p.visited_at, stay_sec: p.stay_sec,
+          id: p.id, placeId: p.place_id, visited_at: p.visited_at, stay_sec: p.stay_sec,
           category: p.category, memo: p.memo,
           lng: c[0], lat: c[1], photo: m?.url ?? null,
         } as CoursePin;
@@ -119,6 +120,9 @@ function CourseCard({ c }: { c: Course }) {
                 <Text style={s.stay}>{st ? `${st} 머물렀습니다` : "머문 시간은 알 수 없습니다"}</Text>
               </View>
             </View>
+            {/* ★ 여기까지는 **내 기록의 복원**이고, 아래 한 조각만 **남들의 집계**다.
+                섞이지 않게 제목으로 가른다 — 둘을 구분 못 하면 둘 다 못 믿는다. */}
+            {p.placeId && <NextPlaces placeId={p.placeId} />}
           </View>
         );
       })}

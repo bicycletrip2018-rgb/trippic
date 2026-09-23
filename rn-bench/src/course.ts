@@ -17,6 +17,7 @@
 
 export type CoursePin = {
   id: string;
+  placeId?: string | null;   // 집계 코스는 **장소 단위**다 — 좌표만으로는 이름을 못 붙인다
   visited_at: string;
   stay_sec?: number | null;
   category?: string;
