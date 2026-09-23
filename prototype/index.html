@@ -414,6 +414,12 @@
   /* 신뢰 필터 — 사진 수가 아니라 **사람 수**로 자른다 (§13.10) */
   #scopes{display:flex;gap:6px;overflow-x:auto;padding:0 14px 8px;scrollbar-width:none}
   #scopes::-webkit-scrollbar{display:none}
+  /* ★ `.tchip` 을 빌려 쓰지 않는다. 그 클래스는 **개수(<i>)가 붙는다는 약속**을 달고 있고,
+     빌리면 그 약속이 조용히 깨진다 (uismoke 가 잡았다 — §13.28 "클래스는 스타일이다"). */
+  .schip{flex:none;padding:6px 11px;border-radius:99px;cursor:pointer;font-family:inherit;
+    font-size:11.5px;font-weight:600;white-space:nowrap;
+    border:1px solid var(--surface-line);background:transparent;color:var(--text-muted)}
+  .schip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
   #trust{display:flex;gap:6px;overflow-x:auto;padding:0 14px 8px;scrollbar-width:none}
   #trust::-webkit-scrollbar{display:none}
   .tchip{flex:none;display:flex;align-items:center;gap:5px;padding:6px 11px;border-radius:99px;
@@ -1962,7 +1968,7 @@ function renderScopes(){
   const box = $('#scopes'); if(!box) return;
   const cur = state.scope || 'all';
   box.innerHTML = SCOPES.map(sc =>
-    `<button class="tchip" data-scope="${sc.v}" aria-pressed="${cur===sc.v}" title="${sc.d}">${sc.k}</button>`
+    `<button class="schip" data-scope="${sc.v}" aria-pressed="${cur===sc.v}" title="${sc.d}">${sc.k}</button>`
   ).join('');
 }
 window.renderScopes = renderScopes;
@@ -2533,7 +2539,7 @@ function bench(){
   $('#regionX').addEventListener('click', clearRegionScope);
 
   $('#scopes').addEventListener('click', ev=>{
-    const b=ev.target.closest('.tchip'); if(!b) return;
+    const b=ev.target.closest('.schip'); if(!b) return;
     setScope(b.dataset.scope);
   });
 
