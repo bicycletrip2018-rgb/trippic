@@ -1378,5 +1378,32 @@ select pg_temp.ok(
       and user_id='33333333-3333-3333-3333-333333333333') = 1,
   '★ 이미 들어온 사람은 남는다 — 링크를 바꾸는 것은 문을 잠그는 것이지 내쫓는 게 아니다');
 
+-- ── 039 계정에 무엇이 들어 있나 (다른 기기 로그인의 안전장치) ─────────
+-- ★ 다른 기기에서 로그인하면 **그 기기의 임시 계정은 버려진다.** 그 전에 무엇을
+--   두고 가는지 숫자로 보여 줘야 하고, 그 숫자가 틀리면 경고가 거짓말이 된다.
+select pg_temp.login('11111111-1111-1111-1111-111111111111');
+select pg_temp.ok(
+  ((public.api_account_summary())->>'pins')::int =
+  (select count(*) from public.pins where user_id='11111111-1111-1111-1111-111111111111'
+     and deleted_at is null),
+  '내 핀 수를 그대로 센다');
+select pg_temp.ok(((public.api_account_summary())->>'empty') = 'false',
+  '기록이 있으면 empty=false — 화면이 경고한다');
+
+-- ★ **개인 공간은 세지 않는다.** 계정을 만들면 트리거가 자동으로 만들어 주는 것이라
+--   "두고 가는 것"이 아니다. 이걸 세면 갓 만든 계정도 empty=false 가 되고
+--   경고가 영영 켜져 있게 된다 (실제로 그렇게 만들었다가 잡혔다).
+select pg_temp.login('33333333-3333-3333-3333-333333333333');
+select pg_temp.ok(
+  ((public.api_account_summary())->>'spaces')::int =
+  (select count(*) from public.space_members sm join public.spaces sp on sp.id=sm.space_id
+    where sm.user_id='33333333-3333-3333-3333-333333333333' and sp.type <> 'personal'),
+  '★ 공유 스페이스만 센다 — 개인 공간은 계정을 만들면 그냥 생긴다');
+
+-- ★ 남의 계정은 못 센다 — 경고에 남의 숫자가 뜨면 그건 유출이다
+select pg_temp.ok(
+  ((public.api_account_summary())->>'user_id') = '33333333-3333-3333-3333-333333333333',
+  '★ 언제나 지금 로그인한 계정만 센다');
+
 reset role;
 rollback;   -- 아무것도 남기지 않는다

@@ -202,6 +202,8 @@
   async function renderAccount() {
     const box = $("#myAcct");
     if (!box) return;
+    // 지워진 계정을 들고 있으면 여기서 다시 든다 (§13.30 · §13.39)
+    if (window.API && API.on && API.session.access_token) await API.ensureSession();
     if (!(window.API && API.on)) {
       box.innerHTML = `<div class="myAcctRow off">서버에 연결되어 있지 않습니다
         <small>기록이 이 브라우저에만 있습니다</small></div>`;
@@ -229,12 +231,66 @@
       </div>
       ${s.anonymous ? `<div class="myAcctWarn">
         앱을 지우거나 기기를 바꾸면 <b>기록이 사라집니다.</b>
-        <small>나중에 카카오·애플로 이어 두면 옮길 수 있습니다 — 지금은 준비 중입니다.</small>
-      </div>` : ""}`;
+        <small>아래에서 메일 주소를 걸어 두시면 다른 기기에서도 보실 수 있습니다.</small>
+      </div>` : ""}
+      <div class="myDev" id="myDev"></div>`;
     /* ★ `#myServer` 는 **바로 위 innerHTML 이 만든다.** 그 전에 채우려 했더니
        노드가 아직 없어서(또는 곧 지워져서) 칸이 늘 비어 있었다.
        그리는 쪽과 채우는 쪽의 순서를 지킨다. */
     renderServerCount();
+    renderDevice();
+  }
+
+  /* ── 다른 기기에서 보기 (§13.39) ──────────────────────────────────
+     ★ 두 방향을 **한 화면에서 가른다.** 둘 다 "이메일을 넣는다"라서 눈에는 같아
+       보이지만 결과가 정반대다:
+         ① 이어 두기 — 지금 계정에 열쇠를 건다. **아무것도 안 잃는다.**
+         ② 이미 쓰던 계정으로 — 지금 계정을 **버리고** 그 계정으로 간다.
+       가르지 않으면 사용자는 ②를 ①인 줄 알고 눌러서 이 기기의 기록을 잃는다. */
+  function renderDevice() {
+    const box = $("#myDev");
+    if (!box || !(window.API && API.on && API.session.access_token)) return;
+    const s = API.session;
+    box.innerHTML = `
+      <div class="myDevSec">
+        <b>다른 기기에서도 보기</b>
+        ${s.anonymous ? `
+          <small>지금 계정에 메일 주소를 걸어 둡니다. 기록은 그대로 있습니다.</small>
+          <div class="myDevRow">
+            <input id="myLinkMail" type="email" placeholder="메일 주소" autocomplete="email">
+            <button class="myDevBtn" data-dev="link">걸어 두기</button>
+          </div>`
+        : `<small>이 계정은 <b>${esc(s.email || "메일 주소")}</b> 로 이어져 있습니다.
+             다른 기기에서 같은 주소로 들어오시면 됩니다.</small>`}
+        <div class="myDevOut" id="myDevOut"></div>
+      </div>
+      <div class="myDevSec">
+        <b>이미 쓰던 계정으로 들어오기</b>
+        <small>다른 기기에서 쓰시던 계정을 이 기기에서 엽니다.</small>
+        <div class="myDevRow">
+          <input id="myInMail" type="email" placeholder="메일 주소" autocomplete="email">
+          <button class="myDevBtn" data-dev="code">코드 받기</button>
+        </div>
+        <div class="myDevRow" id="myInCodeRow" hidden>
+          <input id="myInCode" inputmode="numeric" placeholder="메일로 받은 코드">
+          <button class="myDevBtn" data-dev="verify">들어가기</button>
+        </div>
+        <div class="myDevOut" id="myInOut"></div>
+      </div>`;
+  }
+
+  /* ★ 계정을 바꾸기 **전에** 무엇을 두고 가는지 숫자로 보여 준다.
+     비어 있으면 묻지 않는다 — 다른 기기에서 초대 링크를 여는 흔한 경우가 그것이고,
+     거기서 겁을 주면 아무 이유 없이 멈춰 세우는 것이 된다. */
+  async function confirmSwitch() {
+    const a = await API.accountSummary();
+    if (!a || a.empty) return true;
+    return window.confirm(
+      `이 기기의 임시 계정에 기록 ${a.pins}곳 · 사진 ${a.photos}장` +
+      `${a.spaces ? ` · 스페이스 ${a.spaces}곳` : ""}이 있습니다.\n\n` +
+      `다른 계정으로 들어가면 이 기록들은 **함께 가지 않습니다.**\n` +
+      `먼저 '다른 기기에서도 보기'로 이 계정에 메일을 걸어 두시는 편이 안전합니다.\n\n` +
+      `그래도 들어가시겠습니까?`);
   }
 
   /* ★ 서버에 **무엇이 남아 있는지** 숫자로 보여준다.
@@ -333,6 +389,44 @@
       if (e.target.closest(".myRow[data-theme]")) return alert("지도 테마 — 어두운 지도 / 밝은 지도\n원본 기획서 §10: 다크모드에서 지적도와 사진의 대비가 커집니다.");
       if (e.target.closest(".myRow[data-scope]")) return alert("기본 공개 범위 — 나만 보기 / 스페이스 / 전체\n기록마다 따로 바꿀 수 있습니다.");
       if (e.target.closest(".myRow[data-op]")) return alert("운영자 신청 (§10.46)\n\n운영자는 초대로만 됩니다. 신청은 대기열에 들어갑니다.");
+      /* ★ 세 버튼 다 클래스까지 같이 본다 — 위 주석의 그 이유다 */
+      const dev = e.target.closest(".myDevBtn[data-dev]");
+      if (dev) {
+        const out = (sel, msg, bad) => {
+          const o = $(sel); if (o) { o.textContent = msg; o.className = "myDevOut" + (bad ? " bad" : ""); }
+        };
+        if (dev.dataset.dev === "link") {
+          const mail = ($("#myLinkMail") || {}).value || "";
+          if (!mail.includes("@")) return out("#myDevOut", "메일 주소를 적어 주십시오", true);
+          out("#myDevOut", "보내는 중…");
+          const r = await API.linkEmail(mail.trim());
+          /* ★ "완료"라고 적지 않는다. 확인 메일을 눌러야 끝난다 —
+             완료라고 하면 사용자는 메일을 안 열고 기기를 바꾼다. */
+          return out("#myDevOut", r.ok
+            ? `${mail} 로 확인 메일을 보냈습니다. 그 메일을 눌러야 완료됩니다 — 아직 끝나지 않았습니다.`
+            : r.why, !r.ok);
+        }
+        if (dev.dataset.dev === "code") {
+          const mail = ($("#myInMail") || {}).value || "";
+          if (!mail.includes("@")) return out("#myInOut", "메일 주소를 적어 주십시오", true);
+          out("#myInOut", "보내는 중…");
+          const r = await API.sendLoginCode(mail.trim());
+          if (r.ok) { const row = $("#myInCodeRow"); if (row) row.hidden = false; }
+          return out("#myInOut", r.ok ? "메일로 코드를 보냈습니다." : r.why, !r.ok);
+        }
+        if (dev.dataset.dev === "verify") {
+          const mail = (($("#myInMail") || {}).value || "").trim();
+          const code = (($("#myInCode") || {}).value || "").trim();
+          if (!code) return out("#myInOut", "코드를 적어 주십시오", true);
+          // ★ 바꾸기 **전에** 무엇을 두고 가는지 보여 준다
+          if (!(await confirmSwitch())) return out("#myInOut", "그대로 두었습니다.");
+          out("#myInOut", "확인 중…");
+          const r = await API.verifyLoginCode(mail, code);
+          if (!r.ok) return out("#myInOut", r.why, true);
+          await renderAccount();
+          return out("#myInOut", "들어왔습니다. 이 기기에서도 같은 기록이 보입니다.");
+        }
+      }
       if (e.target.closest("#myAnon")) {
         const r = await API.signInAnonymously();
         if (!r.ok) return alert("시작하지 못했습니다\n\n" + r.why);

@@ -560,6 +560,109 @@
     return r.ok ? r.data : { ok: false, why: r.error };
   }
 
+  /* ★ 저장해 둔 세션이 **서버에 없는 계정**을 가리킬 수 있다(§13.30에서 RN 에 넣은 것을
+     여기에도 넣는다 — 같은 구멍이었다). JWT 는 서명된 값이라 만료 전까지 멀쩡해 보이지만,
+     그 계정이 지워졌으면 쓰기가 전부 23503(profiles FK)으로 튕긴다.
+     화면에는 "Key is not present in table profiles" 로 보이고, 사용자가 할 수 있는 일은 없다. */
+  async function ensureSession() {
+    if (!ON) return { ok: false, why: "키 없음" };
+    if (SESSION.access_token) {
+      try {
+        const r = await fetch(`${CFG.url}/auth/v1/user`, { headers: authHeaders() });
+        if (r.ok) return { ok: true, why: "세션 유효" };
+      } catch (e) {
+        // 망이 끊긴 것과 계정이 없는 것은 다르다 — 못 물어봤으면 버리지 않는다
+        return { ok: true, why: "확인 못 함 — 그대로 쓴다" };
+      }
+      await clearSession();
+    }
+    return signInAnonymously();
+  }
+
+  /* ── 다른 기기에서 보기 (§13.39) ──────────────────────────────
+     ★ 익명 계정은 **기기에 묶인다.** 다른 기기에서 같은 기록을 보려면 그 계정에
+       **되찾을 수 있는 열쇠**를 걸어야 한다. 카카오·애플은 대시보드 설정이 필요해
+       지금 쓸 수 있는 것은 이메일이다.
+     ★ 두 방향이 다르다:
+       ① `linkEmail`  — 지금 이 임시 계정에 이메일을 건다. 계정은 **그대로**고
+                        기록도 그대로다. 확인 메일을 눌러야 완료된다.
+       ② `sendLoginCode`/`verifyLoginCode` — 다른 기기에서 **그 계정으로 들어온다.**
+                        이건 지금 이 기기의 임시 계정을 **버리는** 일이다 —
+                        그래서 화면이 먼저 무엇을 두고 가는지 보여 줘야 한다. */
+  async function accountSummary() {
+    if (!SESSION.access_token) return null;
+    const r = await rpc("api_account_summary");
+    return r.ok ? r.data : null;
+  }
+
+  async function linkEmail(email) {
+    if (!ON) return { ok: false, why: "서버 연결 없음" };
+    if (!SESSION.access_token) return { ok: false, why: "먼저 시작해야 합니다" };
+    try {
+      const r = await fetch(`${CFG.url}/auth/v1/user`, {
+        method: "PUT",
+        headers: { apikey: CFG.anonKey, Authorization: `Bearer ${SESSION.access_token}`,
+                   "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) return { ok: false, why: authWhy(j) };
+      /* ★ 아직 끝난 게 아니다. 확인 메일을 눌러야 계정이 바뀐다 —
+         "완료"라고 적으면 사용자는 메일을 안 열고 기기를 바꾼다. */
+      return { ok: true, pending: true, email: j.new_email || email };
+    } catch (e) { return { ok: false, why: String(e.message || e) }; }
+  }
+
+  async function sendLoginCode(email) {
+    if (!ON) return { ok: false, why: "서버 연결 없음" };
+    try {
+      const r = await fetch(`${CFG.url}/auth/v1/otp`, {
+        method: "POST",
+        headers: { apikey: CFG.anonKey, "Content-Type": "application/json" },
+        // ★ 새 계정을 만들지 않는다. 여기는 **이미 있는 계정으로 들어오는** 문이다.
+        body: JSON.stringify({ email, create_user: false }),
+      });
+      const j = await r.json().catch(() => ({}));
+      return r.ok ? { ok: true } : { ok: false, why: authWhy(j) };
+    } catch (e) { return { ok: false, why: String(e.message || e) }; }
+  }
+
+  /* ★ 여기서 세션이 **통째로 바뀐다.** 이 기기의 임시 계정은 이 순간 버려진다. */
+  async function verifyLoginCode(email, token) {
+    if (!ON) return { ok: false, why: "서버 연결 없음" };
+    try {
+      const r = await fetch(`${CFG.url}/auth/v1/verify`, {
+        method: "POST",
+        headers: { apikey: CFG.anonKey, "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "email", email, token }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.access_token) return { ok: false, why: authWhy(j) };
+      SESSION.access_token = j.access_token;
+      SESSION.refresh_token = j.refresh_token;
+      SESSION.user_id = j.user && j.user.id;
+      SESSION.anonymous = false;
+      saveSession();
+      /* 계정이 바뀌면 이 기기의 로컬 연결표는 **남의 것**이다. 지운다 —
+         안 지우면 지워진 남의 행을 가리켜 조용히 403 이 난다(§13.37에서 겪었다). */
+      try { Object.keys(LINKS).forEach((k) => delete LINKS[k]); saveLinks(); } catch (e) {}
+      return { ok: true, user: SESSION.user_id };
+    } catch (e) { return { ok: false, why: String(e.message || e) }; }
+  }
+
+  /* 사용자가 할 수 있는 일이 있는 말로 바꾼다 */
+  function authWhy(j) {
+    const c = j && (j.error_code || j.code);
+    if (c === "over_email_send_rate_limit")
+      return "메일을 너무 자주 보냈습니다 — 잠시 후 다시 시도해 주십시오";
+    if (c === "email_address_invalid") return "메일 주소를 다시 확인해 주십시오";
+    if (c === "otp_disabled" || c === "otp_expired")
+      return "그 주소로 만든 계정이 없거나 코드가 만료됐습니다";
+    if (c === "email_exists" || c === "identity_already_exists")
+      return "이미 다른 계정이 쓰고 있는 주소입니다";
+    return (j && (j.msg || j.message)) || "처리하지 못했습니다";
+  }
+
   /* 서버가 살아 있는지 — 화면 구석에 표시한다 */
   async function ping() {
     if (!ON) return { ok: false, via: "off", note: "anonKey 미설정 — 로컬 JSON으로 돕니다" };
@@ -572,5 +675,6 @@
     insert, select, addComment, listComments, links: LINKS,
     shrink, uploadPhoto, attachMedia, ensurePin, ensureSpace, pushTrip,
     myRecords, publicRecords, pinsInBBox, myTrips, toFeature,
-    invitePreview, joinSpace, rotateInvite });
+    invitePreview, joinSpace, rotateInvite,
+    accountSummary, linkEmail, sendLoginCode, verifyLoginCode, ensureSession });
 })();
