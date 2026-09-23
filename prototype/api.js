@@ -91,6 +91,7 @@
     SESSION.user_id = r.data.user && r.data.user.id;
     SESSION.anonymous = true;
     saveSession();
+    reloadLinks();     // ★ 새 계정이면 표도 새것이다 (§13.44)
     return { ok: true, user: SESSION.user_id };
   }
 
@@ -253,10 +254,22 @@
        화면만 고쳐서는 안 되는 이유다.
      ★ 그래서 **처음 댓글을 달 때** 그 줄기를 만든다. 미리 다 만들어 두지 않는다 —
        쓰지도 않을 방과 핀을 서버에 쌓아 두는 것은 쓰레기다. */
-  const LINK_KEY = "trippic.links.v1";
-  const LINKS = (() => { try { return JSON.parse(localStorage.getItem(LINK_KEY) || "{}"); }
+  /* ★ 이 표는 **계정에 묶인다.** 계정이 바뀌면 여기 적힌 서버 id 는 남의 것이거나
+     이미 지워진 것이다 — 그걸 그대로 쓰면 `media 403` · `23503` 이 조용히 난다.
+     검증 중 세 번 같은 자리에서 걸렸고, 세 번 다 "코드가 틀렸나" 를 먼저 의심했다.
+     → **열쇠에 계정 id 를 넣는다.** 계정이 바뀌면 표가 저절로 갈린다.
+     (옛 열쇠는 한 번 지운다 — 남겨 두면 언젠가 또 같은 일이 난다) */
+  const LINK_KEY_BASE = "trippic.links.v1";
+  try { localStorage.removeItem(LINK_KEY_BASE); } catch (e) {}
+  const linkKey = () => `${LINK_KEY_BASE}:${SESSION.user_id || "anon"}`;
+  const LINKS = (() => { try { return JSON.parse(localStorage.getItem(linkKey()) || "{}"); }
                          catch (e) { return {}; } })();
-  const saveLinks = () => { try { localStorage.setItem(LINK_KEY, JSON.stringify(LINKS)); } catch (e) {} };
+  const saveLinks = () => { try { localStorage.setItem(linkKey(), JSON.stringify(LINKS)); } catch (e) {} };
+  /* 계정이 바뀌면 메모리의 표도 그 계정 것으로 갈아 끼운다 */
+  function reloadLinks() {
+    Object.keys(LINKS).forEach((k) => delete LINKS[k]);
+    try { Object.assign(LINKS, JSON.parse(localStorage.getItem(linkKey()) || "{}")); } catch (e) {}
+  }
 
   async function ensureSpace(localId, title) {
     if (LINKS["sp:" + localId]) return LINKS["sp:" + localId];
@@ -647,9 +660,7 @@
       SESSION.user_id = j.user && j.user.id;
       SESSION.anonymous = false;
       saveSession();
-      /* 계정이 바뀌면 이 기기의 로컬 연결표는 **남의 것**이다. 지운다 —
-         안 지우면 지워진 남의 행을 가리켜 조용히 403 이 난다(§13.37에서 겪었다). */
-      try { Object.keys(LINKS).forEach((k) => delete LINKS[k]); saveLinks(); } catch (e) {}
+      reloadLinks();     // 표는 계정마다 따로다 (§13.44)
       return { ok: true, user: SESSION.user_id };
     } catch (e) { return { ok: false, why: String(e.message || e) }; }
   }
@@ -688,17 +699,23 @@
     return PROVIDERS;
   }
 
-  /* ① 지금 임시 계정에 **카카오를 얹는다** (identity linking).
+  /* ★ **provider 를 받는다.** 카카오용·애플용을 따로 만들면 공식이 두 벌이 되고,
+     한쪽만 고치는 날 둘이 갈라진다(§13.20에서 이미 겪은 형태다). */
+  const PROV_NAME = { kakao: "카카오", apple: "애플" };
+  const provName = (p) => PROV_NAME[p] || p;
+
+  /* ① 지금 임시 계정에 **그 계정을 얹는다** (identity linking).
      ★ 이게 §13.40 의 합치기보다 낫다 — **계정 id 가 그대로다.** 아무것도 옮기지
        않으니 옮기다 실패할 일도 없다. 합치기는 "다른 기기에 이미 기록이 있을 때"
        쓰는 것이고, 이건 "이 계정을 계속 쓸 수 있게" 만드는 것이다. */
-  async function linkKakao(returnTo) {
+  async function linkProvider(provider, returnTo) {
     if (!SESSION.access_token) return { ok: false, why: "먼저 시작해야 합니다" };
     const p = await providers();
-    if (!p.kakao) return { ok: false, why: "카카오 로그인이 아직 켜져 있지 않습니다" };
+    if (!p[provider])
+      return { ok: false, why: `${provName(provider)} 로그인이 아직 켜져 있지 않습니다` };
     try {
       const u = new URL(`${CFG.url}/auth/v1/user/identities/authorize`);
-      u.searchParams.set("provider", "kakao");
+      u.searchParams.set("provider", provider);
       u.searchParams.set("skip_http_redirect", "true");
       u.searchParams.set("redirect_to", returnTo || location.href.split("#")[0]);
       const r = await fetch(u, { headers: { apikey: CFG.anonKey,
@@ -711,14 +728,19 @@
 
   /* ② 다른 기기에서 **그 계정으로 들어온다.** 여기는 세션이 바뀌는 문이라
      §13.39·§13.40 의 경고·합치기가 그대로 붙는다. */
-  async function kakaoSignInUrl(returnTo) {
+  async function providerSignInUrl(provider, returnTo) {
     const p = await providers();
-    if (!p.kakao) return { ok: false, why: "카카오 로그인이 아직 켜져 있지 않습니다" };
+    if (!p[provider])
+      return { ok: false, why: `${provName(provider)} 로그인이 아직 켜져 있지 않습니다` };
     const u = new URL(`${CFG.url}/auth/v1/authorize`);
-    u.searchParams.set("provider", "kakao");
+    u.searchParams.set("provider", provider);
     u.searchParams.set("redirect_to", returnTo || location.href.split("#")[0]);
     return { ok: true, url: u.toString() };
   }
+
+  // 옛 이름은 남겨 둔다 — 부르는 곳이 있다
+  const linkKakao = (returnTo) => linkProvider("kakao", returnTo);
+  const kakaoSignInUrl = (returnTo) => providerSignInUrl("kakao", returnTo);
 
   /* 카카오에서 돌아왔다 — 토큰이 **주소의 `#` 뒤**에 실려 온다.
      ★ 읽고 나서 주소에서 **지운다.** 안 지우면 토큰이 주소창·기록·공유 링크에 남는다. */
@@ -800,5 +822,6 @@
     invitePreview, joinSpace, rotateInvite,
     accountSummary, linkEmail, sendLoginCode, verifyLoginCode, ensureSession,
     mergePrepare, mergeClaim,
-    providers, linkKakao, kakaoSignInUrl, consumeAuthRedirect, inviteLink });
+    providers, linkKakao, kakaoSignInUrl, linkProvider, providerSignInUrl, provName,
+    consumeAuthRedirect, inviteLink });
 })();

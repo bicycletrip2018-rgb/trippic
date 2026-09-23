@@ -2533,7 +2533,15 @@ function bench(){
     if (window.initFeed) window.initFeed();
     if (window.initHome) window.initHome();
     if (window.initMy) window.initMy();
-    if (window.loadServerPins) loadServerPins(true);
+    /* ★ **시작할 때 세션을 확인한다.** §13.30 에서 RN 에 넣은 것을 웹은 마이 탭에만
+       걸어 뒀다 — 그래서 지도·등록은 지워진 계정의 토큰으로 먼저 움직였고,
+       쓰기가 전부 `23503 (profiles 없음)` 으로 튕겼다. 검증 중 세 번을 "LINKS 캐시
+       탓"으로 잘못 짚었다. **한쪽만 고친 것은 고친 게 아니다**(§13.39 에서 같은 말을
+       적어 놓고 또 반쪽만 했다). */
+    if (window.API && API.on) API.ensureSession().then(() => {
+      if (window.loadServerPins) loadServerPins(true);
+    });
+    else if (window.loadServerPins) loadServerPins(true);
     window.__ready = true;
   });
 

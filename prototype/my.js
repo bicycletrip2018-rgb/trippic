@@ -285,18 +285,25 @@
      `Unsupported provider` 를 본다 — 우리 설정 문제를 사용자 화면에 떠넘기는 것이다.
      ★ 그리고 카카오 '이어 두기'는 §13.40 의 합치기보다 낫다: **계정 id 가 그대로**라
      아무것도 옮기지 않는다. 옮기지 않으면 옮기다 실패할 일도 없다. */
+  /* ★ **켜진 것만** 그린다. 그리고 **provider 마다 칸을 따로 만들지 않는다** —
+     하나 늘 때마다 함수를 복사하면 문구가 갈라진다. */
+  const SOCIALS = ["kakao", "apple"];
+
   async function renderKakao() {
     const box = $("#myKakao");
     if (!box) return;
     const p = await API.providers();
-    if (!p.kakao) { box.remove(); return; }      // 없는 문은 만들지 않는다
+    const on = SOCIALS.filter((k) => p[k]);
+    if (!on.length) { box.remove(); return; }    // 없는 문은 만들지 않는다
     const anon = API.session.anonymous;
     box.innerHTML = `
-      <b>카카오로 이어 두기</b>
+      <b>계정 이어 두기</b>
       <small>${anon
-        ? "지금 계정에 카카오를 얹습니다. 기록은 그대로 있고, 다른 기기에서 카카오로 들어오시면 됩니다."
+        ? "지금 계정에 얹습니다. 기록은 그대로 있고, 다른 기기에서 같은 곳으로 들어오시면 됩니다."
         : "이미 이어져 있습니다."}</small>
-      ${anon ? `<div class="myDevRow"><button class="myDevBtn" data-dev="kakao">카카오로 이어 두기</button></div>` : ""}
+      ${anon ? `<div class="myDevRow">${on.map((k) =>
+        `<button class="myDevBtn" data-dev="social" data-prov="${k}">${API.provName(k)}로 이어 두기</button>`
+      ).join("")}</div>` : ""}
       <div class="myDevOut" id="myKakaoOut"></div>`;
   }
 
@@ -432,9 +439,10 @@
         const out = (sel, msg, bad) => {
           const o = $(sel); if (o) { o.textContent = msg; o.className = "myDevOut" + (bad ? " bad" : ""); }
         };
-        if (dev.dataset.dev === "kakao") {
-          out("#myKakaoOut", "카카오로 이동합니다…");
-          const r = await API.linkKakao();
+        if (dev.dataset.dev === "social") {
+          const prov = dev.dataset.prov;
+          out("#myKakaoOut", `${API.provName(prov)}로 이동합니다…`);
+          const r = await API.linkProvider(prov);
           if (!r.ok) return out("#myKakaoOut", r.why, true);
           location.href = r.url;        // 돌아오면 consumeAuthRedirect 가 받는다
           return;

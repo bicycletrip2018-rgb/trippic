@@ -157,13 +157,21 @@ export async function providers() {
   return PROVIDERS!;
 }
 
-/* 지금 임시 계정에 카카오를 **얹는다**. 계정 id 가 그대로라 아무것도 안 옮긴다. */
-export async function linkKakao(redirectTo: string) {
+/* ★ **provider 를 받는다.** 카카오용·애플용을 따로 만들면 공식이 두 벌이 되고,
+   한쪽만 고치는 날 둘이 갈라진다(§13.20에서 이미 겪은 형태다). */
+export const SOCIALS = ["kakao", "apple"] as const;
+export type Social = (typeof SOCIALS)[number];
+const PROV_NAME: Record<string, string> = { kakao: "카카오", apple: "애플" };
+export const provName = (p: string) => PROV_NAME[p] ?? p;
+
+/* 지금 임시 계정에 **얹는다**. 계정 id 가 그대로라 아무것도 안 옮긴다. */
+export async function linkProvider(provider: Social, redirectTo: string) {
   if (!SESSION.access_token) return { ok: false, why: "먼저 시작해야 합니다" };
   const p = await providers();
-  if (!p.kakao) return { ok: false, why: "카카오 로그인이 아직 켜져 있지 않습니다" };
+  if (!p[provider])
+    return { ok: false, why: `${provName(provider)} 로그인이 아직 켜져 있지 않습니다` };
   try {
-    const u = `${CFG.url}/auth/v1/user/identities/authorize?provider=kakao`
+    const u = `${CFG.url}/auth/v1/user/identities/authorize?provider=${provider}`
             + `&skip_http_redirect=true&redirect_to=${encodeURIComponent(redirectTo)}`;
     const r = await fetch(u, { headers: { apikey: CFG.anonKey,
       Authorization: `Bearer ${SESSION.access_token}` } });
@@ -174,10 +182,11 @@ export async function linkKakao(redirectTo: string) {
 }
 
 /* 다른 기기에서 그 계정으로 **들어온다**. 세션이 바뀌는 문이다. */
-export async function kakaoSignInUrl(redirectTo: string) {
+export async function providerSignInUrl(provider: Social, redirectTo: string) {
   const p = await providers();
-  if (!p.kakao) return { ok: false, why: "카카오 로그인이 아직 켜져 있지 않습니다" };
-  return { ok: true, url: `${CFG.url}/auth/v1/authorize?provider=kakao`
+  if (!p[provider])
+    return { ok: false, why: `${provName(provider)} 로그인이 아직 켜져 있지 않습니다` };
+  return { ok: true, url: `${CFG.url}/auth/v1/authorize?provider=${provider}`
     + `&redirect_to=${encodeURIComponent(redirectTo)}` };
 }
 

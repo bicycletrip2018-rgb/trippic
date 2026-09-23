@@ -44,11 +44,11 @@ export function listenForAuth(onDone: Done) {
   return () => { sub.remove(); started = false; };
 }
 
-/** 카카오로 나간다. 돌아오는 것은 위 리스너가 받는다. */
-export async function openKakao(mode: "link" | "signin") {
+/** 그 곳으로 나간다. 돌아오는 것은 위 리스너가 받는다. */
+export async function openSocial(provider: API.Social, mode: "link" | "signin") {
   const r = mode === "link"
-    ? await API.linkKakao(REDIRECT)
-    : await API.kakaoSignInUrl(REDIRECT);
+    ? await API.linkProvider(provider, REDIRECT)
+    : await API.providerSignInUrl(provider, REDIRECT);
   if (!r.ok || !r.url) return { ok: false, why: r.why };
   const can = await Linking.canOpenURL(r.url);
   if (!can) return { ok: false, why: "브라우저를 열 수 없습니다" };
