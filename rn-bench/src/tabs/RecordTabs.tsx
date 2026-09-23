@@ -11,6 +11,7 @@ import {
 import * as API from "../api";
 import { C, CAT } from "../theme";
 import { DayCourse } from "../DayCourse";
+import { openKakao } from "../oauth";
 
 type Pin = {
   id: string; category: string; visited_at: string; memo: string | null;
@@ -108,6 +109,11 @@ export function MyTab() {
   const [signing, setSigning] = useState(false);
   const [uid, setUid] = useState<string | null>(API.SESSION.user_id);
   const [course, setCourse] = useState(false);
+  /* ★ 켜져 있는 것만 보여 준다 — 꺼져 있는데 버튼을 두면 누른 사람이
+     `Unsupported provider` 를 본다 (§13.41). */
+  const [kakaoOn, setKakaoOn] = useState(false);
+  const [kakaoMsg, setKakaoMsg] = useState<string | null>(null);
+  useEffect(() => { void API.providers().then((p) => setKakaoOn(!!p.kakao)); }, []);
 
   useEffect(() => { void API.myTrips().then((r) => setTrips(r.data ?? [])); }, [rows.length]);
 
@@ -132,6 +138,25 @@ export function MyTab() {
         <Text style={s.boxV}>사진에서 복원한 그날의 순서 · 체류 · 이동 ›</Text>
       </Pressable>
       {course && <DayCourse onClose={() => setCourse(false)} />}
+
+      {/* 카카오로 이어 두기 — 계정 id 가 그대로라 아무것도 옮기지 않는다(§13.41) */}
+      {kakaoOn && uid && (
+        <View style={s.box}>
+          <Text style={s.boxT}>카카오로 이어 두기</Text>
+          <Text style={s.boxV}>
+            지금 계정에 카카오를 얹습니다. 기록은 그대로 있고, 다른 기기에서
+            카카오로 들어오시면 됩니다.
+          </Text>
+          <Pressable style={s.cta} onPress={async () => {
+            setKakaoMsg("카카오로 이동합니다…");
+            const r = await openKakao("link");
+            if (!r.ok) setKakaoMsg(r.why ?? "열지 못했습니다");
+          }}>
+            <Text style={s.ctaT}>카카오로 이어 두기</Text>
+          </Pressable>
+          {!!kakaoMsg && <Text style={s.warn}>{kakaoMsg}</Text>}
+        </View>
+      )}
 
       <View style={s.box}>
         <Text style={s.boxT}>계정</Text>

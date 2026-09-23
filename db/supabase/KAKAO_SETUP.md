@@ -35,8 +35,16 @@ Authentication → Providers → **Kakao**
 Authentication → URL Configuration → **Redirect URLs** 에 앱이 돌아올 주소를 넣는다.
 여기 없는 주소로는 **돌려보내지 않는다** (그게 이 목록의 존재 이유다).
 
-- 개발: `http://localhost:3012/index.html`
-- RN(앱): `trippic://auth` 같은 딥링크 — 앱 스킴을 정한 뒤 등록한다
+- 개발(웹): `http://localhost:3012/index.html`
+- **RN(앱): `app.trippic.bench://auth`**
+
+  ★ 새 스킴을 만들지 않았다. Expo 가 번들 id 를 **기본 스킴으로 이미 Info.plist 에
+  넣어 두었다** — 새로 만들면 재빌드가 붙는다(§13.28). 확인:
+  ```bash
+  grep -A3 CFBundleURLSchemes rn-bench/ios/rnbench/Info.plist
+  ```
+  나중에 `trippic://` 처럼 짧은 스킴을 쓰고 싶으면 `app.json` 의 `expo.scheme` 에
+  넣고 **한 번 재빌드**한 뒤, 이 목록의 주소도 같이 바꾼다.
 
 ## 4. 확인
 ```bash
@@ -47,5 +55,6 @@ curl -s "$SUPABASE_URL/auth/v1/settings" -H "apikey: $ANON_KEY" | grep -o '"kaka
 ## 아직 안 된 것
 - **애플 로그인** — iOS 앱을 스토어에 올리려면 소셜 로그인이 있을 때 애플도 필수다.
   유료 개발자 프로그램($99/년)과 Service ID·Key 발급이 필요하다.
-- **RN 쪽 콜백** — 웹은 `#access_token` 을 받는 코드가 있지만, 앱은 딥링크로 받아야 한다.
-  스킴을 정하면 그때 붙인다.
+- **콜드 스타트(앱이 꺼져 있을 때 링크가 깨우는 경로)** 는 **개발 빌드에서 확인할 수 없다.**
+  Expo 개발 런처가 URL 을 가로채 자기 화면을 띄운다. 릴리스 빌드에서 다시 봐야 한다.
+  (앱이 떠 있을 때 들어오는 경로는 시뮬레이터에서 확인했다 — §13.42)

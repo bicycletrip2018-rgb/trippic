@@ -129,6 +129,74 @@ export async function ensureSession() {
   return signInAnonymously();
 }
 
+/* ── 소셜 로그인 (§13.41 · §13.42) ────────────────────────────────
+   ★ **켜져 있는 것만 보여 준다.** 꺼져 있는데 버튼을 두면 누른 사람이
+     `Unsupported provider` 를 본다 — 우리 설정 문제를 사용자 화면에 떠넘기는 것이다. */
+let PROVIDERS: Record<string, boolean> | null = null;
+export async function providers() {
+  if (PROVIDERS) return PROVIDERS;
+  if (!isOn()) return (PROVIDERS = {});
+  try {
+    const r = await fetch(`${CFG.url}/auth/v1/settings`, { headers: { apikey: CFG.anonKey } });
+    PROVIDERS = (await r.json())?.external ?? {};
+  } catch { PROVIDERS = {}; }
+  return PROVIDERS!;
+}
+
+/* 지금 임시 계정에 카카오를 **얹는다**. 계정 id 가 그대로라 아무것도 안 옮긴다. */
+export async function linkKakao(redirectTo: string) {
+  if (!SESSION.access_token) return { ok: false, why: "먼저 시작해야 합니다" };
+  const p = await providers();
+  if (!p.kakao) return { ok: false, why: "카카오 로그인이 아직 켜져 있지 않습니다" };
+  try {
+    const u = `${CFG.url}/auth/v1/user/identities/authorize?provider=kakao`
+            + `&skip_http_redirect=true&redirect_to=${encodeURIComponent(redirectTo)}`;
+    const r = await fetch(u, { headers: { apikey: CFG.anonKey,
+      Authorization: `Bearer ${SESSION.access_token}` } });
+    const j: any = await r.json().catch(() => ({}));
+    if (!r.ok || !j.url) return { ok: false, why: j?.msg ?? `HTTP ${r.status}` };
+    return { ok: true, url: j.url as string };
+  } catch (e: any) { return { ok: false, why: String(e?.message ?? e) }; }
+}
+
+/* 다른 기기에서 그 계정으로 **들어온다**. 세션이 바뀌는 문이다. */
+export async function kakaoSignInUrl(redirectTo: string) {
+  const p = await providers();
+  if (!p.kakao) return { ok: false, why: "카카오 로그인이 아직 켜져 있지 않습니다" };
+  return { ok: true, url: `${CFG.url}/auth/v1/authorize?provider=kakao`
+    + `&redirect_to=${encodeURIComponent(redirectTo)}` };
+}
+
+/* 돌아왔다. 웹은 `location.hash`, 앱은 **딥링크 문자열**이라 URL 을 받아서 푼다.
+   ★ **확인되기 전에는 세션으로 받아들이지 않는다.** 먼저 저장했다가 토큰이 가짜면
+     `user_id` 가 null 인 채 "로그인됨" 이 남고, 그 상태에서는 쓰기가 전부 튕긴다
+     — 사용자는 이유를 모른다 (§13.41 에서 웹에서 겪었다). */
+export async function consumeAuthRedirect(url: string) {
+  const i = url.indexOf("#");
+  if (i < 0) return null;
+  const q = new URLSearchParams(url.slice(i + 1));
+  const at = q.get("access_token"), rt = q.get("refresh_token");
+  if (!at) {
+    const err = q.get("error_description") || q.get("error");
+    return err ? { ok: false, why: decodeURIComponent(err) } : null;
+  }
+  const prev = { ...SESSION };
+  SESSION.access_token = at; SESSION.refresh_token = rt;
+  let me: any = null;
+  try {
+    const r = await fetch(`${CFG.url}/auth/v1/user`, { headers: headers() });
+    if (r.ok) me = await r.json();
+  } catch {}
+  if (!me?.id) {
+    Object.assign(SESSION, prev);
+    return { ok: false, why: "로그인을 마치지 못했습니다 — 다시 시도해 주십시오" };
+  }
+  SESSION.user_id = me.id;
+  SESSION.anonymous = !!me.is_anonymous;
+  await saveSession();
+  return { ok: true, user: SESSION.user_id };
+}
+
 /* ── 읽기 ──────────────────────────────────────────────────── */
 const PIN_COLS =
   "id,trip_id,place_id,region_code,geom,category,visited_at,stay_sec,memo,verification,is_public,comment_count," +

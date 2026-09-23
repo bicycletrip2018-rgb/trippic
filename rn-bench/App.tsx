@@ -17,6 +17,7 @@ import { NewsTab, SpaceTab, MyTab } from "./src/tabs/RecordTabs";
 import { RegisterFlow } from "./src/RegisterFlow";
 import { UploadPill } from "./src/UploadPill";
 import * as Q from "./src/uploadQueue";
+import { listenForAuth } from "./src/oauth";
 import * as API from "./src/api";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./src/config";
 import { C } from "./src/theme";
@@ -37,6 +38,13 @@ export default function App() {
       void Q.start();
     });
   }, []);
+
+  /* ★ 소셜 로그인에서 돌아오는 길. **두 경로를 다 받는다** — 앱이 떠 있으면
+     `url` 이벤트로, 꺼져 있었으면 그 링크가 앱을 깨우면서 온다(§13.42).
+     하나만 받으면 "카카오 눌렀는데 아무 일도 안 일어난다"가 절반의 경우에 생긴다. */
+  useEffect(() => listenForAuth((r) => {
+    if (r.ok) void API.loadSession();
+  }), []);
 
   /* 지도 중심 — 탭2 가 이걸 물려받는다. §12.14: 탭마다 지역을 다시 묻지 않는다. */
   const center = { lat: 36.3, lng: 127.8 };
