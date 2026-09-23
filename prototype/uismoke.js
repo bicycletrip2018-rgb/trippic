@@ -76,6 +76,10 @@
     R.lines.push("── 0-b. 지도 바텀시트 ──");
     ok(/다녀간 사람들이 남긴 기록/.test(txt($("#shWhy"))),
        "★ 시트가 무엇의 목록인지 말한다 — 탭2(갈 이유)와 겹쳐 보이면 안 된다");
+    /* ★ 폰 폭에서 제목이 `모두 / 의 / 지도` 로 세 줄이 됐다.
+       한 줄에 제목·개수·정렬·설명을 다 밀어 넣은 탓이다. */
+    ok($("#shTitle").getBoundingClientRect().height < 30,
+       `★ 제목이 한 줄이다 (${Math.round($("#shTitle").getBoundingClientRect().height)}px) — 폰 폭에서 세 줄로 쪼개졌었다`);
     ok($$("#list .cauthor").length > 0, "카드마다 작성자가 보인다");
     ok($$("#list .cver.live").length > 0 && $$("#list .cver").length === $$("#list .cauthor").length,
        "★ 현장 인증이 시트에서도 구분된다 — §009가 만든 구분이 가장 많이 보는 화면에 없었다");

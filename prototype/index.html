@@ -104,9 +104,16 @@
   #sheet.expanded{--sheet-h:min(74vh,620px)}
   #grab{padding:9px 0 5px;display:flex;justify-content:center;cursor:pointer;flex:none}
   #grab i{display:block;width:38px;height:4px;border-radius:99px;background:var(--text-muted);opacity:.55}
-  #sheetHead{display:flex;align-items:baseline;gap:8px;padding:0 16px 9px;flex:none}
-  #sheetHead b{font-size:14.5px;font-weight:700;letter-spacing:-.2px}
-  #sheetHead span{font-size:11.5px;color:var(--text-muted)}
+  /* ★ 폰 폭(375px)에서 제목이 **세 줄로 쪼개졌다** — `모두 / 의 / 지도`.
+     정렬 버튼과 설명까지 한 줄에 밀어 넣은 탓이다.
+     제목은 안 쪼개고(nowrap), 설명은 아래로 내린다. */
+  #sheetHead{display:flex;align-items:baseline;gap:8px;padding:0 16px 9px;flex:none;flex-wrap:wrap}
+  #sheetHead b{font-size:14.5px;font-weight:700;letter-spacing:-.2px;white-space:nowrap;flex:none}
+  #sheetHead span{font-size:11.5px;color:var(--text-muted);white-space:nowrap;flex:none}
+  @media (max-width:430px){
+    #shWhy{order:9;flex-basis:100%;margin-top:2px}
+    #sheetHead b{font-size:13.5px}
+  }
   #chips{display:flex;gap:6px;padding:0 16px 11px;overflow-x:auto;flex:none;scrollbar-width:none}
   #chips::-webkit-scrollbar{display:none}
   .chip{padding:6px 12px;border-radius:99px;font-size:11.5px;font-weight:600;cursor:pointer;
