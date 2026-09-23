@@ -937,5 +937,80 @@ do $$ begin
   end;
 end $$;
 
+
+-- ── 031 뷰포트로 잘라 읽기 ────────────────────────────────────────────
+-- ★ 지도가 "보고 있는 만큼만" 받는지. 여기가 틀리면 화면 밖 기록을 실어 오거나
+--   (쓸모없는 대역폭) 화면 안 기록을 빠뜨린다 (사용자에게는 사라진 것이다).
+-- ★ 기대값을 숫자로 박지 않는다 — 앞선 검사들이 핀을 더 만들기 때문에
+--   박아 두면 위쪽을 고칠 때마다 여기가 같이 깨진다. **같은 조건을 직접 세서** 비교한다.
+-- ★ 앞선 검사들이 이 핀들의 공개 여부를 바꿔 놓는다. 물려받은 상태를 믿지 않고
+--   **여기서 필요한 상태를 직접 세운다** — 위쪽을 고칠 때마다 아래가 깨지면 그물이 아니다.
+select pg_temp.login('11111111-1111-1111-1111-111111111111');
+update public.pins set is_public = true  where id='77777777-0000-0000-0000-000000000002';
+update public.pins set is_public = false where id='77777777-0000-0000-0000-000000000001';
+
+select pg_temp.ok(
+  (select count(*) from public.api_pins_in_bbox(129.79, 35.15, 129.81, 35.17, 300, null))
+  = (select count(*) from public.pins
+     where deleted_at is null
+       and geom && ST_MakeEnvelope(129.79, 35.15, 129.81, 35.17, 4326)),
+  '화면 안의 내 핀·공개 핀이 빠짐없이 온다');
+
+select pg_temp.ok(
+  (select count(*) from public.api_pins_in_bbox(126.90, 37.50, 127.10, 37.62, 300, null)) = 0,
+  '★ 서울 화면에는 해운대 기록이 안 온다 — 이게 없으면 받은 것의 대부분이 버려진다');
+
+select pg_temp.ok(
+  (select count(*) from public.api_pins_in_bbox(129.79, 35.15, 129.81, 35.17, 300, 'cafe'))
+  = (select count(*) from public.pins
+     where deleted_at is null and category = 'cafe'
+       and geom && ST_MakeEnvelope(129.79, 35.15, 129.81, 35.17, 4326)),
+  '카테고리 필터가 서버에서 걸린다');
+
+-- ★ 잘렸다는 사실을 돌려주는가. 개수를 세지 않고 limit+1 **한 개**로 안다.
+select pg_temp.ok(
+  (select count(*) from public.api_pins_in_bbox(129.79, 35.15, 129.81, 35.17, 1, null)) = 1
+  and (select bool_and(more) from public.api_pins_in_bbox(129.79, 35.15, 129.81, 35.17, 1, null)),
+  '★ 화면에 더 있으면 more=true — 잘린 것을 숨기지 않는다');
+select pg_temp.ok(
+  (select bool_and(not more) from public.api_pins_in_bbox(129.79, 35.15, 129.81, 35.17, 300, null)),
+  '다 실어 보냈으면 more=false');
+
+-- 남의 눈으로 본다
+select pg_temp.login('33333333-3333-3333-3333-333333333333');
+select pg_temp.ok(
+  (select bool_and(is_public) from public.api_pins_in_bbox(129.79, 35.15, 129.81, 35.17, 300, null))
+  and (select count(*) from public.api_pins_in_bbox(129.79, 35.15, 129.81, 35.17, 300, null)) > 0,
+  '★ 남에게는 공개 핀만 보인다 — 뷰포트 함수가 RLS 를 우회하지 않는다');
+select pg_temp.ok(
+  (select bool_and(not is_mine) from public.api_pins_in_bbox(129.79, 35.15, 129.81, 35.17, 300, null)),
+  'is_mine 이 남의 것을 내 것이라 하지 않는다');
+
+-- ★ 공개 핀에는 **공개 자격이 있는 사진만** 붙는다(009).
+--   판정에서 빠진 사진이 모두의 지도에 뜨면 그 판정은 아무 일도 안 한 것이다.
+select pg_temp.login('11111111-1111-1111-1111-111111111111');
+update public.media set public_ok = false where pin_id='77777777-0000-0000-0000-000000000002';
+update public.media set public_ok = false where pin_id='77777777-0000-0000-0000-000000000001';
+select pg_temp.login('33333333-3333-3333-3333-333333333333');
+select pg_temp.ok(
+  (select media_url is null from public.api_pins_in_bbox(129.79, 35.15, 129.81, 35.17, 300, null)
+    where id='77777777-0000-0000-0000-000000000002'),
+  '★ 공개 자격 없는 사진은 모두의 지도에 안 붙는다 (핀은 오되 사진만 빠진다)');
+
+/* ★ **주인에게도 똑같이 안 보인다.** 주인한테만 보여 주면 "내 사진이 지도에 있다"고
+   믿게 되는데 실제로는 아무도 못 본다 — 판정을 해 놓고 말하지 않는 것과 같다.
+   지도가 보여 주는 것과 주인이 보는 것은 같아야 한다. 빠졌다는 말은 등록 화면이 한다. */
+select pg_temp.login('11111111-1111-1111-1111-111111111111');
+select pg_temp.ok(
+  (select media_url is null from public.api_pins_in_bbox(129.79, 35.15, 129.81, 35.17, 300, null)
+    where id='77777777-0000-0000-0000-000000000002'),
+  '★ 공개 핀이면 주인에게도 안 보인다 — 지도가 보여 주는 것과 내가 보는 것이 같다');
+
+-- 비공개 핀은 나만 보는 것이라 공개 자격을 따지지 않는다
+select pg_temp.ok(
+  (select media_url is not null from public.api_pins_in_bbox(129.79, 35.15, 129.81, 35.17, 300, null)
+    where id='77777777-0000-0000-0000-000000000001'),
+  '★ 비공개 핀에서는 내 사진이 그대로 보인다 — 공개 자격은 공개할 때만 따진다');
+
 reset role;
 rollback;   -- 아무것도 남기지 않는다

@@ -1873,24 +1873,49 @@ function renderTrust(){
      서버 기록 7개만 남기면 지도가 텅 빈다. 실제 앱에서는 씨앗이 없으므로
      이 합치기가 곧 전부가 된다. */
 let SERVER_PINS = [];
-async function loadServerPins(){
+/* ★ 이미 읽은 상자. 이 안에 있으면 다시 안 읽는다 — 한 픽셀 밀 때마다 서버를 부르면
+   요금과 배터리가 화면을 미는 손가락에 비례한다. */
+let LOADED_BOX = null;
+let SERVER_MORE = false;
+/* 뷰포트보다 넉넉히 읽는다. 조금씩 미는 동안은 공짜가 된다.
+   ★ 크게 잡을수록 왕복은 줄지만 한 번에 오는 양이 는다. 0.4(=화면의 1.8배 넓이)는
+     "한 화면 밀어도 안 부른다"를 만족하는 가장 작은 값이다. */
+const PAD = 0.4;
+const padBox = b => {
+  const dx = (b.e - b.w) * PAD, dy = (b.n - b.s) * PAD;
+  return { w: b.w - dx, s: b.s - dy, e: b.e + dx, n: b.n + dy };
+};
+const inside = (inner, outer) => !!outer &&
+  inner.w >= outer.w && inner.e <= outer.e && inner.s >= outer.s && inner.n <= outer.n;
+
+async function loadServerPins(force){
   if(!(window.API && API.on)) return 0;
-  const mine = API.session.access_token ? await API.myRecords(200) : {ok:false,data:[]};
-  const pub  = await API.publicRecords(200);
-  const rows = [...(mine.data||[]), ...(pub.data||[])];
+  /* ★ 집계 줌에서는 핀을 안 읽는다. 전국 한 화면이 상자가 되면 "뷰포트로 자른다"가
+     아무것도 자르지 않는 말이 된다 — 그 줌에서 화면에 그리는 것은 지역 집계다. */
+  if(zoomUnit(map.getZoom()) === 'region'){ return 0; }
+
+  const b0 = map.getBounds();
+  const view = { w:b0.getWest(), s:b0.getSouth(), e:b0.getEast(), n:b0.getNorth() };
+  if(!force && inside(view, LOADED_BOX)) return 0;
+  const box = padBox(view);
+
+  const r = await API.pinsInBBox(box, { limit: 300, cat: state.cat==='all' ? null : state.cat });
+  if(!r.ok) return 0;
+  LOADED_BOX = box; SERVER_MORE = r.more;
+
   const seen = new Set(SERVER_PINS.map(f=>f.properties.pinId));
   let added = 0;
-  for(const r of rows){
-    if(seen.has(r.id)) continue;
-    const f = API.toFeature(r);
+  for(const row of r.data){
+    if(seen.has(row.id)) continue;
+    const f = API.toFeature(row);
     if(!f) continue;
-    seen.add(r.id); SERVER_PINS.push(f); poi.features.push(f); added++;
+    seen.add(row.id); SERVER_PINS.push(f); poi.features.push(f); added++;
   }
-  if(added){
+  if(added || r.more){
     // 서버 사진은 URL 이라 PHOTOS 배열에 없다 — imgi 대신 photoUrl 을 쓴다
     try { refreshPoi(); renderList(); } catch(e){ console.warn('[server] 지도 갱신', e); }
   }
-  console.log('[server] 기록', rows.length, '중', added, '개를 지도에 합쳤다');
+  console.log('[server] 화면 안', r.data.length, '개 중', added, '개 추가', r.more ? '(더 있음)' : '');
   return added;
 }
 window.loadServerPins = loadServerPins;
@@ -1910,7 +1935,11 @@ function renderList(){
   /* ★ 탭2는 묶음마다 '왜 떴는지'를 적는데 이 화면은 한 마디도 안 했다.
      탭1 시트는 **사람이 다녀간 증거**고 탭2는 **갈 이유**다 — 둘이 겹쳐 보이지 않으려면 말해야 한다. */
   renderTrust();                          // 화면이 바뀌면 칩의 곳 수도 바뀐다
-  $('#shWhy').textContent = !feats.length ? ''
+  /* ★ 서버가 자른 것을 말한다. 안 말하면 사용자는 "내 기록이 왜 없지"를 겪고,
+     그건 §13.24 가 막으려던 것과 같은 모양의 침묵이다. */
+  $('#shWhy').textContent = SERVER_MORE && feats.length
+    ? '이 화면에 기록이 더 있습니다 — 확대하면 다 보입니다'
+    : !feats.length ? ''
     : state.region ? `${state.region.name}에서 사람들이 남긴 기록입니다`
     : '여기 다녀간 사람들이 남긴 기록입니다';
 
@@ -2287,7 +2316,10 @@ function bench(){
     renderLensMenu();
     refreshPoi();
 
-    map.on('moveend', ()=>{ clearTimeout(listTimer); listTimer=setTimeout(refreshPoi,180); });
+    map.on('moveend', ()=>{
+      clearTimeout(listTimer);
+      listTimer=setTimeout(()=>{ refreshPoi(); loadServerPins(); },180);
+    });
     // 줌은 즉시 반응해야 한다 — 180ms 뒤에 단위가 바뀌면 손이 먼저 가 있다
     map.on('zoom', applyZoomUnit);
     /* ★ 전국 줌으로 **나갔을 때** 스코프를 푼다. 안 풀면 집계가 한 지역만 칠해져
@@ -2346,7 +2378,7 @@ function bench(){
     if (window.initFeed) window.initFeed();
     if (window.initHome) window.initHome();
     if (window.initMy) window.initMy();
-    if (window.loadServerPins) loadServerPins();
+    if (window.loadServerPins) loadServerPins(true);
     window.__ready = true;
   });
 

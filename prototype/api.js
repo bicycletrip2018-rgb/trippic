@@ -468,11 +468,33 @@
       `&limit=${limit || 200}&select=${PIN_COLS}`);
   }
 
-  /* 모두의 지도 — 비로그인도 읽는다(§3). 뷰포트로 자르는 것은 다음 일이다. */
+  /* 모두의 지도 — 비로그인도 읽는다(§3).
+     ★ 뷰포트를 모를 때만 쓴다(목록 화면 등). 지도는 pinsInBBox 를 쓴다 — 아래 참조. */
   async function publicRecords(limit) {
     return select("pins",
       `is_public=eq.true&deleted_at=is.null&order=visited_at.desc` +
       `&limit=${limit || 200}&select=${PIN_COLS}`);
+  }
+
+  /* ── 뷰포트로 잘라 읽기 (§13.31 · 031) ────────────────────────
+     ★ 최근 200개를 읽던 방식은 두 가지가 동시에 틀렸다:
+       ㉠ 서울을 보는데 제주 기록이 실려 온다 — 5만 개를 남한에 뿌리고 재보니
+         **받은 300개 중 화면 안은 0개**였다.
+       ㉡ 기록이 200개를 넘는 순간 오래된 곳이 지도에서 사라진다 —
+         사용자에게는 자기가 올린 것이 없어진 것이다. §13.24 가 막으려던 바로 그 일이다.
+     ★ 내 것과 공개 것을 **한 번에** 받는다. 따로 부르면 왕복이 두 번이고
+       두 응답의 시점이 어긋나 지도가 깜빡인다.
+     ★ `more` 는 개수가 아니라 "더 있다"는 사실이다 — 정확한 개수를 알려면
+       뷰포트 전체를 세야 하는데, 그게 이 함수가 피하려는 일이다. */
+  async function pinsInBBox(b, opts) {
+    const o = opts || {};
+    const r = await rpc("api_pins_in_bbox", {
+      p_w: b.w, p_s: b.s, p_e: b.e, p_n: b.n,
+      p_limit: o.limit || 300, p_cat: safeCat(o.cat),
+    });
+    if (!r.ok) return { ok: false, via: "local", data: [], more: false };
+    const rows = r.data || [];
+    return { ok: true, via: "server", data: rows, more: !!(rows[0] && rows[0].more) };
   }
 
   async function myTrips() {
@@ -484,10 +506,15 @@
   /* 서버 줄 → 화면이 쓰는 모양. **여기 한 곳에서만 바꾼다** —
      여러 곳에서 각자 바꾸면 필드 이름이 갈라진다(§13.17에서 겪었다). */
   function toFeature(r) {
-    const c = (r.geom && r.geom.coordinates) || null;
+    /* ★ 두 가지 모양이 들어온다: PostgREST 의 `geom`(GeoJSON) + embed 된 `media`,
+       그리고 031 의 `lng/lat` + `media_url`. **여기서 하나로 만든다** —
+       화면이 출처를 알게 하면 화면마다 분기가 생기고, 그게 필드 이름이 갈라지는 길이다. */
+    const c = (r.geom && r.geom.coordinates)
+           || (r.lng != null && r.lat != null ? [r.lng, r.lat] : null);
     if (!c) return null;
-    const m = (r.media || []).slice().sort((a, b) =>
-      (b.is_main - a.is_main) || (a.sort_order - b.sort_order))[0];
+    const m = r.media_url ? { url: r.media_url, width: r.media_w, height: r.media_h }
+      : (r.media || []).slice().sort((a, b) =>
+          (b.is_main - a.is_main) || (a.sort_order - b.sort_order))[0];
     return {
       type: "Feature",
       geometry: { type: "Point", coordinates: [c[0], c[1]] },
@@ -495,10 +522,10 @@
         n: r.memo ? r.memo.slice(0, 20) : "내 기록",
         c: r.category || "etc", rn: "", likes: 0,
         server: true, pinId: r.id, tripId: r.trip_id,
-        mine: true, pub: !!r.is_public, au: "u1",
+        mine: r.is_mine !== undefined ? !!r.is_mine : true, pub: !!r.is_public, au: "u1",
         ver: r.verification === "live" ? "live" : "exif",
         photoUrl: m ? m.url : null,
-        nu: 1, np: (r.media || []).length,
+        nu: 1, np: r.media_url ? 1 : (r.media || []).length,
         visitedAt: r.visited_at, memo: r.memo, comments: r.comment_count || 0,
       },
     };
@@ -515,5 +542,5 @@
     safeCat, PIN_CATEGORY, signInAnonymously, refresh, clearSession, session: SESSION,
     insert, select, addComment, listComments, links: LINKS,
     shrink, uploadPhoto, attachMedia, ensurePin, ensureSpace, pushTrip,
-    myRecords, publicRecords, myTrips, toFeature });
+    myRecords, publicRecords, pinsInBBox, myTrips, toFeature });
 })();

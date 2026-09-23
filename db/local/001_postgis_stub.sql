@@ -35,6 +35,20 @@ language sql immutable as $$ select $1[0] $$;
 create or replace function ST_Y(point) returns double precision
 language sql immutable as $$ select $1[1] $$;
 
+-- ── 경계상자 겹침 (&&) ───────────────────────────────────────────────
+-- PostGIS 의 `geom && envelope` 는 GiST 인덱스를 타는 **경계상자 겹침** 연산자다.
+-- core 에는 point && box 가 없어서 직접 만든다 (031 이 이걸 쓴다).
+-- ★ 정확성이 아니라 **문법**을 보는 스텁이므로 포함 여부로 대신한다 —
+--   점의 경계상자는 점 자신이라 `<@` 가 곧 겹침이다.
+create or replace function public.geom_bbox_overlaps(point, box) returns boolean
+language sql immutable as $$ select $1 <@ $2 $$;
+create operator && (leftarg = point, rightarg = box,
+                    function = public.geom_bbox_overlaps, commutator = &&);
+create or replace function public.geom_bbox_overlaps(box, point) returns boolean
+language sql immutable as $$ select $2 <@ $1 $$;
+create operator && (leftarg = box, rightarg = point,
+                    function = public.geom_bbox_overlaps, commutator = &&);
+
 -- ── 관계·거리 ─────────────────────────────────────────────────────────
 create or replace function ST_Intersects(point, box) returns boolean
 language sql immutable as $$ select $1 <@ $2 $$;

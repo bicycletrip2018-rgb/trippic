@@ -147,6 +147,36 @@ export const myRecords = (limit = 200) =>
         `user_id=eq.${SESSION.user_id}&deleted_at=is.null&order=visited_at.desc&limit=${limit}&select=${PIN_COLS}`)
     : Promise.resolve({ ok: false, via: "off", data: [] } as R<any[]>);
 
+/* ── 뷰포트로 잘라 읽기 (§13.31 · 031) ────────────────────────
+   ★ `publicRecords` 는 **최근 200개**를 읽는다. 5만 개를 남한에 뿌리고 재보니
+     받은 300개 중 화면 안은 **0개**였다 — 지도에 쓰면 거의 전부가 버려진다.
+     그리고 기록이 limit 를 넘는 순간 오래된 곳이 지도에서 사라진다.
+   ★ 내 것과 공개 것을 한 번에 받는다. 따로 부르면 두 응답의 시점이 어긋나 깜빡인다.
+   ★ `more` 는 개수가 아니라 "더 있다"는 사실이다 — 정확한 개수를 세는 것이
+     이 함수가 피하려는 일 그 자체다. */
+export type BBox = { w: number; s: number; e: number; n: number };
+
+export async function pinsInBBox(
+  b: BBox, opts?: { limit?: number; cat?: string | null },
+) {
+  const r = await rpc<any[]>("api_pins_in_bbox", {
+    p_w: b.w, p_s: b.s, p_e: b.e, p_n: b.n,
+    p_limit: opts?.limit ?? 300, p_cat: safeCat(opts?.cat),
+  });
+  const rows = r.ok ? (r.data ?? []) : [];
+  return { ok: r.ok, via: r.via, data: rows, more: !!rows[0]?.more };
+}
+
+/* 뷰포트보다 넉넉히 읽어 두면 조금씩 미는 동안은 공짜다.
+   0.4(=화면의 1.8배 넓이)는 "한 화면 밀어도 안 부른다"를 만족하는 가장 작은 값이다. */
+export const PAD = 0.4;
+export const padBox = (b: BBox): BBox => {
+  const dx = (b.e - b.w) * PAD, dy = (b.n - b.s) * PAD;
+  return { w: b.w - dx, s: b.s - dy, e: b.e + dx, n: b.n + dy };
+};
+export const boxInside = (inner: BBox, outer: BBox | null) => !!outer &&
+  inner.w >= outer.w && inner.e <= outer.e && inner.s >= outer.s && inner.n <= outer.n;
+
 export const myTrips = () =>
   SESSION.user_id
     ? select<any[]>("trips",
