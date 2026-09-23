@@ -1,0 +1,22 @@
+# 비밀값
+.env
+.env.*
+!.env.example
+
+# 공공데이터 원본·중간산출물 (용량이 크다)
+data/*.csv
+data/*.zip
+data/sang/
+data/out/
+
+# 빌드 산출물
+node_modules/
+rn-port/node_modules/
+rn-bench/ios/Pods/
+rn-bench/ios/build/
+
+# macOS
+.DS_Store
+
+# 다른 저장소 (별도 관리)
+rn-bench/

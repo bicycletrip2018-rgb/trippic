@@ -1,0 +1,7 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "trippic-proto", "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "3011", "--directory", "prototype"], "port": 3011 }
+  ]
+}
