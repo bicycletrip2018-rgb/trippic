@@ -753,7 +753,29 @@
     ok($$(".vwPane").length > 0 && document.querySelector(".vwC .vwCIn").value === "",
        "입력칸이 비워진다");
     ok(Object.values(UP.comments).flat().some((c) => c.text === "여기 진짜 좋았어"),
-       "★ 댓글이 상태에 남는다 (실제 앱은 comments 테이블)");
+       "★ 댓글이 상태에 남는다");
+
+    /* ── 댓글을 서버로 (§13.21) ─────────────────────────────────
+       ★ 댓글은 **잎사귀**다. 정책이 `pin_spaces ⋈ space_members` 를 요구하므로
+         스페이스·멤버·핀·공유가 **먼저** 있어야 한다.
+         화면만 고쳐서는 안 되고, 그 줄기를 **처음 댓글을 달 때** 만든다. */
+    if (API.on && API.session.access_token) {
+      /* 보내기는 화면을 먼저 그리고 뒤에서 간다 — 결과가 붙을 때까지 기다린다 */
+      await waitFor(() => $(".vwCRow[data-sid]") || $(".vwCRow.vwCFail"), 6000, 150);
+      const sent = $$(".vwCRow").filter((r) => r.dataset.sid).length;
+      const failed = $$(".vwCRow.vwCFail").length;
+      ok(failed === 0, `★ 실패하면 줄에 표시된다 — 조용히 사라지는 것이 가장 나쁘다 (실패 ${failed})`);
+      ok(sent > 0, `★ 댓글이 실제로 서버에 남는다 (${sent}건)`);
+      ok(Object.keys(API.links).some((k) => k.startsWith("pin:")) &&
+         Object.keys(API.links).some((k) => k.startsWith("sp:")),
+         "★ 댓글을 달 때 **스페이스와 핀이 같이 생긴다** — 잎사귀만 심을 수는 없다");
+      const anchor = $(".vwCRow[data-sid]");
+      if (anchor) {
+        const back = await API.listComments(anchor.closest("[data-c]").dataset.c);
+        ok(back.ok && back.data.length > 0,
+           `★ 서버에서 다시 읽힌다 (${back.ok ? back.data.length : 0}건) — 쓰기만 되고 읽기가 안 되면 반쪽이다`);
+      }
+    }
     cBoxes[0].querySelector(".vwCGo").click();
     await sleep(80);
     ok($$(".vwCRow").length === beforeC + 1,

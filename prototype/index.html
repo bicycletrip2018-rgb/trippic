@@ -393,6 +393,10 @@
     border:1px solid var(--surface-line);background:transparent;color:var(--text-primary)}
   .vwCIn::placeholder{color:var(--text-muted)}
   .vwCIn:focus{outline:0;border-color:var(--accent)}
+  /* 보내지 못한 댓글 — 조용히 사라지는 것이 가장 나쁘다 */
+  .vwCRow.vwCFail span{opacity:.55}
+  .vwCRow.vwCFail i{font-style:normal;margin-left:6px;font-size:9.5px;font-weight:700;
+    padding:1px 6px;border-radius:99px;background:rgba(224,169,74,.18);color:#e0a94a;cursor:help}
   .vwCGo{flex:none;padding:8px 13px;border-radius:99px;border:0;cursor:pointer;
     font-family:inherit;font-size:12px;font-weight:700;background:var(--accent);color:#fff}
   #shWhy{flex-basis:100%;order:9;font-size:10.5px;color:var(--text-muted);margin-top:3px}

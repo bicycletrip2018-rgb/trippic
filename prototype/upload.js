@@ -1928,7 +1928,7 @@
 
     /* 댓글 한 줄을 올린다. ★ 화면 전체를 다시 그리지 않는다 —
        다시 그리면 스크롤이 맨 위로 튀어서, 열 장짜리 뷰어에서 쓴 자리를 잃는다. */
-    function postComment(id) {
+    async function postComment(id) {
       const inp = o.querySelector(`[data-cin="${CSS.escape(id)}"]`);
       const text = (inp.value || "").trim();
       if (!text) { inp.focus(); return; }
@@ -1943,6 +1943,24 @@
       if (!em) { em = document.createElement("em"); box.querySelector(".vwCHead").appendChild(em); }
       em.textContent = n;
       inp.value = "";
+
+      /* ★ 서버로도 보낸다. **화면은 먼저 그린다** — 네트워크를 기다리게 하면
+         한 줄 쓰는 일이 느려지고, 그러면 아무도 안 쓴다.
+         실패하면 줄에 표시해 준다. 조용히 사라지는 것이 가장 나쁘다. */
+      if (window.API && API.on && API.session.access_token) {
+        const rec = viewerItems(placeName).find((x) => String(x.id) === String(id));
+        const sp = rec && spaceOf(rec);
+        if (rec && sp) {
+          const r = await API.addComment(rec, sp, SPACE_NAME[sp] || sp, text);
+          if (!r.ok) {
+            row.classList.add("vwCFail");
+            row.insertAdjacentHTML("beforeend",
+              `<i title="${esc(r.why || "")}">보내지 못함</i>`);
+          } else {
+            row.dataset.sid = r.id;
+          }
+        }
+      }
     }
 
     o.querySelector("#upSheet").addEventListener("keydown", (e) => {

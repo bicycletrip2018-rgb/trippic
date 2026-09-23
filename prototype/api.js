@@ -210,6 +210,96 @@
     return { ok: r.ok, via: r.via, sent: r.ok ? sendable.length : 0, queued: rows.length };
   }
 
+  /* ── 표(table) 직접 쓰기 ──────────────────────────────────────
+     RPC 가 아니라 PostgREST 의 표 엔드포인트를 쓴다. RLS 가 그대로 건다. */
+  async function insert(table, row, opts) {
+    if (!ON) return { ok: false, via: "off" };
+    API.calls++;
+    try {
+      const r = await fetch(`${CFG.url}/rest/v1/${table}`, {
+        method: "POST",
+        headers: Object.assign(authHeaders(), { Prefer: "return=representation" }),
+        body: JSON.stringify(row),
+      });
+      const j = await r.json().catch(() => null);
+      if (!r.ok) throw new Error(`${table} ${r.status} ${JSON.stringify(j).slice(0, 140)}`);
+      return { ok: true, via: "server", data: Array.isArray(j) ? j[0] : j };
+    } catch (e) {
+      API.fails++; API.lastError = String(e.message || e);
+      console.warn("[api] insert", table, API.lastError);
+      return { ok: false, via: "local", error: API.lastError };
+    }
+  }
+
+  async function select(table, query) {
+    if (!ON) return { ok: false, via: "off", data: [] };
+    try {
+      const r = await fetch(`${CFG.url}/rest/v1/${table}?${query}`, { headers: authHeaders() });
+      if (!r.ok) throw new Error(`${table} ${r.status}`);
+      return { ok: true, via: "server", data: await r.json() };
+    } catch (e) {
+      API.fails++; API.lastError = String(e.message || e);
+      return { ok: false, via: "local", data: [] };
+    }
+  }
+
+  /* ── 댓글을 서버로 (§13.21) ───────────────────────────────────
+     ★ 댓글은 **잎사귀**다. 정책이 `pin_spaces ⋈ space_members` 를 요구하므로
+       스페이스·멤버·핀·공유가 **먼저** 있어야 한다. 그게 없으면 댓글은 못 쓴다 —
+       화면만 고쳐서는 안 되는 이유다.
+     ★ 그래서 **처음 댓글을 달 때** 그 줄기를 만든다. 미리 다 만들어 두지 않는다 —
+       쓰지도 않을 방과 핀을 서버에 쌓아 두는 것은 쓰레기다. */
+  const LINK_KEY = "trippic.links.v1";
+  const LINKS = (() => { try { return JSON.parse(localStorage.getItem(LINK_KEY) || "{}"); }
+                         catch (e) { return {}; } })();
+  const saveLinks = () => { try { localStorage.setItem(LINK_KEY, JSON.stringify(LINKS)); } catch (e) {} };
+
+  async function ensureSpace(localId, title) {
+    if (LINKS["sp:" + localId]) return LINKS["sp:" + localId];
+    const uid = SESSION.user_id;
+    const sp = await insert("spaces", { type: "shared", title, owner_id: uid });
+    if (!sp.ok) return null;
+    await insert("space_members", { space_id: sp.data.id, user_id: uid, role: "owner" });
+    LINKS["sp:" + localId] = sp.data.id; saveLinks();
+    return sp.data.id;
+  }
+
+  async function ensurePin(rec, spaceLocalId, spaceTitle) {
+    const key = "pin:" + rec.id;
+    if (LINKS[key]) return LINKS[key];
+    const spaceId = await ensureSpace(spaceLocalId, spaceTitle);
+    if (!spaceId) return null;
+    const g = rec.gps || (rec.poi && { lat: rec.poi.geometry.coordinates[1],
+                                       lng: rec.poi.geometry.coordinates[0] });
+    if (!g) return null;
+    const pin = await insert("pins", {
+      user_id: SESSION.user_id,
+      geom: `SRID=4326;POINT(${g.lng} ${g.lat})`,
+      category: safeCat(rec.poi && rec.poi.properties.c) || "etc",
+      visited_at: new Date(rec.ts || Date.now()).toISOString(),
+      memo: rec.memo || null,
+    });
+    if (!pin.ok) return null;
+    await insert("pin_spaces", { pin_id: pin.data.id, space_id: spaceId });
+    LINKS[key] = pin.data.id; saveLinks();
+    return pin.data.id;
+  }
+
+  async function addComment(rec, spaceLocalId, spaceTitle, body) {
+    if (!SESSION.access_token) return { ok: false, why: "로그인 필요" };
+    const pinId = await ensurePin(rec, spaceLocalId, spaceTitle);
+    if (!pinId) return { ok: false, why: API.lastError || "핀을 만들지 못했습니다" };
+    const r = await insert("comments",
+      { pin_id: pinId, user_id: SESSION.user_id, body });
+    return r.ok ? { ok: true, id: r.data.id, pinId } : { ok: false, why: r.error };
+  }
+
+  async function listComments(recId) {
+    const pinId = LINKS["pin:" + recId];
+    if (!pinId) return { ok: true, data: [] };
+    return select("comments", `pin_id=eq.${pinId}&deleted_at=is.null&order=created_at.asc&select=id,body,user_id,created_at`);
+  }
+
   /* 서버가 살아 있는지 — 화면 구석에 표시한다 */
   async function ping() {
     if (!ON) return { ok: false, via: "off", note: "anonKey 미설정 — 로컬 JSON으로 돕니다" };
@@ -218,5 +308,6 @@
   }
 
   window.API = Object.assign(API, { rpc, search, candidates, flushCoverEvents, ping,
-    safeCat, PIN_CATEGORY, signInAnonymously, refresh, clearSession, session: SESSION });
+    safeCat, PIN_CATEGORY, signInAnonymously, refresh, clearSession, session: SESSION,
+    insert, select, addComment, listComments, links: LINKS });
 })();
