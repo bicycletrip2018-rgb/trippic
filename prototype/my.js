@@ -239,6 +239,7 @@
        그리는 쪽과 채우는 쪽의 순서를 지킨다. */
     renderServerCount();
     renderDevice();
+    renderKakao();
   }
 
   /* ── 다른 기기에서 보기 (§13.39) ──────────────────────────────────
@@ -252,6 +253,7 @@
     if (!box || !(window.API && API.on && API.session.access_token)) return;
     const s = API.session;
     box.innerHTML = `
+      <div class="myDevSec" id="myKakao"></div>
       <div class="myDevSec">
         <b>다른 기기에서도 보기</b>
         ${s.anonymous ? `
@@ -277,6 +279,25 @@
         </div>
         <div class="myDevOut" id="myInOut"></div>
       </div>`;
+  }
+
+  /* ★ **켜져 있는 것만 보여 준다.** 카카오가 꺼져 있는데 버튼을 두면 누른 사람은
+     `Unsupported provider` 를 본다 — 우리 설정 문제를 사용자 화면에 떠넘기는 것이다.
+     ★ 그리고 카카오 '이어 두기'는 §13.40 의 합치기보다 낫다: **계정 id 가 그대로**라
+     아무것도 옮기지 않는다. 옮기지 않으면 옮기다 실패할 일도 없다. */
+  async function renderKakao() {
+    const box = $("#myKakao");
+    if (!box) return;
+    const p = await API.providers();
+    if (!p.kakao) { box.remove(); return; }      // 없는 문은 만들지 않는다
+    const anon = API.session.anonymous;
+    box.innerHTML = `
+      <b>카카오로 이어 두기</b>
+      <small>${anon
+        ? "지금 계정에 카카오를 얹습니다. 기록은 그대로 있고, 다른 기기에서 카카오로 들어오시면 됩니다."
+        : "이미 이어져 있습니다."}</small>
+      ${anon ? `<div class="myDevRow"><button class="myDevBtn" data-dev="kakao">카카오로 이어 두기</button></div>` : ""}
+      <div class="myDevOut" id="myKakaoOut"></div>`;
   }
 
   /* ★ 계정을 바꾸기 **전에** 무엇을 두고 가는지 숫자로 보여 준다.
@@ -411,6 +432,13 @@
         const out = (sel, msg, bad) => {
           const o = $(sel); if (o) { o.textContent = msg; o.className = "myDevOut" + (bad ? " bad" : ""); }
         };
+        if (dev.dataset.dev === "kakao") {
+          out("#myKakaoOut", "카카오로 이동합니다…");
+          const r = await API.linkKakao();
+          if (!r.ok) return out("#myKakaoOut", r.why, true);
+          location.href = r.url;        // 돌아오면 consumeAuthRedirect 가 받는다
+          return;
+        }
         if (dev.dataset.dev === "link") {
           const mail = ($("#myLinkMail") || {}).value || "";
           if (!mail.includes("@")) return out("#myDevOut", "메일 주소를 적어 주십시오", true);

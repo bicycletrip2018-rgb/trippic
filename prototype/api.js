@@ -654,6 +654,86 @@
     } catch (e) { return { ok: false, why: String(e.message || e) }; }
   }
 
+  /* ── 소셜 로그인 (§13.41) ─────────────────────────────────────
+     ★ **켜져 있는 것만 보여 준다.** 카카오가 대시보드에서 꺼져 있으면 버튼을 누른
+       사용자는 `Unsupported provider` 를 본다 — 그건 우리 잘못을 사용자에게 떠넘기는
+       화면이다. 서버에 물어보고, 없으면 **버튼 자체를 만들지 않는다.**
+     ★ 응답을 캐시한다. 화면을 그릴 때마다 물으면 계정 칸이 매번 깜빡인다. */
+  let PROVIDERS = null;
+  async function providers() {
+    if (PROVIDERS) return PROVIDERS;
+    if (!ON) return (PROVIDERS = {});
+    try {
+      const r = await fetch(`${CFG.url}/auth/v1/settings`, { headers: { apikey: CFG.anonKey } });
+      const j = await r.json();
+      PROVIDERS = j.external || {};
+    } catch (e) { PROVIDERS = {}; }
+    return PROVIDERS;
+  }
+
+  /* ① 지금 임시 계정에 **카카오를 얹는다** (identity linking).
+     ★ 이게 §13.40 의 합치기보다 낫다 — **계정 id 가 그대로다.** 아무것도 옮기지
+       않으니 옮기다 실패할 일도 없다. 합치기는 "다른 기기에 이미 기록이 있을 때"
+       쓰는 것이고, 이건 "이 계정을 계속 쓸 수 있게" 만드는 것이다. */
+  async function linkKakao(returnTo) {
+    if (!SESSION.access_token) return { ok: false, why: "먼저 시작해야 합니다" };
+    const p = await providers();
+    if (!p.kakao) return { ok: false, why: "카카오 로그인이 아직 켜져 있지 않습니다" };
+    try {
+      const u = new URL(`${CFG.url}/auth/v1/user/identities/authorize`);
+      u.searchParams.set("provider", "kakao");
+      u.searchParams.set("skip_http_redirect", "true");
+      u.searchParams.set("redirect_to", returnTo || location.href.split("#")[0]);
+      const r = await fetch(u, { headers: { apikey: CFG.anonKey,
+        Authorization: `Bearer ${SESSION.access_token}` } });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.url) return { ok: false, why: authWhy(j) };
+      return { ok: true, url: j.url };
+    } catch (e) { return { ok: false, why: String(e.message || e) }; }
+  }
+
+  /* ② 다른 기기에서 **그 계정으로 들어온다.** 여기는 세션이 바뀌는 문이라
+     §13.39·§13.40 의 경고·합치기가 그대로 붙는다. */
+  async function kakaoSignInUrl(returnTo) {
+    const p = await providers();
+    if (!p.kakao) return { ok: false, why: "카카오 로그인이 아직 켜져 있지 않습니다" };
+    const u = new URL(`${CFG.url}/auth/v1/authorize`);
+    u.searchParams.set("provider", "kakao");
+    u.searchParams.set("redirect_to", returnTo || location.href.split("#")[0]);
+    return { ok: true, url: u.toString() };
+  }
+
+  /* 카카오에서 돌아왔다 — 토큰이 **주소의 `#` 뒤**에 실려 온다.
+     ★ 읽고 나서 주소에서 **지운다.** 안 지우면 토큰이 주소창·기록·공유 링크에 남는다. */
+  async function consumeAuthRedirect() {
+    const h = location.hash || "";
+    if (!h.includes("access_token=")) return null;
+    const q = new URLSearchParams(h.slice(1));
+    const at = q.get("access_token"), rt = q.get("refresh_token");
+    history.replaceState(null, "", location.pathname + location.search);
+    if (!at) return null;
+    /* ★ **확인되기 전에는 세션으로 받아들이지 않는다.** 처음엔 먼저 저장하고 나중에
+       확인했는데, 토큰이 가짜면 `user_id` 가 null 인 채로 "로그인됨" 상태가 남았다 —
+       그 상태에서는 쓰기가 전부 튕기고 사용자는 이유를 모른다.
+       주소에서 지우는 것은 **먼저** 한다(위). 유효하든 아니든 주소에 남기면 안 된다. */
+    const prev = { access_token: SESSION.access_token, refresh_token: SESSION.refresh_token,
+                   user_id: SESSION.user_id, anonymous: SESSION.anonymous };
+    SESSION.access_token = at; SESSION.refresh_token = rt;
+    let me = null;
+    try {
+      const r = await fetch(`${CFG.url}/auth/v1/user`, { headers: authHeaders() });
+      if (r.ok) me = await r.json();
+    } catch (e) {}
+    if (!me || !me.id) {
+      Object.assign(SESSION, prev);           // 쓰던 것을 그대로 되돌린다
+      return { ok: false, why: "로그인을 마치지 못했습니다 — 다시 시도해 주십시오" };
+    }
+    SESSION.user_id = me.id;
+    SESSION.anonymous = !!me.is_anonymous;
+    saveSession();
+    return { ok: true, user: SESSION.user_id, anonymous: SESSION.anonymous };
+  }
+
   /* ── 두 계정 합치기 (§13.40 · 040) ────────────────────────────
      ★ 순서가 전부다. **A 로 있는 동안 표를 끊어** 두고, B 로 로그인한 뒤 낸다.
        로그인하는 순간 A 의 토큰은 사라지므로 나중에는 끊을 수 없다. */
@@ -702,5 +782,6 @@
     myRecords, publicRecords, pinsInBBox, myTrips, toFeature,
     invitePreview, joinSpace, rotateInvite,
     accountSummary, linkEmail, sendLoginCode, verifyLoginCode, ensureSession,
-    mergePrepare, mergeClaim });
+    mergePrepare, mergeClaim,
+    providers, linkKakao, kakaoSignInUrl, consumeAuthRedirect });
 })();
