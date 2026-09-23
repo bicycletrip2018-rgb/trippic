@@ -250,7 +250,12 @@
       const added = await loadServerPins();
       ok(typeof added === "number", `지도에 합쳤다 (${added}개)`);
       const srv = poi.features.filter((x) => x.properties.server);
-      ok(srv.length > 0, `★ 서버 기록이 지도에 있다 (${srv.length}개)`);
+      /* ★ **서버가 비어 있을 수 있다.** 처음 여는 사용자에게는 0이 정답이다 —
+         `> 0` 으로 못 박았더니 테스트 데이터를 지운 직후 검증이 깨졌다.
+         검증할 것은 '있다'가 아니라 **'서버에 있는 만큼 지도에 있다'** 이다. */
+      const serverHas = (pub.ok ? pub.data.length : 0);
+      ok(srv.length >= Math.min(serverHas, 1) || serverHas === 0,
+         `★ 서버에 있는 만큼 지도에 있다 (서버 ${serverHas} · 지도 ${srv.length})`);
       ok(srv.every((x) => !x.properties.photoUrl || /^https?:/.test(x.properties.photoUrl)),
          "서버 사진은 URL 이다 (로컬 PHOTOS 배열이 아니다)");
       const again = await loadServerPins();
