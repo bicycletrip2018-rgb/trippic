@@ -203,6 +203,24 @@ export async function nextPlaces(placeId: string, limit = 5) {
     : { base: 0, need: 5, floor: 0.3, ready: false, rows: [] } as NextPlaces;
 }
 
+/* ── 시간 예산 (§13.34 · 034) ─────────────────────────────────────
+   "지금부터 3시간 비는데 어디 갈까". 거리 필터는 왕복 이동과 머무는 시간을 안 뺀다.
+   ★ `stayMin` 이 null 이면 **체류를 모르는 것**이다 — 0 이 아니고, 평균도 아니다.
+     모르는 곳에 "보통 1시간"을 끼워 넣으면 사용자가 못 끝낼 일정을 짠다. */
+export type BudgetPlace = {
+  place_id: string; name: string; category: string;
+  dist_m: number; drive_min: number;
+  stay_min: number | null; stay_parties: number | null; left_min: number;
+};
+
+export const placesInBudget = (
+  lat: number, lng: number, budgetMin: number,
+  opts?: { cat?: string | null; limit?: number },
+) => rpc<BudgetPlace[]>("api_places_in_budget", {
+  p_lng: lng, p_lat: lat, p_budget_min: budgetMin,
+  p_cat: safeCat(opts?.cat), p_limit: opts?.limit ?? 30,
+});
+
 /* 노출 로그 — 웹과 같은 규칙: 보낸 것은 지운다(분모가 부풀면 순위가 흐려진다) */
 export const logCoverEvents = (rows: any[]) =>
   rpc<number>("api_log_cover_events", { p_rows: rows });

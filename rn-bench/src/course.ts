@@ -77,8 +77,15 @@ const JEJU_N = 33.6, MAINLAND_S = 34.2;
 const crossesSea = (a: { lat: number }, b: { lat: number }) =>
   (a.lat < JEJU_N && b.lat > MAINLAND_S) || (b.lat < JEJU_N && a.lat > MAINLAND_S);
 
-const ROAD_FACTOR = 1.4;   // 직선 대비 도로 거리
-const KMH = 40;            // 시내·국도 섞인 평균. 고속도로만이면 과소평가한다
+/* ★ 이동 모델은 **앱 전체에 한 벌**이다. 한때 여기는 40km/h, 갈 곳 탭은 60km/h 였다 —
+   같은 거리를 두 화면이 다르게 말했고, 시간 예산 필터가 그 둘 위에 서면
+   "차로 25분"이라 해 놓고 40분으로 자르게 된다.
+   ★ 40 을 골랐다. 둘 다 추측이지만, 시간 예산에서 틀리는 방향이 다르다 —
+   빠르게 잡으면 **못 끝낼 일정**을 권하고, 느리게 잡으면 후보가 조금 줄 뿐이다.
+   체류 시간도 이미 하한(032)이라 여기서까지 낙관하면 오차가 겹친다.
+   ★ 서버(034)도 같은 값을 쓴다. 바꿀 때는 두 곳을 같이 바꾼다. */
+export const ROAD_FACTOR = 1.4;   // 직선 대비 도로 거리
+export const KMH = 40;
 
 export function legOf(a: CoursePin, b: CoursePin): Leg {
   const d = distM(a, b);
@@ -136,3 +143,10 @@ export function dur(sec: number | null | undefined): string | null {
 
 export const ymd = (d: Date) =>
   `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
+
+/** 직선거리(m) → 차로 몇 분. 화면에 쓰는 문구까지 여기서 만든다 — 두 벌이 되지 않게. */
+export const driveMin = (distM: number) => Math.ceil((distM * ROAD_FACTOR) / (KMH * 1000 / 60));
+export const driveText = (distM: number) => {
+  const m = driveMin(distM);
+  return m < 60 ? `차로 ${m}분` : `차로 ${Math.floor(m / 60)}시간 ${m % 60 ? (m % 60) + "분" : ""}`.trim();
+};

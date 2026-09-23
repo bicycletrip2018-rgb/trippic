@@ -46,6 +46,9 @@ select pg_temp.ok((select count(*) from public.profiles) = 3,
 insert into auth.users (id, email)
 select ('d0d0d0d0-0000-0000-0000-0000000000' || lpad(i::text,2,'0'))::uuid, 'd'||i||'@t.io'
 from generate_series(1, 8) i;
+insert into auth.users (id, email)
+select ('e0e0e0e0-0000-0000-0000-0000000000' || lpad(i::text,2,'0'))::uuid, 'e'||i||'@t.io'
+from generate_series(1, 8) i;
 
 -- 참조 장소 4곳: 해운대 한 건물 안팎. 후보 랭킹 검증용
 insert into public.places (id, name, category, address, geom, source, is_ground, floor_no) values
@@ -1087,6 +1090,92 @@ update public.pins set is_public = false
 select pg_temp.login('11111111-1111-1111-1111-111111111111');
 select pg_temp.ok(pg_temp.gate('base') = '5',
   '★ 한 팀이 나만 보기로 돌리면 집계에서 그 팀이 빠진다 (6 → 5) — 숨긴 동선은 추천으로도 새지 않는다');
+
+-- ── 034 시간 예산 — "3시간 비는데 어디 갈까" ────────────────────────
+-- ★ 이 필터가 틀리면 사용자는 **못 끝낼 일정을 짠다.** 그래서 모르는 것을 모른다고
+--   하는 쪽과, 아는 것은 느린 쪽에 맞추는 쪽 둘 다 검사한다.
+select pg_temp.login('11111111-1111-1111-1111-111111111111');
+
+-- 해운대 파스타(aaaa…0001) 주변에서 잰다. 먼저 **아무도 안 잰 상태**.
+select pg_temp.ok(
+  (select stay_min is null from public.api_places_in_budget(129.8000, 35.1580, 180, null, 50)
+    where place_id = 'aaaaaaaa-0000-0000-0000-000000000002'),
+  '★ 체류를 모르는 곳은 null 로 온다 — "보통 1시간"을 끼워 넣으면 그건 지어낸 것이다');
+select pg_temp.ok(
+  (select count(*) from public.api_places_in_budget(129.8000, 35.1580, 180, null, 50)) > 0,
+  '체류를 몰라도 이동만으로 답한다 — 첫날에도 필터가 돈다');
+
+-- 네 팀이 30·60·90·240분 머물렀다 → 75분위 127분
+create or replace function pg_temp.stay(mins int[], sp uuid default null, off_ int default 0) returns void
+language plpgsql as $$
+declare i int; u uuid; k int := 0; p1 uuid;
+begin
+  foreach i in array mins loop
+    k := k + 1;
+    -- ★ 사용자를 **재사용하지 않는다.** 재사용하면 앞 팀이 스페이스 팀으로 접혀
+    --   검사가 무엇을 재는지 흐려진다 (한 번 그렇게 틀렸다).
+    u := ('e0e0e0e0-0000-0000-0000-0000000000' || lpad((k + off_)::text,2,'0'))::uuid;
+    perform pg_temp.login(u);
+    if sp is not null then
+      insert into public.space_members (space_id, user_id, role) values (sp, u, 'member')
+        on conflict do nothing;
+    end if;
+    insert into public.pins (user_id, place_id, geom, category, visited_at,
+                             is_public, verification, stay_sec)
+      values (u, 'aaaaaaaa-0000-0000-0000-000000000002',
+              ST_SetSRID(ST_MakePoint(129.8001, 35.1580), 4326), 'cafe',
+              timestamptz '2026-05-01 10:00+09' + (k || ' days')::interval,
+              true, 'exif', i * 60)
+      returning id into p1;
+    if sp is not null then
+      insert into public.pin_spaces (pin_id, space_id) values (p1, sp);
+    end if;
+  end loop;
+  perform pg_temp.login('11111111-1111-1111-1111-111111111111');
+end $$;
+
+select pg_temp.stay(array[30,60,90,240]);
+select pg_temp.ok(
+  (select stay_sec_p75/60 from public.place_stay where place_id='aaaaaaaa-0000-0000-0000-000000000002') = 127,
+  '★ 중앙값(75분)이 아니라 75분위(127분)를 쓴다 — 체류가 하한이라 중앙값으로 예산을 짜면 약속이 깨진다');
+
+select pg_temp.ok(
+  (select count(*) from public.api_places_in_budget(129.8001, 35.1580, 120, null, 50)
+    where place_id='aaaaaaaa-0000-0000-0000-000000000002') = 0
+  and (select count(*) from public.api_places_in_budget(129.8001, 35.1580, 150, null, 50)
+    where place_id='aaaaaaaa-0000-0000-0000-000000000002') = 1,
+  '★ 예산을 넘으면 빠진다 (120분 밖 · 150분 안) — 왕복 이동과 체류를 둘 다 뺀 결과다');
+
+-- 같은 일행은 1표
+insert into public.spaces (id, title, owner_id) values
+  ('5b5b5b5b-0000-0000-0000-000000000001', '같이 간 둘', '11111111-1111-1111-1111-111111111111');
+select pg_temp.ok(
+  (select parties from public.place_stay where place_id='aaaaaaaa-0000-0000-0000-000000000002') = 4,
+  '지금은 4팀이다');
+select pg_temp.stay(array[10,10], '5b5b5b5b-0000-0000-0000-000000000001', 4);
+select pg_temp.ok(
+  (select parties from public.place_stay where place_id='aaaaaaaa-0000-0000-0000-000000000002') = 5,
+  '★ 같이 간 2명은 1표다 (4 → 5, 6이 아니다)');
+
+-- ★ 한 사람이 두 팀이 되지 않는다 — 공유한 핀과 안 한 핀을 따로 세면 혼자서 정족수를 만든다
+select pg_temp.stay(array[20], '5b5b5b5b-0000-0000-0000-000000000001', 0);   -- e1 을 그 스페이스에 넣는다
+select pg_temp.ok(
+  (select parties from public.place_stay where place_id='aaaaaaaa-0000-0000-0000-000000000002') = 4,
+  '★ 스페이스에 합류한 사람은 **원래 표가 옮겨간다** (5 → 4) — 두 표가 되지 않는다');
+
+-- ★ 바다를 건너면 시간 필터에 넣지 않는다 (차로 갈 수 없는 곳의 '차 시간'은 없다)
+select pg_temp.ok(
+  (select count(*) from public.api_places_in_budget(126.53, 33.40, 600, null, 500)
+    where place_id in ('aaaaaaaa-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000002')) = 0,
+  '★ 제주에서 재면 해운대가 안 나온다 — 배 시간표가 없으면 시간을 말할 수 없다');
+
+-- ★ 비공개로 돌리면 체류가 통째로 빠진다
+select pg_temp.login('e0e0e0e0-0000-0000-0000-000000000004');
+update public.pins set is_public = false where user_id = 'e0e0e0e0-0000-0000-0000-000000000004';
+select pg_temp.login('11111111-1111-1111-1111-111111111111');
+select pg_temp.ok(
+  (select stay_sec_p75/60 from public.place_stay where place_id='aaaaaaaa-0000-0000-0000-000000000002') < 127,
+  '★ 나만 보기로 돌린 체류는 남의 화면 숫자에서 빠진다 (240분 팀이 빠져 75분위가 내려간다)');
 
 reset role;
 rollback;   -- 아무것도 남기지 않는다
