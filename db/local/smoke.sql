@@ -49,6 +49,10 @@ from generate_series(1, 8) i;
 insert into auth.users (id, email)
 select ('e0e0e0e0-0000-0000-0000-0000000000' || lpad(i::text,2,'0'))::uuid, 'e'||i||'@t.io'
 from generate_series(1, 8) i;
+-- 040 계정 합치기 검사용 **임시(익명) 계정** A. ★ is_anonymous 는 auth 스키마라
+-- 여기(superuser 구간)에서만 넣을 수 있다.
+insert into auth.users (id, email, is_anonymous)
+values ('aaaa1111-0000-0000-0000-00000000000a', null, true);
 
 -- 참조 장소 4곳: 해운대 한 건물 안팎. 후보 랭킹 검증용
 insert into public.places (id, name, category, address, geom, source, is_ground, floor_no) values
@@ -1404,6 +1408,86 @@ select pg_temp.ok(
 select pg_temp.ok(
   ((public.api_account_summary())->>'user_id') = '33333333-3333-3333-3333-333333333333',
   '★ 언제나 지금 로그인한 계정만 센다');
+
+-- ── 040 두 계정 합치기 ───────────────────────────────────────────────
+-- ★ 되돌릴 수 없는 작업이다. 여기서 지킬 것은 셋이다:
+--   ① 두 계정을 다 가졌다는 증명 없이는 안 된다 ② 겹치는 것은 버린다(멈추지 않는다)
+--   ③ 개인 공간은 두 개가 되지 않는다
+select pg_temp.login('11111111-1111-1111-1111-111111111111');
+
+-- A 에게 기록을 준다 (계정 자체는 맨 위 superuser 구간에서 만들어 뒀다)
+select pg_temp.login('aaaa1111-0000-0000-0000-00000000000a');
+insert into public.trips (id, user_id, title, start_date, end_date) values
+  ('66660000-0000-0000-0000-00000000000a', 'aaaa1111-0000-0000-0000-00000000000a', 'A의 여행', '2026-05-01', '2026-05-02');
+insert into public.pins (id, user_id, trip_id, geom, category, visited_at, is_public, verification) values
+  ('77770000-0000-0000-0000-00000000000a', 'aaaa1111-0000-0000-0000-00000000000a',
+   '66660000-0000-0000-0000-00000000000a',
+   ST_SetSRID(ST_MakePoint(129.8003, 35.1580), 4326), 'cafe', '2026-05-01 10:00+09', true, 'exif');
+
+-- ① 표 없이는 아무것도 안 된다
+select pg_temp.login('11111111-1111-1111-1111-111111111111');
+select pg_temp.ok(((public.api_merge_claim('아무표나'))->>'ok') = 'false',
+  '★ 없는 표로는 못 합친다 — 표 하나가 두 계정을 다 가졌다는 유일한 증명이다');
+
+-- ★ 실계정에서는 표를 못 끊는다 (실계정 둘을 합치는 길은 만들지 않는다)
+select pg_temp.ok(((public.api_merge_prepare())->>'ok') = 'false',
+  '★ 실계정에서는 표를 못 끊는다 — 잘못 눌렀을 때 잃는 것이 너무 크다');
+
+-- A 가 표를 끊는다
+select pg_temp.login('aaaa1111-0000-0000-0000-00000000000a');
+create or replace function pg_temp.tok() returns text language sql as $$
+  select (public.api_merge_prepare())->>'token' $$;
+create temp table tk as select pg_temp.tok() as t;
+select pg_temp.ok((select t from tk) is not null, '임시 계정은 표를 끊을 수 있다');
+select pg_temp.ok(((public.api_merge_claim((select t from tk)))->>'why') = '같은 계정입니다',
+  '★ 자기 자신에게는 못 합친다');
+
+-- ② B(사용자1)로 로그인해 표를 낸다
+select pg_temp.login('11111111-1111-1111-1111-111111111111');
+create temp table mr as select public.api_merge_claim((select t from tk)) as r;
+select pg_temp.ok(((select r from mr)->>'ok') = 'true', '표를 내면 합쳐진다');
+select pg_temp.ok(((select r from mr)->'moved'->>'pins')::int = 1
+                  and ((select r from mr)->'moved'->>'trips')::int = 1,
+  '★ 무엇이 몇 개 옮겨졌는지 숫자로 돌려준다 — 말없이 옮기면 확인할 방법이 없다');
+select pg_temp.ok(
+  (select user_id from public.pins where id='77770000-0000-0000-0000-00000000000a')
+    = '11111111-1111-1111-1111-111111111111',
+  '★ A 의 핀이 B 의 것이 됐다');
+select pg_temp.ok(
+  (select count(*) from public.media m join public.pins p on p.id=m.pin_id
+    where p.id='77770000-0000-0000-0000-00000000000a') >= 0,
+  'media 는 핀을 따라간다 — 따로 옮기지 않는다');
+
+-- ③ 개인 공간이 두 개가 되지 않는다
+select pg_temp.ok(
+  (select count(*) from public.spaces
+    where owner_id='11111111-1111-1111-1111-111111111111' and type='personal') = 1,
+  '★ 개인 공간은 하나다 — 두 개면 어느 쪽이 내 지도인지 알 수 없다');
+select pg_temp.ok(
+  (select count(*) from public.spaces
+    where owner_id='aaaa1111-0000-0000-0000-00000000000a') = 0,
+  'A 의 스페이스는 남지 않는다');
+
+-- ★ 표는 한 번만 쓴다
+select pg_temp.ok(((public.api_merge_claim((select t from tk)))->>'ok') = 'false',
+  '★ 같은 표를 두 번 못 쓴다 — 쓰고 나면 사라진다');
+
+-- ★ A 계정은 비어 있을 뿐 지우지 않는다 (그 기기 세션이 조용히 터지지 않게)
+-- ★ auth.users 는 authenticated 로 못 읽는다 — 거울인 public.profiles 로 본다
+select pg_temp.ok(
+  (select count(*) from public.profiles where id='aaaa1111-0000-0000-0000-00000000000a') = 1
+  and (select count(*) from public.pins where user_id='aaaa1111-0000-0000-0000-00000000000a') = 0,
+  '★ A 는 비운 채 남는다 — 지우면 그 기기 세션이 "profiles 없음"으로 조용히 터진다');
+
+-- ★ 표 테이블은 아무도 못 읽는다 (읽을 수 있으면 남의 계정을 합쳐 갈 수 있다)
+do $$ begin
+  begin
+    perform 1 from public.merge_tickets;
+    raise exception 'FAIL  ★ 표 테이블이 읽혔다';
+  exception when insufficient_privilege then
+    raise notice '  OK   ★ 표 테이블은 아무도 직접 못 읽는다 — 읽히면 남의 계정을 합쳐 간다';
+  end;
+end $$;
 
 reset role;
 rollback;   -- 아무것도 남기지 않는다

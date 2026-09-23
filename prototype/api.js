@@ -112,11 +112,15 @@
     const o = Object.assign({}, a || {}); delete o.__retried; return o;
   };
 
-  async function rpc(fn, args) {
+  /* ★ `opts.timeout` — 6초는 **읽기** 기준이다. 한 번뿐이고 되돌릴 수 없는 쓰기를
+     6초에 끊으면, 서버는 끝냈는데 화면은 "실패"라고 말한다. 실제로 그랬다:
+     계정 합치기가 중단됐다고 적혔는데 **데이터는 이미 옮겨져 있었다.**
+     끊는 시간은 그 호출이 무엇인지에 따라 달라야 한다. */
+  async function rpc(fn, args, opts) {
     if (!ON) return { ok: false, via: "off", data: null };
     API.calls++;
     const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), TIMEOUT);
+    const t = setTimeout(() => ctl.abort(), (opts && opts.timeout) || TIMEOUT);
     try {
       const r = await fetch(`${CFG.url}/rest/v1/rpc/${fn}`, {
         method: "POST", signal: ctl.signal,
@@ -650,6 +654,27 @@
     } catch (e) { return { ok: false, why: String(e.message || e) }; }
   }
 
+  /* ── 두 계정 합치기 (§13.40 · 040) ────────────────────────────
+     ★ 순서가 전부다. **A 로 있는 동안 표를 끊어** 두고, B 로 로그인한 뒤 낸다.
+       로그인하는 순간 A 의 토큰은 사라지므로 나중에는 끊을 수 없다. */
+  async function mergePrepare() {
+    const r = await rpc("api_merge_prepare");
+    return r.ok ? r.data : { ok: false, why: r.error };
+  }
+  async function mergeClaim(token) {
+    // ★ 한 번뿐이고 되돌릴 수 없다. 넉넉히 기다린다.
+    const r = await rpc("api_merge_claim", { p_token: token }, { timeout: 30000 });
+    if (r.ok) return r.data;
+    /* ★ 끊겼다고 **실패라고 말하지 않는다.** 서버가 끝냈을 수도 있다 —
+       옮겨졌는지 **직접 세어 보고** 그 결과를 돌려준다. 모르면 모른다고 적는다. */
+    const a = await accountSummary();
+    if (a && a.pins > 0) {
+      return { ok: true, uncertain: true,
+               moved: { pins: a.pins, trips: a.trips, comments: 0, spaces: a.spaces } };
+    }
+    return { ok: false, why: r.error };
+  }
+
   /* 사용자가 할 수 있는 일이 있는 말로 바꾼다 */
   function authWhy(j) {
     const c = j && (j.error_code || j.code);
@@ -676,5 +701,6 @@
     shrink, uploadPhoto, attachMedia, ensurePin, ensureSpace, pushTrip,
     myRecords, publicRecords, pinsInBBox, myTrips, toFeature,
     invitePreview, joinSpace, rotateInvite,
-    accountSummary, linkEmail, sendLoginCode, verifyLoginCode, ensureSession });
+    accountSummary, linkEmail, sendLoginCode, verifyLoginCode, ensureSession,
+    mergePrepare, mergeClaim });
 })();

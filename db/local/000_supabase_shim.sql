@@ -19,8 +19,12 @@ create table if not exists auth.users (
   id                 uuid primary key default gen_random_uuid(),
   email              text,
   raw_user_meta_data jsonb default '{}'::jsonb,
+  -- ★ 익명 로그인 여부. 040(계정 합치기)이 "임시 계정에서만 옮길 수 있다"를
+  --   이 컬럼으로 판단한다 — 없으면 그 규칙 자체를 로컬에서 검증할 수 없다.
+  is_anonymous       boolean not null default false,
   created_at         timestamptz not null default now()
 );
+alter table auth.users add column if not exists is_anonymous boolean not null default false;
 
 -- 현재 사용자. 로컬에서는 세션 변수로 흉내낸다.
 --   select set_config('request.jwt.claim.sub', '<uuid>', false);

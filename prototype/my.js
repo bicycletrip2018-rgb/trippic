@@ -281,16 +281,32 @@
 
   /* ★ 계정을 바꾸기 **전에** 무엇을 두고 가는지 숫자로 보여 준다.
      비어 있으면 묻지 않는다 — 다른 기기에서 초대 링크를 여는 흔한 경우가 그것이고,
-     거기서 겁을 주면 아무 이유 없이 멈춰 세우는 것이 된다. */
-  async function confirmSwitch() {
+     거기서 겁을 주면 아무 이유 없이 멈춰 세우는 것이 된다.
+
+     ★ §13.39 는 여기서 **경고만** 했다. 정직했지만 사용자가 할 수 있는 일이
+       '포기' 뿐이었다 — 이제 **합치기**가 있다(040).
+     ★ 표는 **지금 끊어야 한다.** 로그인하는 순간 이 계정의 토큰이 사라진다.
+       돌아온 값 `merge` 를 verify 뒤에 낸다.
+
+     돌려주는 값: false = 그만둔다 · {merge:token} = 합친다 · {merge:null} = 버리고 간다 */
+  async function askSwitch() {
     const a = await API.accountSummary();
-    if (!a || a.empty) return true;
-    return window.confirm(
-      `이 기기의 임시 계정에 기록 ${a.pins}곳 · 사진 ${a.photos}장` +
-      `${a.spaces ? ` · 스페이스 ${a.spaces}곳` : ""}이 있습니다.\n\n` +
-      `다른 계정으로 들어가면 이 기록들은 **함께 가지 않습니다.**\n` +
-      `먼저 '다른 기기에서도 보기'로 이 계정에 메일을 걸어 두시는 편이 안전합니다.\n\n` +
-      `그래도 들어가시겠습니까?`);
+    if (!a || a.empty) return { merge: null };        // 빈 계정이면 묻지 않는다
+    const what = `기록 ${a.pins}곳 · 사진 ${a.photos}장` +
+                 (a.spaces ? ` · 스페이스 ${a.spaces}곳` : "");
+    const yes = window.confirm(
+      `이 기기의 임시 계정에 ${what}이 있습니다.\n\n` +
+      `[확인] 이 기록들을 그 계정으로 함께 옮깁니다.\n` +
+      `[취소] 옮기지 않습니다 — 이 기록들은 이 기기에만 남습니다.`);
+    if (!yes) {
+      const go = window.confirm(
+        `옮기지 않고 그 계정으로 들어가시겠습니까?\n\n` +
+        `${what}은 이 임시 계정에 남고, 화면에서는 보이지 않게 됩니다.`);
+      return go ? { merge: null } : false;
+    }
+    const t = await API.mergePrepare();
+    if (!t.ok) { alert("옮길 준비를 하지 못했습니다\n\n" + (t.why || "")); return false; }
+    return { merge: t.token };
   }
 
   /* ★ 서버에 **무엇이 남아 있는지** 숫자로 보여준다.
@@ -418,13 +434,26 @@
           const mail = (($("#myInMail") || {}).value || "").trim();
           const code = (($("#myInCode") || {}).value || "").trim();
           if (!code) return out("#myInOut", "코드를 적어 주십시오", true);
-          // ★ 바꾸기 **전에** 무엇을 두고 가는지 보여 준다
-          if (!(await confirmSwitch())) return out("#myInOut", "그대로 두었습니다.");
+          // ★ 바꾸기 **전에** 묻고, 옮길 거면 표를 지금 끊는다
+          const ask = await askSwitch();
+          if (!ask) return out("#myInOut", "그대로 두었습니다.");
           out("#myInOut", "확인 중…");
           const r = await API.verifyLoginCode(mail, code);
           if (!r.ok) return out("#myInOut", r.why, true);
+          let moved = "";
+          if (ask.merge) {
+            const m = await API.mergeClaim(ask.merge);
+            /* ★ 옮기지 못했으면 **그렇게 적는다.** 로그인은 이미 됐으므로 되돌릴 수
+               없고, 조용히 넘기면 사용자는 기록이 사라진 줄 안다. */
+            moved = m.ok
+              ? (m.uncertain
+                  // 응답이 끊겼지만 세어 보니 옮겨져 있었다 — 확인했다고 적는다
+                  ? ` 응답이 늦어 직접 확인했습니다 — 기록 ${m.moved.pins}곳이 이 계정에 있습니다.`
+                  : ` 기록 ${m.moved.pins}곳 · 여행 ${m.moved.trips}개를 함께 옮겼습니다.`)
+              : ` 다만 옮기지 못했습니다 — ${m.why || ""} (임시 계정에 그대로 있습니다)`;
+          }
           await renderAccount();
-          return out("#myInOut", "들어왔습니다. 이 기기에서도 같은 기록이 보입니다.");
+          return out("#myInOut", "들어왔습니다." + moved);
         }
       }
       if (e.target.closest("#myAnon")) {
