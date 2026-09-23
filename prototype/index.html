@@ -458,6 +458,33 @@
   .mySidoBar span{display:block;height:100%;background:var(--accent)}
   .mySidoRow em{font-style:normal;font-size:11px;color:var(--text-muted);width:58px;
     text-align:right;flex:none}
+  /* 스페이스 = 함께 채운 지도 (§13.16) */
+  .spMap{margin:2px 0 12px;padding:14px;border-radius:16px;
+    border:1px solid var(--surface-line);background:rgba(255,255,255,.03)}
+  .spMapTop{display:flex;align-items:flex-end;gap:8px}
+  .spMapTop i{display:block;font-style:normal;font-size:11px;color:var(--text-muted)}
+  .spMapTop b{font-size:30px;font-weight:800;letter-spacing:-1px;line-height:1.05}
+  .spMapTop span{font-size:11.5px;color:var(--text-muted);margin-left:5px}
+  .spMapTop em{margin-left:auto;font-style:normal;font-size:13px;font-weight:700;color:var(--accent)}
+  .spBar{height:6px;border-radius:99px;background:rgba(255,255,255,.08);margin:11px 0 12px;overflow:hidden}
+  .spBar span{display:block;height:100%;background:var(--accent)}
+  .spSplit{display:flex;gap:8px;margin-bottom:12px}
+  .spSplit div{flex:1;text-align:center;padding:9px 4px;border-radius:12px;background:rgba(255,255,255,.04)}
+  .spSplit b{display:block;font-size:17px;font-weight:700}
+  .spSplit small{display:block;font-size:10.5px;color:var(--text-muted);margin-top:2px}
+  .spWhoRow{display:flex;align-items:center;gap:8px;padding:5px 0}
+  .spWhoRow i{width:22px;height:22px;border-radius:99px;background:var(--accent);color:#fff;
+    font-style:normal;font-size:10.5px;font-weight:700;display:grid;place-items:center;flex:none}
+  .spWhoRow span{font-size:12px;width:52px;flex:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .spWhoBar{flex:1;height:5px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden}
+  .spWhoBar span{display:block;width:auto;height:100%;background:var(--accent);opacity:.8}
+  .spWhoRow em{font-style:normal;font-size:11px;color:var(--text-muted);width:38px;text-align:right;flex:none}
+  .spOpenMap{width:100%;margin-top:12px;padding:12px;border-radius:13px;cursor:pointer;
+    font-family:inherit;font-size:13px;font-weight:700;color:#fff;border:0;background:var(--accent)}
+  .spEmptyMap{margin:2px 0 12px;padding:22px 14px;border-radius:16px;text-align:center;
+    font-size:13px;font-weight:600;border:1px dashed var(--surface-line);color:var(--text-primary)}
+  .spEmptyMap small{display:block;font-size:11.5px;font-weight:500;color:var(--text-muted);margin-top:6px}
+
   .myDone{padding:9px 12px;margin-bottom:8px;border-radius:12px;font-size:11px;line-height:1.6;
     color:var(--text-muted);background:rgba(255,255,255,.04)}
   .myDone b{color:var(--accent)}
@@ -1520,10 +1547,15 @@ const USERS = [
 const USER = Object.fromEntries(USERS.map(u=>[u.id,u]));
 
 /* 스페이스는 **관계**로 짓는다. 여행 이름으로 지으면 여행마다 새로 만들게 된다. PLAN §6.7 */
+/* ★ 스페이스는 **사람의 집합**이다. 멤버를 여기 한 곳에만 적는다 —
+   spaces.js 가 따로 들고 있으면 둘이 갈라진다(§13.7에서 겪은 그대로). */
 const SPACES = [
-  { id:'sp1', name:'대학 동기들', members:3 },
-  { id:'sp2', name:'가족',       members:4 },
+  { id:'sp1', name:'대학 동기들', users:['u1','u2','u3'] },
+  { id:'sp2', name:'가족',       users:['u1','u5','u6'] },
 ];
+SPACES.forEach(sp => sp.members = sp.users.length);
+const SPACE_OF_USER = {};
+SPACES.forEach(sp => sp.users.forEach(u => (SPACE_OF_USER[u] ||= []).push(sp.id)));
 const LENS = {
   all : { name:'모두의 지도', sub:'전체 공개된 기록', poly:false, pick:f=>f.properties.pub },
   mine: { name:'내 지도',     sub:'내 기록 전부',     poly:true,  pick:f=>f.properties.mine },
@@ -1933,7 +1965,12 @@ function bench(){
     p.img  = 'ph' + p.imgi;
     p.au   = 'u' + (1 + (i*7 + (i%5)) % 6);   // 작성자
     p.mine = p.au==='u1';                      // u1이 '나'
-    p.sp   = p.mine ? (i%3===0 ? 'sp1' : i%5===0 ? 'sp2' : null) : null;
+    /* ★ 스페이스 소속을 **작성자 기준**으로 준다.
+       앞서는 `p.mine ? ... : null` 이라 스페이스에 **내 기록만** 들어갔다 —
+       그러면 "우리가 함께 채운"이 성립하지 않는다. 혼자 채운 지도일 뿐이다. */
+    const myS = SPACE_OF_USER[p.au] || [];
+    p.sp   = myS.length ? myS[i % myS.length] : null;
+    if (p.sp && i % 4 === 3) p.sp = null;        // 전부 공유하지는 않는다
     p.pub  = p.mine ? (i%2===0) : (i%9!==0);   // 내 기록은 절반만 공개
     /* ★ 현장 인증 — 실제 앱은 pins.verification. §009가 만든 이 구분이
        뷰어에만 있고 **가장 많이 보는 화면(시트)에는 없었다.** 신뢰가 다른데 똑같이 보였다. */

@@ -36,6 +36,8 @@
        닫힌 방이라 모르는 사람이 들어와 쓸 수가 없다. 신고·운영자를 부를 일이 안 생긴다.
        그리고 여기서 댓글이 되면 **초대할 이유**가 생긴다(§3 핵심 지표). */
     comments: {},   // recordId -> [{who, text, ts}]
+    /* 여행 -> 스페이스. 전부 공유하지는 않는다 — 혼자 간 여행도 있다. */
+    tripSpace: {},
     moveSel: new Set(),  // 옮기려고 고른 사진
     reports: [],    // 이 세션에서 보낸 신고 (실제 앱은 reports 테이블)
   };
@@ -416,6 +418,11 @@
   function recluster() {
     UP.trips = clusterTrips(UP.album);
     UP.orphans = findOrphans(UP.album, UP.trips);
+    // 여행 중 일부만 스페이스에 공유돼 있다 (씨앗). 실제 앱은 사용자가 고른다.
+    UP.trips.forEach((t, i) => {
+      if (UP.tripSpace[t.id] !== undefined) return;
+      UP.tripSpace[t.id] = i % 3 === 0 ? "sp1" : i % 3 === 1 ? "sp2" : null;
+    });
   }
   // 그 여행이 걸쳐 있는 날짜들 (강등할 때 이 날들을 통째로 '일상'으로 표시한다)
   const daysOfTrip = (t) => [...new Set(t.items.filter((x) => x.gps).map((x) => dayOf(x.ts)))];
@@ -1965,9 +1972,16 @@
   /* 이 기록이 내 스페이스의 것인가.
      남의 기록이면 작성자의 스페이스, 내 기록이면 그 장소가 묶인 스페이스를 본다. */
   window.spaceOf = function (x) {
-    const sp = (x.who && x.who !== "minji")
-      ? WHO_SPACE[x.who]
-      : (x.poi && x.poi.properties.sp);
+    if (x.who && x.who !== "minji") {
+      const sp = WHO_SPACE[x.who];
+      return sp && MY_SPACES.includes(sp) ? sp : null;
+    }
+    /* ★ 내 기록의 스페이스 소속은 **장소가 아니라 여행**이 정한다.
+       `x.poi.properties.sp`(장소 단위)로 봤더니 한 장소의 기록이 전부 같은 값이라
+       "전부 공유" 아니면 "전부 비공유"가 됐다 — 댓글이 모든 기록에 붙어 버렸다.
+       실제 스키마도 `trip_spaces`(여행 단위)·`pin_spaces`(기록 단위)다. */
+    const t = (UP.trips || []).find((tr) => tr.items.some((it) => it.id === x.id));
+    const sp = t && UP.tripSpace[t.id];
     return sp && MY_SPACES.includes(sp) ? sp : null;
   };
 

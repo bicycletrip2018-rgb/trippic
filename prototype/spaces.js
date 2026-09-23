@@ -27,10 +27,38 @@
     ],
     mine: [],
   };
-  const SP_MEMBERS = {
-    sp1: ["민지", "도현", "서연"],
-    sp2: ["민지", "어머니", "아버지", "동생"],
+  /* ★ 멤버는 index.html 의 SPACES 한 곳에만 있다. 여기서 또 적으면 둘이 갈라진다. */
+  const membersOf = (id) => {
+    try { return (SPACES.find((s) => s.id === id)?.users || []).map((u) => USER[u]); }
+    catch (e) { return []; }
   };
+
+  /* ── 함께 채운 지도 (§13.16) ───────────────────────────────────
+     ★ `우리가 함께 채운 N곳` 은 **합집합**이지 합계가 아니다.
+       셋이 같은 곳에 갔으면 3곳이 아니라 1곳이다. 합계로 세면
+       "같이 간 여행"이 세 배로 부풀어 숫자가 거짓말을 한다.
+
+     ★ 그리고 **같이 간 곳과 혼자 간 곳을 가른다.** 이게 '함께'의 실체다 —
+       혼자 다 채운 스페이스와 셋이 나눠 채운 스페이스는 완전히 다른 관계인데,
+       총량만 보면 똑같아 보인다. 공유 지도 앱만 보여줄 수 있는 구별이다. */
+  function spaceCoverage(id) {
+    const users = (SPACES.find((s) => s.id === id)?.users) || [];
+    const byRegion = {};                 // 지역 -> 그 지역을 연 사람들
+    const byUser = {};                   // 사람 -> 연 지역 수
+    users.forEach((u) => (byUser[u] = 0));
+    poi.features.forEach((f) => {
+      const p = f.properties;
+      if (p.sp !== id || !p.rn) return;
+      (byRegion[p.rn] ||= new Set()).add(p.au);
+    });
+    const regions = Object.keys(byRegion);
+    regions.forEach((r) => byRegion[r].forEach((u) => { byUser[u] = (byUser[u] || 0) + 1; }));
+    const together = regions.filter((r) => byRegion[r].size >= 2);
+    const alone = regions.filter((r) => byRegion[r].size === 1);
+    const total = (window.feats || []).length || 250;
+    return { regions, byRegion, byUser, together, alone, total,
+             pct: (regions.length / total) * 100 };
+  }
 
   let curSpace = null;
 
@@ -55,7 +83,8 @@
   function renderList() {
     const cards = [
       { id: "mine", title: "내 지도", sub: "나만 보는 기록 전부", members: null },
-      ...SPACES.map((sp) => ({ id: sp.id, title: sp.name, sub: null, members: SP_MEMBERS[sp.id] })),
+      ...SPACES.map((sp) => ({ id: sp.id, title: sp.name, sub: null,
+                               members: membersOf(sp.id).map((u) => u.name) })),
     ];
     $("#spBody").innerHTML = `
       <div class="spIntro">
@@ -83,15 +112,18 @@
   function renderSpace(id) {
     curSpace = id;
     const name = id === "mine" ? "내 지도" : (SPACES.find((s) => s.id === id)?.name ?? id);
-    const members = SP_MEMBERS[id];
+    const mem = id === "mine" ? [] : membersOf(id);
+    const members = mem.map((u) => u.name);
     const ts = tripsOf(id);
+    const cv = id === "mine" ? null : spaceCoverage(id);
     $("#spBody").innerHTML = `
       <div class="spHead2">
         <button class="spBack">‹ 스페이스</button>
         <b>${esc(name)}</b>
-        ${members ? `<div class="spAv">${members.map((m) => `<i>${esc(m[0])}</i>`).join("")}<span>${members.length}명</span></div>` : ""}
+        ${members.length ? `<div class="spAv">${members.map((m) => `<i>${esc(m[0])}</i>`).join("")}<span>${members.length}명</span></div>` : ""}
       </div>
-      ${members ? `<button class="spInvite">카카오톡으로 초대</button>` : ""}
+      ${cv ? sharedMap(id, name, cv, mem) : ""}
+      ${members.length ? `<button class="spInvite">카카오톡으로 초대</button>` : ""}
       <div class="spTripHead">여행 ${ts.length}개</div>
       ${ts.length ? ts.map((t) => `
         <div class="spTrip" data-trip="${t.id}" data-region="${esc(t.region)}">
@@ -104,6 +136,40 @@
           <span class="spGo">지도에서 보기</span>
         </div>`).join("")
         : `<div class="spEmpty">아직 여행이 없습니다.<br>지도 화면의 <b>＋</b>에서 앨범을 스캔해 보세요.</div>`}`;
+  }
+
+  /* 스페이스 화면의 머리 — **목록이 아니라 지도**여야 한다 (§12.13).
+     목록·초대만 있으면 파일 탐색기다. 초대받은 사람이 처음 보는 화면이 파일 탐색기면
+     수락할 이유가 약하다 (§3: 초대 수락률이 핵심 지표). */
+  function sharedMap(id, name, cv, mem) {
+    if (!cv.regions.length) {
+      return `<div class="spEmptyMap">아직 아무도 지도를 열지 않았습니다.
+        <small>첫 기록을 남기면 여기에 ${esc(name)}의 지도가 생깁니다.</small></div>`;
+    }
+    const top = Object.entries(cv.byUser).sort((a, b) => b[1] - a[1]);
+    const maxU = Math.max(1, ...top.map(([, n]) => n));
+    return `
+      <section class="spMap" data-lens="${esc(id)}">
+        <div class="spMapTop">
+          <div><i>함께 채운 곳</i><b>${cv.regions.length}</b><span>/ ${cv.total} 시·군·구</span></div>
+          <em>${cv.pct.toFixed(1)}%</em>
+        </div>
+        <div class="spBar"><span style="width:${Math.min(100, cv.pct).toFixed(1)}%"></span></div>
+        <div class="spSplit">
+          <div><b>${cv.together.length}</b><small>같이 간 곳</small></div>
+          <div><b>${cv.alone.length}</b><small>혼자 다녀온 곳</small></div>
+        </div>
+        <div class="spWho">
+          ${top.map(([u, n]) => `
+            <div class="spWhoRow">
+              <i>${esc((USER[u] || {}).name || u)[0]}</i>
+              <span>${esc((USER[u] || {}).name || u)}</span>
+              <div class="spWhoBar"><span style="width:${(n / maxU * 100).toFixed(0)}%"></span></div>
+              <em>${n}곳</em>
+            </div>`).join("")}
+        </div>
+        <button class="spOpenMap" data-lens="${esc(id)}">지도에서 함께 보기 ›</button>
+      </section>`;
   }
 
   /* ── 탭 ───────────────────────────────────────────────────── */
@@ -170,6 +236,16 @@
       if (e.target.closest(".spBack")) return renderList();
       if (e.target.closest("#spNew"))
         return alert("새 스페이스 — 사람 단위로 만듭니다.\n예) 지은이와 · 대학 동기들 · 가족\n\n여행은 그 안에 쌓입니다.");
+      const om = e.target.closest(".spOpenMap");
+      if (om) {
+        /* ★ 렌즈를 바꾸고 탭1로 나간다. 같은 지도를 **다른 눈**으로 보는 것이지
+           새 화면을 여는 것이 아니다 (§12.2 뷰어와 같은 원칙). */
+        state.lens = om.dataset.lens;
+        clearRegionScope();                 // 지역 스코프가 남아 있으면 스페이스가 안 보인다
+        show("map");
+        renderLensMenu(); refreshPoi(); renderList();
+        return;
+      }
       if (e.target.closest(".spInvite"))
         return alert("카카오톡 딥링크로 초대합니다.\n받은 사람은 앱을 깔기 전에 웹에서 먼저 지도를 봅니다.");
       const trip = e.target.closest(".spTrip");

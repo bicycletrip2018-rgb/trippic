@@ -137,7 +137,10 @@
     const bb = gangwon.properties.bbox;
     map.fire("click", { point: map.project([(bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2]),
                         lngLat: { lng: (bb[0] + bb[2]) / 2, lat: (bb[1] + bb[3]) / 2 } });
-    await sleep(1100);
+    /* ★ 카메라 이동을 고정 sleep 으로 기다리면 안 된다 — 프레임이 밀리는 날 깨진다.
+       실측: 같은 이동이 어떤 때는 700ms, 어떤 때는 1,100ms 를 넘겼다.
+       이 파일 머리말이 *"고정 sleep에 기대면 느린 날 깨진다"* 고 적어 뒀는데 내가 그걸 했다. */
+    await waitFor(() => !map.isMoving(), 6000, 80);
     ok(map.getZoom() > zBefore + 2,
        `★ 지역을 누르면 그 지역으로 들어간다 (z${zBefore.toFixed(1)} → z${map.getZoom().toFixed(1)})`);
     ok(zoomUnit(map.getZoom()) !== "region",
@@ -989,6 +992,49 @@
          ② 커버리지가 자랑이 아니라 **다음에 갈 곳**으로 읽히는가
          ③ 공개 범위가 '전부 아니면 전무'가 아니라고 말하는가
          ④ 공유 카드에 **사진이 안 들어가는가** (남의 얼굴·집 앞이 섞인다) */
+    /* ── 10-b. 스페이스 = 함께 채운 지도 (§13.16) ─────────────────
+       ★ §12.13: *"목록·초대만 있으면 파일 탐색기다. 스페이스의 화면은 지도여야 한다."*
+         §3이 초대 수락률을 핵심 지표라 했는데, 초대받은 사람이 처음 보는 화면이
+         파일 탐색기면 수락할 이유가 약하다. */
+    R.lines.push("── 10-b. 스페이스 ──");
+    await closeSheet();
+    $('#tabbar button[data-tab="space"]').click();
+    await waitFor(() => $$(".spCard").length);
+    $$(".spCard")[1].click();                    // 첫 스페이스 (0번은 '내 지도')
+    await waitFor(() => $(".spMap"));
+    ok(!!$(".spMap"), "★ 스페이스를 열면 **지도**가 먼저 나온다 (목록이 아니다)");
+    ok(/함께 채운 곳/.test(txt($(".spMapTop"))) && /시·군·구/.test(txt($(".spMapTop"))),
+       `★ 합산 커버리지가 분모와 함께 나온다 (${txt($(".spMapTop")).slice(0, 40)})`);
+
+    /* ★ 합집합이지 합계가 아니다 — 셋이 같은 곳에 갔으면 1곳이다 */
+    const spId = $(".spMap").dataset.lens;
+    const regionsInSpace = new Set(poi.features.filter((f) => f.properties.sp === spId)
+                                               .map((f) => f.properties.rn).filter(Boolean));
+    const shown = +txt($(".spMapTop b"));
+    ok(shown === regionsInSpace.size,
+       `★ 합집합으로 센다 (${shown}곳) — 합계로 세면 같이 간 여행이 몇 배로 부풀어 숫자가 거짓말을 한다`);
+
+    /* ★ '함께'의 실체 = 같이 간 곳과 혼자 간 곳의 구별 */
+    const split = $$(".spSplit b").map((b) => +txt(b));
+    ok(split.length === 2 && split[0] + split[1] === shown,
+       `★ 같이 간 곳 ${split[0]} + 혼자 다녀온 곳 ${split[1]} = ${shown} — 총량만 보면 혼자 채운 지도와 구별이 안 된다`);
+    ok(split[0] > 0,
+       "★ 스페이스에 **여러 사람의 기록**이 들어 있다 — 내 기록만 들어가면 '함께'가 아니다");
+
+    const who = $$(".spWhoRow");
+    ok(who.length >= 2 && who.every((r) => /\d+곳/.test(txt(r.querySelector("em")))),
+       `★ 누가 어디를 열었는지 보인다 (${who.length}명) — 혼자 다 채운 방과 나눠 채운 방은 다른 관계다`);
+
+    /* 지도로 이어진다 */
+    $(".spOpenMap").click();
+    await sleep(500);
+    ok(state.lens === spId && !$("#spPanel").classList.contains("on"),
+       "★ '지도에서 함께 보기'가 렌즈를 바꾸고 탭1로 보낸다 — 새 화면이 아니라 **다른 눈**이다");
+    ok(visiblePois().every((f) => f.properties.sp === spId),
+       "★ 지도가 그 스페이스 기록만 보여준다");
+    state.lens = "all"; renderLensMenu(); refreshPoi();
+    await sleep(200);
+
     R.lines.push("── 11. 탭5 마이 ──");
     await closeSheet();
     const MY = window.__my;
