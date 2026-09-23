@@ -20,8 +20,11 @@ import { NextPlaces } from "./NextPlaces";
 export function DayCourse({ onClose }: { onClose: () => void }) {
   const [rows, setRows] = useState<any[] | null>(null);
 
+  const [land, setLand] = useState(0);   // 표를 받으면 다시 계산한다
   useEffect(() => {
     void (async () => {
+      await API.loadLandmass();          // 섬 판정은 서버와 같은 표로 (035)
+      setLand((n) => n + 1);
       const r = await API.myRecords(300);
       setRows(r.data ?? []);
     })();
@@ -36,14 +39,15 @@ export function DayCourse({ onClose }: { onClose: () => void }) {
         const m = (p.media || []).slice().sort(
           (a: any, b: any) => Number(b.is_main) - Number(a.is_main) || a.sort_order - b.sort_order)[0];
         return {
-          id: p.id, placeId: p.place_id, visited_at: p.visited_at, stay_sec: p.stay_sec,
+          id: p.id, placeId: p.place_id, regionCode: p.region_code,
+          visited_at: p.visited_at, stay_sec: p.stay_sec,
           category: p.category, memo: p.memo,
           lng: c[0], lat: c[1], photo: m?.url ?? null,
         } as CoursePin;
       })
       .filter(Boolean) as CoursePin[];
-    return buildCourses(pins);
-  }, [rows]);
+    return buildCourses(pins, 2, API.landmassOf);
+  }, [rows, land]);
 
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
@@ -102,7 +106,7 @@ function CourseCard({ c }: { c: Course }) {
                 <Text style={s.legT}>
                   {leg.crossSea
                     /* ★ 직선×1.4 는 바다 위에서 거짓말이다. 숫자 대신 사실을 쓴다 */
-                    ? "배·비행기 필요"
+                    ? "육로로 이어지지 않습니다 — 배·비행기"
                     : `${(leg.distM / 1000).toFixed(1)}km · 차로 ${dur(leg.moveSec) ?? "—"}`}
                 </Text>
               </View>

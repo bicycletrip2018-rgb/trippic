@@ -21,6 +21,47 @@ fi
 echo; green "=== 통과 ($(echo "$out" | grep -c 'OK  ')건) ==="
 
 echo
+echo "=== 실제 데이터가 있어야 볼 수 있는 것 (로컬 스텁에는 경계가 없다) ==="
+psql -X -d "$DB_URL" -v ON_ERROR_STOP=1 -q <<'LAND' | sed 's/^/  /'
+do $$
+declare n int := 0;
+  procedure_ok boolean;
+begin
+  -- 035 육로 덩어리 — 표의 내용은 경계 데이터가 있어야 확인된다
+  if public.landmass_of('50110') = public.landmass_of('50130')
+     and public.landmass_of('50110') <> public.landmass_of('26350') then
+    raise notice 'OK   ★ 제주시·서귀포시는 한 덩어리, 부산은 다른 덩어리 — 위도로 가르면 제주 안이 쪼개진다';
+  else raise exception 'FAIL 제주 판정'; end if;
+
+  if public.landmass_of('47940') <> 'mainland' then
+    raise notice 'OK   ★ 울릉도가 걸린다 — 위도 한 줄로는 안 걸려서 "차로 3시간"이 찍혔다';
+  else raise exception 'FAIL 울릉도 판정'; end if;
+
+  if public.landmass_of('28720') = 'unknown' then
+    raise notice 'OK   ★ 옹진군은 모른다고 적는다 (백령은 배, 영흥도는 다리)';
+  else raise exception 'FAIL 옹진 판정'; end if;
+
+  if public.landmass_at(130.90, 37.50) = 'ulleung'
+     and public.landmass_at(129.16, 35.16) = 'mainland' then
+    raise notice 'OK   ★ 좌표로도 같은 답이 나온다 (울릉도 / 부산)';
+  else raise exception 'FAIL 좌표 판정'; end if;
+
+  -- 034+035 시간 예산: 8시간을 줘도 섬 밖으로 못 나간다
+  select count(*) into n from public.api_places_in_budget(130.90, 37.50, 480, null, 500) b
+    join public.places p on p.id = b.place_id
+   where public.landmass_of(p.region_code) <> 'ulleung';
+  if n = 0 then
+    raise notice 'OK   ★ 울릉도에서 8시간을 줘도 육지 장소가 안 섞인다 (%건)', n;
+  else raise exception 'FAIL 울릉도에서 육지가 % 건 섞였다', n; end if;
+
+  select count(*) into n from public.api_places_in_budget(124.71, 37.96, 480, null, 500);
+  if n = 0 then
+    raise notice 'OK   ★ 덩어리를 모르는 곳(백령도)에서는 아무것도 말하지 않는다';
+  else raise exception 'FAIL 모르는 곳에서 % 건을 내놨다', n; end if;
+end $$;
+LAND
+echo
+
 echo "=== 공간 인덱스가 실제로 쓰이는가 (로컬 스텁으로는 못 본 것) ==="
 psql -X -d "$DB_URL" -c "
 explain (analyze, buffers, format text)

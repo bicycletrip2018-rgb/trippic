@@ -18,6 +18,7 @@
 export type CoursePin = {
   id: string;
   placeId?: string | null;   // 집계 코스는 **장소 단위**다 — 좌표만으로는 이름을 못 붙인다
+  regionCode?: string | null;// 섬 판정에 쓴다 (035). 좌표가 아니라 행정구역으로 가른다
   visited_at: string;
   stay_sec?: number | null;
   category?: string;
@@ -68,14 +69,15 @@ export function distM(a: { lat: number; lng: number }, b: { lat: number; lng: nu
   return 2 * EARTH * Math.asin(Math.sqrt(h));
 }
 
-/* ★ 직선 × 1.4 는 **육지에서만** 맞다 (§12.25-E). 제주와 뭍 사이에 도로는 없다 —
-   그런데 공식은 태연히 "42분"을 내놓는다. 거짓 숫자보다 "배·비행기 필요"가 낫다.
-   제주는 위도 33.6 아래에 있고 뭍은 34.2 위에 있다. 그 사이를 건너면 바다다.
-   ★ 울릉도·흑산도 등 다른 섬은 이 한 줄로 안 걸린다. **지금 아는 것만 막고,
-     모르는 것을 아는 척하지 않는다** — 나머지는 항로 데이터가 생기면 그때다. */
-const JEJU_N = 33.6, MAINLAND_S = 34.2;
-const crossesSea = (a: { lat: number }, b: { lat: number }) =>
-  (a.lat < JEJU_N && b.lat > MAINLAND_S) || (b.lat < JEJU_N && a.lat > MAINLAND_S);
+/* ★ 직선 × 1.4 는 **육지에서만** 맞다 (§12.25-E). 제주와 뭍 사이에 도로는 없는데
+   공식은 태연히 "42분"을 내놓는다. 거짓 숫자보다 "배·비행기 필요"가 낫다.
+   ★ 한때 위도 한 줄(33.6/34.2)로 제주만 막았다. 울릉도·백령도는 그대로 "차로 3시간"이
+     찍혔다. 이제 **행정구역 → 육로 덩어리** 표(035)로 판정한다 — 서버와 같은 표다.
+   ★ 덩어리를 **모르면**(옹진처럼 섬과 연륙교가 섞인 군) 시간을 말하지 않는다. */
+export type LandmassOf = (regionCode?: string | null) => string;
+export const MAINLAND = "mainland", UNKNOWN_LAND = "unknown";
+/** 표를 못 받았을 때의 기본값 — 전부 본토로 본다(옛 동작과 같다). */
+export const noLandmass: LandmassOf = () => MAINLAND;
 
 /* ★ 이동 모델은 **앱 전체에 한 벌**이다. 한때 여기는 40km/h, 갈 곳 탭은 60km/h 였다 —
    같은 거리를 두 화면이 다르게 말했고, 시간 예산 필터가 그 둘 위에 서면
@@ -87,14 +89,18 @@ const crossesSea = (a: { lat: number }, b: { lat: number }) =>
 export const ROAD_FACTOR = 1.4;   // 직선 대비 도로 거리
 export const KMH = 40;
 
-export function legOf(a: CoursePin, b: CoursePin): Leg {
+export function legOf(a: CoursePin, b: CoursePin, lm: LandmassOf = noLandmass): Leg {
   const d = distM(a, b);
-  if (crossesSea(a, b)) return { distM: d, moveSec: null, crossSea: true };
+  const la = lm(a.regionCode), lb = lm(b.regionCode);
+  // 덩어리가 다르거나, 한쪽이라도 모르면 차 시간을 못 낸다
+  if (la !== lb || la === UNKNOWN_LAND) return { distM: d, moveSec: null, crossSea: true };
   return { distM: d, moveSec: (d * ROAD_FACTOR) / (KMH * 1000 / 3600), crossSea: false };
 }
 
 /** 핀들을 **날짜로 잘라** 하루씩 만든다. 정렬은 방문 시각 — 등록 순서가 아니다. */
-export function buildCourses(pins: CoursePin[], minStops = 2): Course[] {
+export function buildCourses(
+  pins: CoursePin[], minStops = 2, lm: LandmassOf = noLandmass,
+): Course[] {
   const byDay = new Map<number, CoursePin[]>();
   for (const p of pins) {
     const ts = Date.parse(p.visited_at);
@@ -109,7 +115,7 @@ export function buildCourses(pins: CoursePin[], minStops = 2): Course[] {
        코스는 **순서**가 있어야 코스다. 기본 2곳. */
     if (raw.length < minStops) continue;
     const stops = raw.slice().sort((a, b) => Date.parse(a.visited_at) - Date.parse(b.visited_at));
-    const legs = stops.slice(1).map((s, i) => legOf(stops[i], s));
+    const legs = stops.slice(1).map((s, i) => legOf(stops[i], s, lm));
     const startAt = new Date(Date.parse(stops[0].visited_at));
     const last = stops[stops.length - 1];
     const endAt = new Date(Date.parse(last.visited_at) + (last.stay_sec ?? 0) * 1000);

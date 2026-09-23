@@ -131,7 +131,7 @@ export async function ensureSession() {
 
 /* ── 읽기 ──────────────────────────────────────────────────── */
 const PIN_COLS =
-  "id,trip_id,place_id,geom,category,visited_at,stay_sec,memo,verification,is_public,comment_count," +
+  "id,trip_id,place_id,region_code,geom,category,visited_at,stay_sec,memo,verification,is_public,comment_count," +
   "media(url,width,height,is_main,sort_order)";
 
 export const search = (q: string, limit = 14) =>
@@ -203,6 +203,20 @@ export async function nextPlaces(placeId: string, limit = 5) {
     : { base: 0, need: 5, floor: 0.3, ready: false, rows: [] } as NextPlaces;
 }
 
+/* ── 육로 덩어리 (§13.35 · 035) ───────────────────────────────────
+   ★ 네 줄짜리 표다. 한 번 받아 캐시한다 — 화면마다 다시 물으면 섬 판정이
+     화면마다 다른 순간이 생긴다. 서버와 **같은 표**를 쓰는 것이 요점이다. */
+let LAND: Record<string, string> | null = null;
+export async function loadLandmass() {
+  if (LAND) return LAND;
+  const r = await rpc<{ region_code: string; landmass: string }[]>("api_landmass");
+  LAND = {};
+  for (const row of r.data ?? []) LAND[row.region_code] = row.landmass;
+  return LAND;
+}
+export const landmassOf = (regionCode?: string | null) =>
+  (regionCode && LAND?.[regionCode]) || "mainland";
+
 /* ── 시간 예산 (§13.34 · 034) ─────────────────────────────────────
    "지금부터 3시간 비는데 어디 갈까". 거리 필터는 왕복 이동과 머무는 시간을 안 뺀다.
    ★ `stayMin` 이 null 이면 **체류를 모르는 것**이다 — 0 이 아니고, 평균도 아니다.
@@ -219,6 +233,22 @@ export const placesInBudget = (
 ) => rpc<BudgetPlace[]>("api_places_in_budget", {
   p_lng: lng, p_lat: lat, p_budget_min: budgetMin,
   p_cat: safeCat(opts?.cat), p_limit: opts?.limit ?? 30,
+});
+
+/* ── 계절 축 (§13.36 · 036) ───────────────────────────────────────
+   ★ 관광공사 사진 49,285장에는 **촬영 시각이 한 줄도 없다**(실측). 그래서 계절로
+     거를 수 있는 것은 사용자 사진뿐이고, 기관 사진에는 "언제 찍혔는지 모른다"고
+     적는 것이 지금 할 수 있는 전부다 — **그 말을 하는 것이 이 기능의 절반이다.** */
+export type MonthPlace = {
+  place_id: string; name: string; category: string;
+  dist_m: number; parties: number; photos: number;
+};
+
+export const placesByMonth = (
+  lat: number, lng: number, month: number, opts?: { radiusM?: number; limit?: number },
+) => rpc<MonthPlace[]>("api_places_by_month", {
+  p_lng: lng, p_lat: lat, p_month: month,
+  p_radius_m: opts?.radiusM ?? 60000, p_limit: opts?.limit ?? 24,
 });
 
 /* 노출 로그 — 웹과 같은 규칙: 보낸 것은 지운다(분모가 부풀면 순위가 흐려진다) */

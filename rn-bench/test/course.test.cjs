@@ -6,6 +6,9 @@
  *   **순수 함수라서 이렇게 잡는 것이 가장 싸다.**
  */
 const { buildCourses, legOf, dur } = require("../build-test/course.js");
+// 서버(035)의 네 줄짜리 표를 그대로 흉내 낸다
+const LM = {"50110":"jeju","50130":"jeju","47940":"ulleung","28720":"unknown"};
+const lm = (rc) => LM[rc] || "mainland";
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log("  OK   " + m); } else { fail++; console.log("  FAIL " + m); } };
 const pin = (id, iso, stay, lng, lat) =>
@@ -47,17 +50,23 @@ const unk = buildCourses([
 ok(unk[0].stayUnknown === 1, "사진 1장짜리는 '모른다'로 센다");
 ok(dur(null) === null && dur(0) === null, "★ 0분을 쓰지 않는다 — 모르는 것은 0 이 아니다");
 
-console.log("── 바다를 건널 때 ──");
-const sea = legOf(pin("j","2024-01-01T00:00:00Z",0,126.53,33.40),   // 제주
-                  pin("b","2024-01-01T00:00:00Z",0,129.08,35.17));  // 부산
+console.log("── 바다를 건널 때 (행정구역 → 육로 덩어리) ──");
+const at = (id, rc, lng, lat) => ({ ...pin(id,"2024-01-01T00:00:00Z",0,lng,lat), regionCode: rc });
+const sea = legOf(at("j","50110",126.53,33.50), at("b","26350",129.08,35.17), lm);
 ok(sea.crossSea && sea.moveSec === null,
    "★ 제주↔뭍은 차 시간을 안 낸다 — 직선×1.4 는 바다 위에서 거짓말이다");
-const land = legOf(pin("s","2024-01-01T00:00:00Z",0,126.977,37.5796),
-                   pin("g","2024-01-01T00:00:00Z",0,129.08,35.17));
+const land = legOf(at("s","11110",126.977,37.5796), at("g","26350",129.08,35.17), lm);
 ok(!land.crossSea && land.moveSec > 0, "육지끼리는 차 시간을 낸다");
-const inJeju = legOf(pin("a","2024-01-01T00:00:00Z",0,126.53,33.40),
-                     pin("b","2024-01-01T00:00:00Z",0,126.94,33.46));
-ok(!inJeju.crossSea, "제주 안에서는 배가 필요 없다");
+const inJeju = legOf(at("a","50110",126.53,33.50), at("b","50130",126.56,33.25), lm);
+ok(!inJeju.crossSea, "★ 제주시↔서귀포시는 같은 섬이라 차로 간다 — 위도로 가르면 여기가 틀린다");
+const ull = legOf(at("u","47940",130.90,37.50), at("g","26350",129.08,35.17), lm);
+ok(ull.crossSea && ull.moveSec === null,
+   "★ 울릉도도 걸린다 — 위도 한 줄로는 안 걸려서 '차로 3시간'이 찍혔다");
+const mixed = legOf(at("w","28720",124.71,37.96), at("i","28110",126.70,37.45), lm);
+ok(mixed.crossSea && mixed.moveSec === null,
+   "★ 덩어리를 모르는 곳(옹진: 배와 연륙교가 섞임)도 시간을 말하지 않는다");
+ok(!legOf(at("x","11110",126.9,37.5), at("y","11110",126.99,37.57)).crossSea,
+   "표가 없으면 전부 본토로 본다 (옛 동작과 같다)");
 
 console.log(fail ? `\n=== 실패 ${fail}건 / 통과 ${pass}건 ===` : `\n=== 전부 통과 (${pass}건) ===`);
 process.exit(fail ? 1 : 0);

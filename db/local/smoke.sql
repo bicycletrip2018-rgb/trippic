@@ -1177,5 +1177,44 @@ select pg_temp.ok(
   (select stay_sec_p75/60 from public.place_stay where place_id='aaaaaaaa-0000-0000-0000-000000000002') < 127,
   '★ 나만 보기로 돌린 체류는 남의 화면 숫자에서 빠진다 (240분 팀이 빠져 75분위가 내려간다)');
 
+-- ── 035 섬 이동 · 036 계절 축 ────────────────────────────────────────
+select pg_temp.login('11111111-1111-1111-1111-111111111111');
+
+-- 035 ★ 위도가 아니라 **행정구역**으로 가른다.
+--   ★ 표의 **내용**(제주·울릉·옹진)은 경계 데이터가 있어야 검사할 수 있어서
+--     `db/supabase/verify.sh` 로 옮겼다. 로컬 스텁에는 regions 가 비어 있다.
+--     여기서는 데이터 없이도 지켜져야 하는 것만 본다.
+select pg_temp.ok(public.landmass_of('99999') = 'mainland',
+  '표에 없는 지역은 본토로 본다 — 모르는 코드가 들어와도 화면이 멈추지 않는다');
+select pg_temp.ok(public.landmass_of(null) = 'mainland',
+  '지역 코드가 없어도 본토로 본다');
+
+-- 036 ★ 기관 사진은 **언제 찍혔는지 모른다** — 그 사실을 화면이 받아야 한다
+select pg_temp.ok(
+  ((public.api_place_months('aaaaaaaa-0000-0000-0000-000000000001'))->>'agency_month_known') = 'false',
+  '★ 기관 사진의 촬영 시기는 모른다고 돌려준다 — 11월에 벚꽃 사진을 권하지 않으려면 이 한 줄이 있어야 한다');
+select pg_temp.ok(
+  jsonb_array_length((public.api_place_months('aaaaaaaa-0000-0000-0000-000000000001'))->'months') = 0,
+  '사용자 사진이 없으면 달력은 비어 있다');
+
+-- 사진에 촬영 시각을 넣으면 그 달로 잡힌다 (media 는 이미 fixture 에 있다)
+-- ★ **필요한 상태를 직접 세운다.** 앞선 검사들이 이 핀의 place_id·공개 여부를
+--   바꿔 놓는다 — 물려받은 상태 위에 세운 단언은 위쪽을 고칠 때마다 깨진다.
+update public.pins set place_id = 'aaaaaaaa-0000-0000-0000-000000000002', is_public = true
+  where id = '77777777-0000-0000-0000-000000000002';
+update public.media set taken_at = timestamptz '2026-04-05 14:00+09', public_ok = true
+  where pin_id = '77777777-0000-0000-0000-000000000002';
+select pg_temp.ok(
+  (select month from public.place_photo_month
+    where place_id='aaaaaaaa-0000-0000-0000-000000000002') = 4,
+  '★ 월은 KST 로 센다 — UTC 로 자르면 한국의 1월 1일 새벽이 12월이 된다');
+
+-- ★ 나만 보기 사진은 계절 축에도 안 들어간다
+update public.pins set is_public = false where id = '77777777-0000-0000-0000-000000000002';
+select pg_temp.ok(
+  (select count(*) from public.place_photo_month
+    where place_id='aaaaaaaa-0000-0000-0000-000000000002') = 0,
+  '★ 나만 보기 사진은 계절 축에서도 빠진다 — 공개 자격과 같은 기준이다');
+
 reset role;
 rollback;   -- 아무것도 남기지 않는다

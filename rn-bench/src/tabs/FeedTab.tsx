@@ -36,12 +36,15 @@ const driveText = (km: number) => courseDriveText(km * 1000);
    **"지금 3시간 비는데 어디 갈까"** 다. 왕복 이동과 머무는 시간을 빼야 답이 된다.
    ★ 체류 시간은 §13.32 에서 서버에 남겼다 — 남들은 이 값을 모른다. */
 const BUDGETS: [number, string][] = [[120, "2시간"], [240, "반나절"], [480, "하루"]];
+const THIS_MONTH = new Date().getMonth() + 1;
 
 export function FeedTab({ center }: { center: { lat: number; lng: number } }) {
   const [seed, setSeed] = useState<Seed[]>([]);
   const [cpt, setCpt] = useState<string | null>(null);
   const [budget, setBudget] = useState<number | null>(null);
   const [budgetRows, setBudgetRows] = useState<API.BudgetPlace[] | null>(null);
+  const [season, setSeason] = useState(false);
+  const [seasonRows, setSeasonRows] = useState<API.MonthPlace[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -85,6 +88,15 @@ export function FeedTab({ center }: { center: { lat: number; lng: number } }) {
     return () => { live = false; };
   }, [budget, cpt, center.lat, center.lng]);
 
+  useEffect(() => {
+    if (!season) { setSeasonRows(null); return; }
+    let live = true;
+    setSeasonRows(null);
+    void API.placesByMonth(center.lat, center.lng, THIS_MONTH, { limit: 24 })
+      .then((r) => { if (live) setSeasonRows(r.data ?? []); });
+    return () => { live = false; };
+  }, [season, center.lat, center.lng]);
+
   const concepts = useMemo(
     () => [...new Set(seed.map((x) => x.cpt).filter(Boolean))] as string[], [seed]);
 
@@ -103,6 +115,7 @@ export function FeedTab({ center }: { center: { lat: number; lng: number } }) {
           <Chip key={m} label={label} on={budget === m}
                 onPress={() => setBudget(budget === m ? null : m)} />
         ))}
+        <Chip label={`${THIS_MONTH}월에 찍힌 사진`} on={season} onPress={() => setSeason(!season)} />
       </ScrollView>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chips}>
@@ -111,6 +124,7 @@ export function FeedTab({ center }: { center: { lat: number; lng: number } }) {
       </ScrollView>
 
       {budget != null && <BudgetRail budget={budget} rows={budgetRows} />}
+      {season && <SeasonRail rows={seasonRows} />}
 
       {rails.map((r) => (
         <View key={r.k} style={s.rail}>
@@ -125,6 +139,9 @@ export function FeedTab({ center }: { center: { lat: number; lng: number } }) {
                   {(CAT[x.c] ?? CAT.etc).k} · {(x.rg ?? "").split(" ").pop()}
                 </Text>
                 <Text style={s.dist}>{driveText(distKm(center, { lat: x.lat, lng: x.lng }))}</Text>
+                {/* ★ 이 한 줄이 계절 축의 값어치다 — 기관 사진에는 촬영 시각이 없다.
+                    안 적으면 11월에 벚꽃 사진을 보고 가서 실망하는 사람이 생긴다. */}
+                <Text style={s.unknownWhen}>촬영 시기 미상 · 한국관광공사</Text>
               </View>
             ))}
           </ScrollView>
@@ -140,6 +157,39 @@ const Chip = ({ label, on, onPress }: { label: string; on: boolean; onPress: () 
     <Text style={[s.chipT, on && s.chipTOn]}>{label}</Text>
   </Pressable>
 );
+
+/* ★ 계절 축 (§12.25-D) — 관광공사 사진은 대개 **성수기 최상 조건**이다.
+   11월에 벚꽃 사진을 보고 가면 실망한다. 그런데 그 사진들에는 촬영 시각이 없다.
+   → 사용자 사진의 달만 셀 수 있고, 기관 사진에 대해서는 **모른다고 적는다.**
+     정직함이 차별점이 되는 드문 자리다. */
+function SeasonRail({ rows }: { rows: API.MonthPlace[] | null }) {
+  return (
+    <View style={s.rail}>
+      <Text style={s.railT}>{THIS_MONTH}월에 찍힌 사진이 있는 곳</Text>
+      <Text style={s.railWhy}>
+        {rows == null ? "찾는 중…"
+          : rows.length ? `사람들이 이 달에 직접 찍은 사진이 있는 곳 ${rows.length}곳`
+                        : "아직 없습니다"}
+      </Text>
+      {rows != null && !rows.length && (
+        <Text style={s.dim}>
+          카드의 사진은 한국관광공사 제공이고 촬영 시기를 알 수 없습니다 —
+          지금 가면 저 모습인지 보장하지 못합니다.
+        </Text>
+      )}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.row}>
+        {(rows ?? []).map((r) => (
+          <View key={r.place_id} style={[s.card, s.cardFlat]}>
+            <Text style={s.name} numberOfLines={2}>{r.name}</Text>
+            <Text style={s.meta} numberOfLines={1}>{(CAT[r.category] ?? CAT.etc).k}</Text>
+            <Text style={s.stayOn}>{THIS_MONTH}월 사진 {r.photos}장 · {r.parties}팀</Text>
+            <Text style={s.dist}>{courseDriveText(r.dist_m)}</Text>
+          </View>
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
 
 /* ★ 모르는 것을 모른다고 쓴다. `stay_min` 이 null 이면 "체류 미측정"이라고 적고
    이동만 계산했다고 말한다 — 여기서 그럴듯한 숫자를 채우면 사용자가 못 끝낼
@@ -192,6 +242,7 @@ const s = StyleSheet.create({
   railWhy: { color: C.muted, fontSize: 11, paddingHorizontal: 18, marginTop: 3, marginBottom: 9 },
   row: { paddingHorizontal: 18, gap: 10 },
   cardFlat: { justifyContent: "flex-start", gap: 3, paddingTop: 10 },
+  unknownWhen: { color: C.muted, fontSize: 9.5, marginTop: 1 },
   stayOn: { color: C.accent, fontSize: 10.5, fontWeight: "600" },
   stayOff: { color: C.muted, fontSize: 10.5 },
   card: { width: 158, borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: C.line,
