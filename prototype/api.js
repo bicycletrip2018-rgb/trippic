@@ -535,6 +535,31 @@
     };
   }
 
+  /* ── 초대 링크 (§13.38 · 038) ────────────────────────────────
+     ★ 미리보기는 **로그인 없이** 된다 — 무엇을 수락하는지 모르고 계정부터 만들게 하면
+       허들을 낮춘 게 아니라 순서만 바꾼 것이다.
+     ★ 합류는 계정이 필요하다(익명이라도). 그래서 여기서 **조용히 만든다** —
+       사용자에게 회원가입을 묻지 않는다. 여러 사람이 보낸 링크가 한 계정에 쌓인다. */
+  async function invitePreview(code) {
+    const r = await rpc("api_invite_preview", { p_code: code });
+    return r.ok ? r.data : { ok: false, why: "서버에 닿지 못했습니다" };
+  }
+
+  async function joinSpace(code) {
+    if (!SESSION.access_token) {
+      const a = await signInAnonymously();          // ★ 묻지 않고 만든다
+      if (!a.ok) return { ok: false, why: a.why };
+    }
+    const r = await rpc("api_join_space", { p_code: code });
+    return r.ok ? r.data : { ok: false, why: (r.error || "합류하지 못했습니다") };
+  }
+
+  /* 잘못 보낸 링크를 되돌린다 (owner 만) */
+  async function rotateInvite(spaceId) {
+    const r = await rpc("api_rotate_invite", { p_space: spaceId });
+    return r.ok ? r.data : { ok: false, why: r.error };
+  }
+
   /* 서버가 살아 있는지 — 화면 구석에 표시한다 */
   async function ping() {
     if (!ON) return { ok: false, via: "off", note: "anonKey 미설정 — 로컬 JSON으로 돕니다" };
@@ -546,5 +571,6 @@
     safeCat, PIN_CATEGORY, signInAnonymously, refresh, clearSession, session: SESSION,
     insert, select, addComment, listComments, links: LINKS,
     shrink, uploadPhoto, attachMedia, ensurePin, ensureSpace, pushTrip,
-    myRecords, publicRecords, pinsInBBox, myTrips, toFeature });
+    myRecords, publicRecords, pinsInBBox, myTrips, toFeature,
+    invitePreview, joinSpace, rotateInvite });
 })();

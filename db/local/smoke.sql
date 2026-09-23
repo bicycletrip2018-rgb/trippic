@@ -1298,5 +1298,85 @@ select pg_temp.ok(
   (select count(*) from public.api_pins_in_bbox(129.79,35.15,129.81,35.17,300,null,'shared')) = 0,
   '스페이스가 없으면 친구 스코프는 비어 있다');
 
+-- ── 038 초대 링크로 합류 ─────────────────────────────────────────────
+-- ★ §3 이 "초대 수락률이 핵심 지표"라고 적어 뒀는데 수락 경로가 없었다.
+--   여기서 지킬 것: ① 무엇을 수락하는지 먼저 보인다 ② 여러 링크가 한 계정에 쌓인다
+--   ③ 두 번 눌러도 한 번 ④ 잘못 보낸 링크를 되돌릴 수 있다
+select pg_temp.login('11111111-1111-1111-1111-111111111111');
+
+-- A 가 스페이스 둘을 만든다 (서로 다른 사람이 각각 보냈다고 치는 자리)
+insert into public.spaces (id, title, owner_id, invite_code) values
+  ('a1a10000-0000-0000-0000-000000000001', '제주 2박3일', '11111111-1111-1111-1111-111111111111', 'code-jeju-0001'),
+  ('a1a10000-0000-0000-0000-000000000002', '강릉 당일',  '11111111-1111-1111-1111-111111111111', 'code-gang-0002');
+insert into public.space_members (space_id, user_id, role) values
+  ('a1a10000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'owner');
+
+-- ① 로그인 전에도 무엇인지 보인다
+reset role; set role anon; select pg_temp.login(null);
+select pg_temp.ok(
+  ((public.api_invite_preview('code-jeju-0001'))->>'ok') = 'true'
+  and ((public.api_invite_preview('code-jeju-0001'))->>'title') = '제주 2박3일'
+  and ((public.api_invite_preview('code-jeju-0001'))->>'need_login') = 'true',
+  '★ 로그인 없이도 무엇을 수락하는지 보인다 — 모르고 계정부터 만들게 하면 순서만 바꾼 것이다');
+select pg_temp.ok(
+  ((public.api_invite_preview('없는코드'))->>'why') = ((public.api_invite_preview('code-'))->>'why'),
+  '★ 없는 코드와 틀린 코드를 가르지 않는다 — 가르면 되묻는 것만으로 코드 존재를 알아낸다');
+
+-- 비로그인은 합류할 수 없다 (RLS 가 space_members 기반이라 주체가 필요하다)
+reset role; set role authenticated; select pg_temp.login(null);
+select pg_temp.ok(
+  ((public.api_join_space('code-jeju-0001'))->>'need_login') = 'true',
+  '★ 합류에는 계정이 필요하다 — 익명이라도. 앱은 링크를 열 때 조용히 만든다');
+
+-- ② ★ 여러 사람이 보낸 링크가 **한 계정에** 쌓인다
+select pg_temp.login('33333333-3333-3333-3333-333333333333');   -- 아무 스페이스에도 없던 남
+select pg_temp.ok(((public.api_join_space('code-jeju-0001'))->>'joined') = 'true',
+  '첫 링크로 합류한다');
+select pg_temp.ok(((public.api_join_space('code-gang-0002'))->>'joined') = 'true',
+  '두 번째 링크로도 합류한다');
+-- ★ **내가 만든 것만 센다.** 앞선 검사들이 이 사용자를 다른 스페이스에 넣어 둔다 —
+--   전체를 세면 위쪽을 고칠 때마다 여기가 깨진다 (§13.31·§13.34에서 두 번 겪었다).
+select pg_temp.ok(
+  (select count(*) from public.space_members
+    where user_id='33333333-3333-3333-3333-333333333333'
+      and space_id in ('a1a10000-0000-0000-0000-000000000001',
+                       'a1a10000-0000-0000-0000-000000000002')) = 2,
+  '★ 서로 다른 사람이 보낸 두 링크가 한 계정에 쌓인다 — 사용자가 링크를 모을 일이 없다');
+
+-- ③ 두 번 눌러도 한 번
+select pg_temp.ok(((public.api_join_space('code-jeju-0001'))->>'already') = 'true'
+  and (select count(*) from public.space_members
+        where user_id='33333333-3333-3333-3333-333333333333'
+          and space_id = 'a1a10000-0000-0000-0000-000000000001') = 1,
+  '★ 같은 링크를 다시 눌러도 한 번이다');
+select pg_temp.ok(((public.api_invite_preview('code-jeju-0001'))->>'already') = 'true',
+  '이미 들어간 방은 미리보기가 그렇게 말한다');
+
+-- 합류하면 그 스페이스의 기록이 실제로 보인다 (037 의 '함께' 스코프와 이어진다)
+select pg_temp.login('11111111-1111-1111-1111-111111111111');
+update public.pins set is_public = false where id = '77777777-0000-0000-0000-000000000002';
+insert into public.pin_spaces (pin_id, space_id) values
+  ('77777777-0000-0000-0000-000000000002', 'a1a10000-0000-0000-0000-000000000001')
+  on conflict do nothing;
+select pg_temp.login('33333333-3333-3333-3333-333333333333');
+select pg_temp.ok(
+  (select source from public.api_pins_in_bbox(129.79,35.15,129.81,35.17,300,null,'shared')
+    where id='77777777-0000-0000-0000-000000000002') = 'shared',
+  '★ 합류하자마자 그 방의 기록이 "함께"로 보인다 — 초대의 값어치가 여기서 생긴다');
+
+-- ④ 잘못 보낸 링크를 되돌린다 (owner 만)
+select pg_temp.ok(((public.api_rotate_invite('a1a10000-0000-0000-0000-000000000001'))->>'ok') = 'false',
+  '★ 남은 남의 링크를 못 바꾼다');
+select pg_temp.login('11111111-1111-1111-1111-111111111111');
+select pg_temp.ok(((public.api_rotate_invite('a1a10000-0000-0000-0000-000000000001'))->>'ok') = 'true',
+  'owner 는 링크를 바꿀 수 있다');
+select pg_temp.ok(((public.api_invite_preview('code-jeju-0001'))->>'ok') = 'false',
+  '★ 바꾸면 옛 링크는 그 순간 죽는다 — 이게 없으면 "잘못 보냈다"를 되돌릴 방법이 없다');
+select pg_temp.ok(
+  (select count(*) from public.space_members
+    where space_id='a1a10000-0000-0000-0000-000000000001'
+      and user_id='33333333-3333-3333-3333-333333333333') = 1,
+  '★ 이미 들어온 사람은 남는다 — 링크를 바꾸는 것은 문을 잠그는 것이지 내쫓는 게 아니다');
+
 reset role;
 rollback;   -- 아무것도 남기지 않는다
