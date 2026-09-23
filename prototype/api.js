@@ -29,9 +29,88 @@
   function authHeaders() {
     const k = CFG.anonKey || "";
     const h = { "Content-Type": "application/json", apikey: k };
-    if (k.startsWith("eyJ")) h.Authorization = `Bearer ${k}`;   // 옛 JWT 키일 때만
+    /* ★ 로그인했으면 **사용자 토큰**이 Bearer 에 들어간다. 이게 있어야
+       `auth.uid()` 가 채워지고 RLS·로그·댓글이 전부 살아난다.
+       로그인 전에는 옛 JWT 키일 때만 Bearer 에 키를 넣는다 —
+       새 `sb_publishable_...` 는 JWT가 아니라 Bearer 로 보내면 파싱에 실패한다. */
+    const tok = SESSION.access_token;
+    if (tok) h.Authorization = `Bearer ${tok}`;
+    else if (k.startsWith("eyJ")) h.Authorization = `Bearer ${k}`;
     return h;
   }
+
+  /* ── 익명 로그인 (§13.19) ─────────────────────────────────────
+     ★ 왜 익명부터인가: 만들어 둔 것의 절반이 `auth.uid()` 뒤에 잠겨 있다
+       (로그·댓글·업로드). 소셜은 Apple 계정과 카카오 심사가 필요해 며칠이 걸리는데,
+       익명은 **오늘 된다.** 그리고 원본 기획서 §3이 *"비로그인도 둘러보기 가능"*
+       이라 했으니, **익명으로 시작해 필요할 때 승격**하는 것이 그 설계와 맞다.
+
+     ★ 익명 계정은 **기기에 묶인다.** 앱을 지우면 기록이 사라진다 —
+       그걸 화면이 말해야 한다. 말 안 하면 사용자는 잃고 나서야 안다. */
+  const SES_KEY = "trippic.session.v1";
+  const SESSION = { access_token: null, refresh_token: null, user_id: null, anonymous: false };
+
+  function loadSession() {
+    try {
+      const v = JSON.parse(localStorage.getItem(SES_KEY) || "null");
+      if (v && v.access_token) Object.assign(SESSION, v);
+    } catch (e) {}
+  }
+  function saveSession() {
+    try { localStorage.setItem(SES_KEY, JSON.stringify(SESSION)); } catch (e) {}
+  }
+  function clearSession() {
+    SESSION.access_token = SESSION.refresh_token = SESSION.user_id = null;
+    SESSION.anonymous = false;
+    try { localStorage.removeItem(SES_KEY); } catch (e) {}
+  }
+  loadSession();
+
+  async function auth(path, body) {
+    const r = await fetch(`${CFG.url}/auth/v1/${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: CFG.anonKey },
+      body: JSON.stringify(body || {}),
+    });
+    const j = await r.json().catch(() => ({}));
+    return { ok: r.ok, status: r.status, data: j };
+  }
+
+  async function signInAnonymously() {
+    if (!ON) return { ok: false, why: "키 없음" };
+    if (SESSION.access_token) return { ok: true, why: "이미 로그인", user: SESSION.user_id };
+    const r = await auth("signup", {});
+    if (!r.ok) {
+      const code = r.data && (r.data.error_code || r.data.code);
+      return { ok: false, why: code === "anonymous_provider_disabled"
+        ? "대시보드에서 Anonymous sign-ins 를 켜야 합니다"
+        : (r.data && r.data.msg) || `HTTP ${r.status}` };
+    }
+    SESSION.access_token = r.data.access_token;
+    SESSION.refresh_token = r.data.refresh_token;
+    SESSION.user_id = r.data.user && r.data.user.id;
+    SESSION.anonymous = true;
+    saveSession();
+    return { ok: true, user: SESSION.user_id };
+  }
+
+  /* 토큰이 만료되면 조용히 갱신한다. 실패하면 **로그아웃 상태로 떨어진다** —
+     만료된 토큰을 계속 보내면 모든 호출이 401 이 되는데 원인이 안 보인다. */
+  async function refresh() {
+    if (!SESSION.refresh_token) return false;
+    const r = await auth("token?grant_type=refresh_token",
+                         { refresh_token: SESSION.refresh_token });
+    if (!r.ok) { clearSession(); return false; }
+    SESSION.access_token = r.data.access_token;
+    SESSION.refresh_token = r.data.refresh_token;
+    saveSession();
+    return true;
+  }
+
+  // 내부 표식(__retried)은 서버로 보내지 않는다 — 없는 인자를 보내면 404 가 된다
+  const stripInternal = (a) => {
+    const o = Object.assign({}, a || {}); delete o.__retried; return o;
+  };
 
   async function rpc(fn, args) {
     if (!ON) return { ok: false, via: "off", data: null };
@@ -42,8 +121,13 @@
       const r = await fetch(`${CFG.url}/rest/v1/rpc/${fn}`, {
         method: "POST", signal: ctl.signal,
         headers: authHeaders(),
-        body: JSON.stringify(args || {}),
+        body: JSON.stringify(stripInternal(args)),
       });
+      if (r.status === 401 && SESSION.refresh_token && !(args && args.__retried)) {
+        /* 토큰 만료 — 한 번만 갱신하고 다시 친다.
+           무한 재시도는 안 한다. 갱신이 안 되면 로그아웃 상태로 떨어지는 게 맞다. */
+        if (await refresh()) return rpc(fn, Object.assign({}, args, { __retried: true }));
+      }
       if (!r.ok) throw new Error(`${fn} ${r.status} ${(await r.text()).slice(0, 120)}`);
       return { ok: true, via: "server", data: await r.json() };
     } catch (e) {
@@ -103,9 +187,20 @@
       return { _key: k, kind, place, who, ...v };
     }).filter((r) => r.imp || r.opened || r.research);
     if (!rows.length) return { ok: true, via: "noop", sent: 0 };
-    // 프로토타입의 키는 장소 '이름'이다. 실제 앱은 place_id·media_id 를 그대로 보낸다.
-    const r = await rpc("api_log_cover_events", { p_rows: [] });
-    return { ok: r.ok, via: r.via, sent: r.ok ? rows.length : 0, queued: rows.length };
+    if (!SESSION.access_token) return { ok: false, via: "queued", sent: 0, queued: rows.length };
+    /* ★ 프로토타입의 키는 장소 **이름**이다. 서버는 `place_id`(uuid)를 받는다.
+       이름으로 매칭하려면 46만 곳을 조회해야 하고, 동명이인 문제도 있다.
+       → 실제 앱은 핀을 만들 때 받은 `place_id` 를 그대로 들고 다닌다.
+         여기서는 **보낼 수 있는 것이 없다는 사실을 숨기지 않는다.** */
+    const sendable = rows.filter((r) => /^[0-9a-f-]{36}$/.test(r.place || ""));
+    if (!sendable.length) {
+      return { ok: false, via: "no-id", sent: 0, queued: rows.length,
+               note: "프로토타입 키가 장소 이름이라 서버로 못 보낸다 (실제 앱은 place_id)" };
+    }
+    const r = await rpc("api_log_cover_events", {
+      p_rows: sendable.map((x) => ({ place_id: x.place, media_id: null,
+        imp: x.imp | 0, opened: x.opened | 0, research: x.research | 0 })) });
+    return { ok: r.ok, via: r.via, sent: r.ok ? sendable.length : 0, queued: rows.length };
   }
 
   /* 서버가 살아 있는지 — 화면 구석에 표시한다 */
@@ -115,5 +210,6 @@
     return { ok: r.ok, via: r.via, note: r.ok ? "서버 연결됨" : (r.error || "연결 실패") };
   }
 
-  window.API = Object.assign(API, { rpc, search, candidates, flushCoverEvents, ping, safeCat, PIN_CATEGORY });
+  window.API = Object.assign(API, { rpc, search, candidates, flushCoverEvents, ping,
+    safeCat, PIN_CATEGORY, signInAnonymously, refresh, clearSession, session: SESSION });
 })();

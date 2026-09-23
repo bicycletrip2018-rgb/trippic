@@ -147,6 +147,10 @@
             <em>확인 중</em></div>`).join("")}</div>`
         : `<div class="myEmpty2">보낸 신고가 없습니다.</div>`}
 
+      <div class="mySec">계정
+        <small>지금은 <b>이 기기에만</b> 있습니다 — 앱을 지우면 기록이 사라집니다</small></div>
+      <div class="myAcct" id="myAcct">불러오는 중…</div>
+
       <div class="mySec">설정</div>
       <div class="myRows">
         <button class="myRow" data-theme="1">지도 테마<em>어두운 지도 ›</em></button>
@@ -192,10 +196,40 @@
         <em>카드에 사진은 넣지 않습니다 — 남의 얼굴이나 집 앞이 섞일 수 있습니다.</em></div>`;
   }
 
+  /* ★ 익명 계정은 **기기에 묶인다.** 앱을 지우면 기록이 사라진다 —
+     그걸 화면이 말해야 한다. 말 안 하면 사용자는 **잃고 나서야 안다.**
+     그래서 '로그인됨' 이라고만 적지 않고 무엇이 위험한지까지 적는다. */
+  async function renderAccount() {
+    const box = $("#myAcct");
+    if (!box) return;
+    if (!(window.API && API.on)) {
+      box.innerHTML = `<div class="myAcctRow off">서버에 연결되어 있지 않습니다
+        <small>기록이 이 브라우저에만 있습니다</small></div>`;
+      return;
+    }
+    const s = API.session;
+    if (!s.access_token) {
+      box.innerHTML = `<button class="myAcctBtn" id="myAnon">시작하기 (가입 없이)
+        <span>계정을 만들지 않고 바로 씁니다 — 나중에 옮길 수 있습니다</span></button>`;
+      return;
+    }
+    box.innerHTML = `
+      <div class="myAcctRow">
+        <b>${s.anonymous ? "임시 계정" : "계정"}</b>
+        <code>${esc(String(s.user_id || "").slice(0, 8))}…</code>
+        ${s.anonymous ? `<em>이 기기에만</em>` : ""}
+      </div>
+      ${s.anonymous ? `<div class="myAcctWarn">
+        앱을 지우거나 기기를 바꾸면 <b>기록이 사라집니다.</b>
+        <small>나중에 카카오·애플로 이어 두면 옮길 수 있습니다 — 지금은 준비 중입니다.</small>
+      </div>` : ""}`;
+  }
+
   function render() {
     if (MY.view === "pick") return renderPick(MY.pickFor);
     if (MY.view === "share") return renderShare();
     renderHome();
+    renderAccount();
   }
 
   function show(on) {
@@ -217,7 +251,7 @@
           document.querySelectorAll("#tabbar button").forEach((x) => x.setAttribute("aria-pressed", x === t));
       });
     }
-    $("#myBody").addEventListener("click", (e) => {
+    $("#myBody").addEventListener("click", async (e) => {
       if (e.target.closest("[data-back]")) { MY.view = "home"; return render(); }
       if (e.target.closest("[data-share]")) return renderShare();
       if (e.target.closest("[data-sido-all]")) { MY.sidoOpen = !MY.sidoOpen; return render(); }
@@ -231,10 +265,24 @@
         return alert(`${sd.dataset.sido} — ${d[1].got}/${d[1].all}곳\n\n아직 안 간 곳:\n` +
                      d[1].left.slice(0, 12).join(" · ") + (d[1].left.length > 12 ? " …" : ""));
       }
-      if (e.target.closest("[data-edit]")) return alert("프로필 수정 — 닉네임·소개·아바타");
-      if (e.target.closest("[data-theme]")) return alert("지도 테마 — 어두운 지도 / 밝은 지도\n원본 기획서 §10: 다크모드에서 지적도와 사진의 대비가 커집니다.");
-      if (e.target.closest("[data-scope]")) return alert("기본 공개 범위 — 나만 보기 / 스페이스 / 전체\n기록마다 따로 바꿀 수 있습니다.");
-      if (e.target.closest("[data-op]")) return alert("운영자 신청 (§10.46)\n\n운영자는 초대로만 됩니다. 신청은 대기열에 들어갑니다.");
+      /* ★ `[data-theme]` 로 잡았더니 **모든 클릭이 여기로 빨려 들어갔다.**
+         `index.html` 이 테마를 `:root` 에 `data-theme` 로 걸어 두기 때문에
+         `closest()` 가 문서 끝까지 올라가 항상 맞는다.
+         아래 어떤 줄도 실행되지 않았고, 새로 붙인 버튼이 그제야 그걸 드러냈다.
+         → 속성만으로 잡지 않는다. **그 줄의 클래스까지** 같이 본다. */
+      if (e.target.closest(".myEdit[data-edit]")) return alert("프로필 수정 — 닉네임·소개·아바타");
+      if (e.target.closest(".myRow[data-theme]")) return alert("지도 테마 — 어두운 지도 / 밝은 지도\n원본 기획서 §10: 다크모드에서 지적도와 사진의 대비가 커집니다.");
+      if (e.target.closest(".myRow[data-scope]")) return alert("기본 공개 범위 — 나만 보기 / 스페이스 / 전체\n기록마다 따로 바꿀 수 있습니다.");
+      if (e.target.closest(".myRow[data-op]")) return alert("운영자 신청 (§10.46)\n\n운영자는 초대로만 됩니다. 신청은 대기열에 들어갑니다.");
+      if (e.target.closest("#myAnon")) {
+        const r = await API.signInAnonymously();
+        if (!r.ok) return alert("시작하지 못했습니다\n\n" + r.why);
+        await renderAccount();
+        // 로그인했으니 모아 둔 로그를 보낸다 (§13.17 — 그때까지는 로컬에만 있었다)
+        const f = await API.flushCoverEvents();
+        console.log("[account] 로그 전송", f);
+        return;
+      }
     });
   };
   window.__my = MY;

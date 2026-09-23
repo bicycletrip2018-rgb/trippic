@@ -1154,6 +1154,38 @@
        "★ 내가 보낸 신고가 어떻게 됐는지 여기서 본다 (§10.47)");
     ok($$(".myRow").length >= 3, "설정 줄이 있다 (지도 테마 · 기본 공개 범위 · 운영자 신청)");
 
+    /* ── 익명 로그인 (§13.19) ────────────────────────────────────
+       ★ 만들어 둔 것의 절반이 `auth.uid()` 뒤에 잠겨 있었다 — 로그·댓글·업로드.
+         소셜은 Apple 계정과 카카오 심사가 필요해 며칠이 걸리지만 익명은 오늘 된다. */
+    await waitFor(() => $("#myAcct") && txt($("#myAcct")) !== "불러오는 중…");
+    ok(!!$("#myAcct"), "마이에 계정 칸이 있다");
+    /* ★ `closest("[data-theme]")` 가 문서 루트의 테마 속성까지 잡아
+       **마이의 모든 클릭이 '지도 테마' 로 빨려 들어갔다.** 속성만으로 잡으면 안 된다. */
+    ok(!$("#myAcct").closest(".myRow"),
+       "★ 계정 칸이 설정 줄 선택자에 걸리지 않는다 — 문서 루트의 data-theme 가 모든 클릭을 삼켰다");
+    // 선택자를 고치려고 클래스를 붙였다가 머리말 레이아웃이 깨졌다 — 스타일은 그대로 둔다
+    ok($(".myEdit") && !$(".myEdit").classList.contains("myRow"),
+       "★ 선택자를 고치려고 클래스를 바꾸지 않는다 — 클래스는 스타일이다");
+    if (API.on) {
+      if (!API.session.access_token) {
+        ok(!!$("#myAnon"), "★ '가입 없이 시작하기' 가 있다 — 계정을 만들라고 먼저 요구하지 않는다");
+        $("#myAnon").click();
+        await waitFor(() => API.session.access_token, 8000);
+      }
+      ok(!!API.session.access_token, `★ 익명으로 로그인된다 (${String(API.session.user_id).slice(0, 8)}…)`);
+      await waitFor(() => $(".myAcctRow"));
+      ok(/이 기기에만/.test(txt($("#myAcct"))) && /기록이 사라집니다/.test(txt($("#myAcct"))),
+         "★ **잃을 수 있다는 것**을 미리 말한다 — 말 안 하면 사용자는 잃고 나서야 안다");
+
+      /* 로그인하면 로그를 보낸다 — 그전까지는 로컬에만 있었다 (§13.17) */
+      const f = await API.flushCoverEvents();
+      ok(["server", "noop", "no-id"].includes(f.via),
+         `★ 로그인 뒤에는 로그를 보내려 시도한다 (${f.via}${f.note ? " · " + f.note : ""})`);
+    } else {
+      ok(/서버에 연결되어 있지 않습니다/.test(txt($("#myAcct"))),
+         "서버가 없으면 그렇게 말한다");
+    }
+
     const head = R.fail ? `=== 실패 ${R.fail}건 / 통과 ${R.pass}건 ===`
                         : `=== 화면 흐름 전부 통과 (${R.pass}건) ===`;
     console.log([...R.lines, "", head].join("\n"));
