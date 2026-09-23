@@ -20,3 +20,6 @@ rn-bench/ios/build/
 
 # 다른 저장소 (별도 관리)
 rn-bench/
+
+# 서버 연결 키 (공개 키지만 이력에 남기지 않는다)
+prototype/config.js

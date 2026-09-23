@@ -198,6 +198,31 @@
     ok(zoomUnit(map.getZoom()) === "all" && vis("region-heat") === "none",
        "★ 확대하면 집계가 물러나고 장소가 돌아온다");
 
+    /* ── 0-c. 서버 연결 (§13.17) ─────────────────────────────────
+       ★ 검증할 것은 "서버가 붙었다"가 아니라 **"서버가 없어도 도는가"** 다.
+         프로토타입의 값어치는 항상 도는 것이다 — 키 하나 때문에 설계를
+         못 보여주게 되면 안 된다. */
+    R.lines.push("── 0-c. 서버 연결 ──");
+    ok(typeof window.API === "object", "API 다리가 올라와 있다");
+    const p = await API.ping();
+    ok(["server", "local", "off"].includes(p.via),
+       `★ 연결 상태를 스스로 말한다 — ${p.note}`);
+    ok(!API.on || API.url.startsWith("https://"), "키가 있으면 https 로만 붙는다");
+
+    await runSearch("해운대");
+    await waitFor(() => $$("#searchRes .sres").length || $("#searchRes .sVia"));
+    ok($$("#searchRes .sres").length > 0, "★ 서버가 꺼져 있어도 검색이 결과를 준다 (로컬 폴백)");
+    ok(!!$("#searchRes .sVia"),
+       `★ 결과가 어디서 왔는지 적는다 (${txt($("#searchRes .sVia"))}) — 모르면 디버깅이 추측이 된다`);
+    $("#searchWrap").classList.remove("open");
+
+    /* ★ 익명 로그는 **보내지 않는다.** anon 키는 공개 키라 누구든 남의 후보 노출을
+       부풀려 점수(반응/노출)를 떨어뜨릴 수 있다. 조작 가능한 값 위에 순위를 세우면
+       순위가 아니라 표적이 된다 (§13.17). */
+    const fl = await API.flushCoverEvents();
+    ok(fl.via === "off" || fl.via === "noop" || fl.ok === false || fl.sent === 0,
+       "★ 로그인 전에는 로그를 서버로 보내지 않는다 — 조작 가능한 값 위에 순위를 세우지 않는다");
+
     R.lines.push("── 1. 앨범에서 (끝까지) ──");
     const s1 = await openEntry(0);
     ok(s1 && /여행/.test(s1), "여행 목록이 열린다", s1?.slice(0, 40));

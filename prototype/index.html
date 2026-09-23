@@ -410,6 +410,9 @@
     padding:6px 12px;border-radius:99px;font-size:11px;font-weight:600;
     color:var(--text-muted);opacity:0;transition:opacity .2s;pointer-events:none}
   #zoomHint.on{opacity:1}
+  /* 검색 결과가 어디서 왔는지 — 모르면 디버깅이 추측이 된다 */
+  .sVia{padding:6px 12px;font-size:10.5px;font-weight:700;color:var(--accent)}
+  .sVia.off{color:var(--text-muted);font-weight:500}
   /* 지역 스코프 바 — 말없이 목록만 줄면 데이터가 없는 줄 안다 */
   #regionBar{position:absolute;left:14px;right:14px;top:66px;z-index:6;display:none;
     align-items:center;gap:6px;padding:9px 12px;border-radius:13px;font-size:12.5px}
@@ -1041,6 +1044,7 @@
 <div id="hover" class="glass"></div>
 <div id="boot">행정경계 불러오는 중…</div>
 
+<script src="config.js" onerror="console.warn('[config] 없음 — 로컬 JSON으로 돕니다')"></script>
 <script src="vendor/maplibre-gl.js"></script>
 <script>
 const $ = s => document.querySelector(s);
@@ -1495,7 +1499,7 @@ function drawRadius(){
 }
 
 /* ---- 검색: 지역 + 장소 통합 ---- */
-function runSearch(q){
+async function runSearch(q){
   const box=$('#searchRes');
   q=(q||'').trim();
   if(!q){
@@ -1505,8 +1509,21 @@ function runSearch(q){
     return;
   }
   const regions = feats.filter(f=>f.properties.name.includes(q)).slice(0,5);
-  const places  = poi.features.filter(f=>f.properties.n.includes(q)).sort(
+  /* ★ 장소는 서버를 먼저 본다. 로컬 `places-real.json` 에는 46만 곳 중
+     5만 곳만 담겨 있어 **없는 곳을 "결과 없음"이라고 말한다.**
+     서버가 안 되면 조용히 로컬로 떨어진다 — 화면은 항상 돈다. */
+  let places = poi.features.filter(f=>f.properties.n.includes(q)).sort(
                     (a,b)=>b.properties.likes-a.properties.likes).slice(0,14);
+  let via = 'local';
+  if (window.API && API.on) {
+    const r = await API.search(q, 14);
+    if (r.ok && Array.isArray(r.data) && r.data.length) {
+      via = 'server';
+      places = r.data.map(x => ({ properties:{ n:x.name, c:x.category||'etc',
+                 rn:x.region_name||x.region_code||'', likes:x.score||0, img:'ph0' },
+                 geometry:{ coordinates:[x.lng, x.lat] } }));
+    }
+  }
   if(!regions.length && !places.length){
     box.innerHTML = `<div id="searchHint">"${q}" 결과가 없습니다.</div>`; return;
   }
@@ -1514,6 +1531,8 @@ function runSearch(q){
     `<div class="sres" ${data}>${icon}<div><b>${title}</b><small>${sub}</small></div>`+
     `<span class="anch" data-anchor="1">기준</span></div>`;
   box.innerHTML =
+    (via==='server' ? `<div class="sVia">서버에서 찾음 · 전국 46만 곳</div>`
+                    : `<div class="sVia off">로컬 목록 · 5만 곳만 담겨 있습니다</div>`) +
     regions.map(f=>{
       const b=f.properties.bbox, cx=(b[0]+b[2])/2, cy=(b[1]+b[3])/2;
       return row(`<div class="ic">◈</div>`, f.properties.name, `${f.properties.sido} · 지역`,
@@ -2365,7 +2384,7 @@ function bench(){
 </script>
 <!-- 캐시 무효화: 수정이 반영 안 돼 같은 버그를 두 번 쫓은 적이 있다 -->
 <script>
-  for (const f of ["log", "upload", "spaces", "feed", "home", "my", "uismoke"]) {
+  for (const f of ["api", "log", "upload", "spaces", "feed", "home", "my", "uismoke"]) {
     const t = document.createElement("script");
     t.src = f + ".js?v=" + Date.now();
     t.async = false;
