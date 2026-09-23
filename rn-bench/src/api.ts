@@ -129,6 +129,20 @@ export async function ensureSession() {
   return signInAnonymously();
 }
 
+/* ── 초대 링크 (§13.43) ───────────────────────────────────────────
+   ★ **카카오 SDK 도 카카오 로그인도 쓰지 않는다.** 링크는 그냥 URL 이고, OS 공유
+     시트에 카카오톡이 이미 들어 있다. 로그인을 붙이면 App Store 지침 4.8 이 걸려
+     "동등한 다른 로그인"을 같이 내놔야 한다 — 공유 하나 하자고 치를 값이 아니다.
+   ★ `base` 는 **받는 사람이 열 주소**다. 앱 딥링크가 아니라 웹이어야 한다 —
+     앱을 안 깐 사람도 열어야 초대가 초대다(§13.38). */
+export async function inviteLink(spaceId: string, base: string) {
+  const r = await select<any[]>("spaces", `id=eq.${spaceId}&select=id,title,invite_code`);
+  const row = r.ok ? r.data?.[0] : null;
+  if (!row?.invite_code) return { ok: false, why: "초대 링크를 읽지 못했습니다" };
+  return { ok: true, title: row.title as string,
+           url: `${base}?invite=${encodeURIComponent(row.invite_code)}` };
+}
+
 /* ── 소셜 로그인 (§13.41 · §13.42) ────────────────────────────────
    ★ **켜져 있는 것만 보여 준다.** 꺼져 있는데 버튼을 두면 누른 사람이
      `Unsupported provider` 를 본다 — 우리 설정 문제를 사용자 화면에 떠넘기는 것이다. */

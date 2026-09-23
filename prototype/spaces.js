@@ -123,7 +123,7 @@
         ${members.length ? `<div class="spAv">${members.map((m) => `<i>${esc(m[0])}</i>`).join("")}<span>${members.length}명</span></div>` : ""}
       </div>
       ${cv ? sharedMap(id, name, cv, mem) : ""}
-      ${members.length ? `<button class="spInvite">카카오톡으로 초대</button>` : ""}
+      ${id !== "mine" ? `<button class="spInvite">카카오톡으로 초대</button>` : ""}
       <div class="spTripHead">여행 ${ts.length}개</div>
       ${ts.length ? ts.map((t) => `
         <div class="spTrip" data-trip="${t.id}" data-region="${esc(t.region)}">
@@ -214,6 +214,39 @@
   }
 
   /* ── 초기화 ───────────────────────────────────────────────── */
+  /* ★ 카카오톡으로 보내는 데 **카카오 SDK 도 로그인도 필요 없다** (§13.43).
+     초대 링크는 그냥 URL 이고, OS 공유 시트(`navigator.share`)를 열면 카카오톡이
+     거기 들어 있다. 로그인을 붙이면 App Store 지침 4.8 이 걸려 "동등한 다른
+     로그인"을 같이 내놔야 한다 — 공유 하나 하자고 치를 값이 아니다.
+     ★ 공유 시트가 없는 곳(데스크톱 브라우저 등)에서는 **주소를 복사**한다.
+       "안 됩니다"로 끝내면 사용자는 링크를 손으로 옮길 방법도 못 찾는다. */
+  async function shareInvite(btn) {
+    if (!(window.API && API.on)) return alert("서버에 연결되어 있지 않습니다.");
+    const id = curSpace;
+    const was = btn.textContent;
+    btn.disabled = true; btn.textContent = "링크를 만드는 중…";
+    const r = await API.inviteLink(id);
+    btn.disabled = false; btn.textContent = was;
+    if (!r.ok) return alert("초대 링크를 만들지 못했습니다\n\n" + (r.why || ""));
+
+    const text = `${r.title} — 같이 채운 지도를 보내 드립니다.`;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: r.title, text, url: r.url });
+        return;                       // 사용자가 어디로 보냈는지는 우리가 알 필요 없다
+      } catch (e) {
+        if (e && e.name === "AbortError") return;   // 그냥 닫은 것이다 — 오류가 아니다
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(r.url);
+      alert("초대 링크를 복사했습니다.\n\n카카오톡에 붙여 넣어 보내 주십시오.\n\n" + r.url);
+    } catch (e) {
+      prompt("이 주소를 복사해 카카오톡으로 보내 주십시오", r.url);
+    }
+  }
+  window.shareInvite = shareInvite;
+
   window.initSpaces = function () {
     document.body.appendChild(el(`
       <div id="spPanel" class="glass">
@@ -246,8 +279,8 @@
         renderLensMenu(); refreshPoi(); renderList();
         return;
       }
-      if (e.target.closest(".spInvite"))
-        return alert("카카오톡 딥링크로 초대합니다.\n받은 사람은 앱을 깔기 전에 웹에서 먼저 지도를 봅니다.");
+      const inv = e.target.closest(".spInvite");
+      if (inv) return shareInvite(inv);
       const trip = e.target.closest(".spTrip");
       if (trip) {
         // 여행을 지도에서 본다 — 그 지역으로 이동 + 렌즈 전환

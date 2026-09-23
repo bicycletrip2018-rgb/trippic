@@ -654,6 +654,23 @@
     } catch (e) { return { ok: false, why: String(e.message || e) }; }
   }
 
+  /* ── 초대 링크 만들기 (§13.43) ────────────────────────────────
+     ★ **카카오 SDK 도 카카오 로그인도 쓰지 않는다.** 초대 링크는 그냥 URL 이라
+       OS 공유 시트로 카카오톡에 보내면 끝이다. 로그인을 붙이는 순간 App Store
+       지침 4.8 이 걸려 "동등한 다른 로그인"을 같이 내놔야 한다 — 공유 하나 하자고
+       치를 값이 아니다.
+     ★ 코드는 **멤버면 읽을 수 있다**(spaces_read). 초대는 방을 만든 사람만의 일이
+       아니다 — 같이 간 사람이 다음 사람을 부르는 게 이 방의 쓰임이다.
+       (되돌리기는 owner 만 — `rotateInvite`, 038) */
+  async function inviteLink(spaceId, base) {
+    const r = await select("spaces", `id=eq.${spaceId}&select=id,title,invite_code`);
+    const row = r.ok && r.data && r.data[0];
+    if (!row || !row.invite_code) return { ok: false, why: "초대 링크를 읽지 못했습니다" };
+    const root = base || (location.origin + location.pathname);
+    return { ok: true, title: row.title,
+             url: `${root}?invite=${encodeURIComponent(row.invite_code)}` };
+  }
+
   /* ── 소셜 로그인 (§13.41) ─────────────────────────────────────
      ★ **켜져 있는 것만 보여 준다.** 카카오가 대시보드에서 꺼져 있으면 버튼을 누른
        사용자는 `Unsupported provider` 를 본다 — 그건 우리 잘못을 사용자에게 떠넘기는
@@ -783,5 +800,5 @@
     invitePreview, joinSpace, rotateInvite,
     accountSummary, linkEmail, sendLoginCode, verifyLoginCode, ensureSession,
     mergePrepare, mergeClaim,
-    providers, linkKakao, kakaoSignInUrl, consumeAuthRedirect });
+    providers, linkKakao, kakaoSignInUrl, consumeAuthRedirect, inviteLink });
 })();

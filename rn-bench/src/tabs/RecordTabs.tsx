@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import {
-  ActivityIndicator, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View,
+  ActivityIndicator, Image, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, View,
 } from "react-native";
 import * as API from "../api";
 import { C, CAT } from "../theme";
@@ -73,9 +73,27 @@ export function NewsTab() {
    ★ 목록·초대만 있으면 파일 탐색기다. 스페이스의 화면은 **지도**여야 한다(§12.13).
      RN 에서는 아직 합산 지도를 못 그리므로 **숫자만** 먼저 옮긴다 —
      `함께 채운 N곳`은 합계가 아니라 **합집합**이다. */
+/* ★ 카카오톡으로 보내는 데 **카카오 SDK 도 로그인도 필요 없다**(§13.43).
+   코어 `Share` 가 OS 공유 시트를 열고, 카카오톡은 거기 이미 들어 있다.
+   ★ 받는 사람이 열 주소는 **웹**이어야 한다 — 앱을 안 깐 사람도 열어야 초대가 초대다. */
+const INVITE_BASE = "http://localhost:3012/index.html";   // 배포되면 실제 주소로 바꾼다
+
+export async function shareInvite(spaceId: string) {
+  const r = await API.inviteLink(spaceId, INVITE_BASE);
+  if (!r.ok) return { ok: false, why: r.why };
+  try {
+    await Share.share({ message: `${r.title} — 같이 채운 지도를 보내 드립니다.\n${r.url}`,
+                        url: r.url });
+    return { ok: true };            // 어디로 보냈는지는 우리가 알 필요 없다
+  } catch (e: any) {
+    return { ok: false, why: String(e?.message ?? e) };
+  }
+}
+
 export function SpaceTab() {
   const [rows, setRows] = useState<any[]>([]);
   const [busy, setBusy] = useState(true);
+  const [msg, setMsg] = useState<string | null>(null);
   const load = useCallback(async () => {
     setBusy(true);
     const r = await API.select<any[]>("spaces", "select=id,title,type&limit=50");
@@ -90,12 +108,26 @@ export function SpaceTab() {
       <Text style={s.sub}>스페이스는 <Text style={s.b}>사람</Text>입니다 — 여행마다 새로 만들지 않습니다.</Text>
       {!rows.length && !busy &&
         <Empty text={"아직 만든 스페이스가 없습니다.\n같이 간 사람과 지도를 함께 채워 보세요."} />}
+      {/* ★ `card` 는 다른 탭도 쓴다 — 거기에 flexDirection 을 넣으면 남의 화면이
+          같이 바뀐다. 줄 배치는 `spaceRow` 로 **여기서만** 한다. */}
       {rows.map((sp) => (
-        <View key={sp.id} style={s.card}>
-          <Text style={s.cardT}>{sp.title}</Text>
-          <Text style={s.cardS}>{sp.type === "shared" ? "함께 쓰는 방" : sp.type}</Text>
+        <View key={sp.id} style={[s.card, s.spaceRow]}>
+          <View style={{ flex: 1 }}>
+            <Text style={s.cardT}>{sp.title}</Text>
+            <Text style={s.cardS}>{sp.type === "shared" ? "함께 쓰는 방" : "나만 보는 기록"}</Text>
+          </View>
+          {/* ★ 개인 공간에는 초대가 없다 — 부를 사람이 없는 방이다 */}
+          {sp.type === "shared" && (
+            <Pressable style={s.invite} onPress={async () => {
+              const r = await shareInvite(sp.id);
+              if (!r.ok) setMsg(r.why ?? "보내지 못했습니다");
+            }}>
+              <Text style={s.inviteT}>초대</Text>
+            </Pressable>
+          )}
         </View>
       ))}
+      {!!msg && <Text style={s.warn}>{msg}</Text>}
     </ScrollView>
   );
 }
@@ -219,6 +251,10 @@ const s = StyleSheet.create({
   badgeLive: { color: C.accent, borderColor: C.accent },
   memo: { color: C.text, fontSize: 13, lineHeight: 21, paddingHorizontal: 18, paddingTop: 6 },
   card: { marginHorizontal: 18, marginTop: 8, padding: 13, borderRadius: 14, borderWidth: 1, borderColor: C.line },
+  spaceRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  invite: { paddingHorizontal: 13, paddingVertical: 8, borderRadius: 10,
+           backgroundColor: "rgba(255,255,255,0.10)" },
+  inviteT: { color: C.text, fontSize: 12.5, fontWeight: "700" },
   cardT: { color: C.text, fontSize: 13.5, fontWeight: "650" as any },
   cardS: { color: C.muted, fontSize: 11, marginTop: 3 },
   box: { marginHorizontal: 18, marginTop: 10, padding: 15, borderRadius: 16, borderWidth: 1,
