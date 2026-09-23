@@ -911,9 +911,14 @@
     await sleep(80);
     ok($$(".fdCard").length > 0 && $$(".fdCard").length < before,
        `★ 컨셉으로 좁혀진다 (${before} → ${$$(".fdCard").length}) — '${txt(cpts[1])}'`);
+    const narrowed = $$(".fdCard").length;
     $$(".fdCpt")[0].click();
-    await sleep(80);
-    ok($$(".fdCard").length === before, "'전체'로 되돌아온다");
+    /* ★ 개수를 정확히 비교하면 안 된다 — 표지를 못 받은 카드는 **비동기로** 내려간다(§13.8).
+       그래서 같은 화면을 두 번 세면 값이 달라질 수 있다. 주장은 '되돌아온다'이지
+       '개수가 같다'가 아니다. */
+    await sleep(400);
+    ok($$(".fdCard").length > narrowed && !$(".fdCpt.on[data-cpt]:not([data-cpt=''])"),
+       `'전체'로 되돌아온다 (${narrowed} → ${$$(".fdCard").length})`);
 
     /* 카드 → 뷰어 */
     const myCard = $(".fdCard.mine");
@@ -1178,9 +1183,36 @@
          "★ **잃을 수 있다는 것**을 미리 말한다 — 말 안 하면 사용자는 잃고 나서야 안다");
 
       /* 로그인하면 로그를 보낸다 — 그전까지는 로컬에만 있었다 (§13.17) */
+      /* ── 로그 키를 서버 place_id 로 (§13.20) ──────────────────
+         ★ 전에는 키가 장소 **이름**이라 서버로 보낼 수가 없었다.
+           씨앗을 뽑을 때 id 를 안 담은 것이 원인이었고, 내보내기를 스크립트로
+           만들면서 같이 고쳤다 (`db/export/feed_seed.sh`). */
+      const withId = window.__feed.seed.filter((x) => x.id).length;
+      ok(withId === window.__feed.seed.length,
+         `★ 씨앗의 모든 곳이 서버 id 를 갖는다 (${withId.toLocaleString()}곳)`);
+
+      // 실제 노출을 만들고 보낸다
+      LOG.reset();
+      $('#tabbar button[data-tab="map"]').click(); await sleep(150);
+      $('#tabbar button[data-tab="feed"]').click();
+      await waitFor(() => $$(".fdCard[data-ck]").length);
+      LOG.watch($("#fdBody"));
+      await sleep(1500);
+      const keys = Object.keys(LOG.all());
+      const UUID = /^a:[0-9a-f]{8}-[0-9a-f]{4}-/i;
+      ok(keys.some((k) => UUID.test(k)),
+         `★ 노출 키가 uuid 다 (${keys.filter((k) => UUID.test(k)).length}/${keys.length}) — 이름으로는 서버에 못 보낸다`);
+
+      const before = Object.keys(LOG.all()).length;
       const f = await API.flushCoverEvents();
-      ok(["server", "noop", "no-id"].includes(f.via),
-         `★ 로그인 뒤에는 로그를 보내려 시도한다 (${f.via}${f.note ? " · " + f.note : ""})`);
+      ok(f.via === "server" && f.sent > 0,
+         `★ 로그가 실제로 서버로 간다 (${f.sent}건 · ${f.via})`);
+      ok(Object.keys(LOG.all()).length < before,
+         `★ 보낸 것은 지운다 (${before} → ${Object.keys(LOG.all()).length}) — 안 지우면 같은 노출을 또 보내 분모가 부푼다`);
+      const f2 = await API.flushCoverEvents();
+      ok(f2.sent === 0,
+         "★ 연달아 보내도 두 번 안 간다 — 분모가 부풀면 모든 후보가 같이 낮아져 순위가 흐려진다");
+      $('#tabbar button[data-tab="my"]').click(); await sleep(200);
     } else {
       ok(/서버에 연결되어 있지 않습니다/.test(txt($("#myAcct"))),
          "서버가 없으면 그렇게 말한다");

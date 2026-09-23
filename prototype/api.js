@@ -182,9 +182,12 @@
   async function flushCoverEvents() {
     if (!window.LOG) return { ok: false, via: "off", sent: 0 };
     const all = LOG.all();
+    /* 키 형식: `a:<place_id>` (기관 사진) · `u:<이름>:<작성자>` · `m:<이름>` (내 기록).
+       ★ **uuid 를 들고 있는 것만** 보낸다. 나머지는 아직 서버에 대응이 없다 —
+         보낼 수 없다는 사실을 조용히 넘기지 않고 숫자로 돌려준다. */
     const rows = Object.entries(all).map(([k, v]) => {
-      const [kind, place, who] = k.split(":");
-      return { _key: k, kind, place, who, ...v };
+      const i = k.indexOf(":");
+      return { _key: k, kind: k.slice(0, i), place: k.slice(i + 1), ...v };
     }).filter((r) => r.imp || r.opened || r.research);
     if (!rows.length) return { ok: true, via: "noop", sent: 0 };
     if (!SESSION.access_token) return { ok: false, via: "queued", sent: 0, queued: rows.length };
@@ -192,14 +195,18 @@
        이름으로 매칭하려면 46만 곳을 조회해야 하고, 동명이인 문제도 있다.
        → 실제 앱은 핀을 만들 때 받은 `place_id` 를 그대로 들고 다닌다.
          여기서는 **보낼 수 있는 것이 없다는 사실을 숨기지 않는다.** */
-    const sendable = rows.filter((r) => /^[0-9a-f-]{36}$/.test(r.place || ""));
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const sendable = rows.filter((r) => UUID.test(r.place || ""));
     if (!sendable.length) {
       return { ok: false, via: "no-id", sent: 0, queued: rows.length,
-               note: "프로토타입 키가 장소 이름이라 서버로 못 보낸다 (실제 앱은 place_id)" };
+               note: "보낼 수 있는 place_id 가 없다 (내 기록 후보는 아직 서버 미디어가 아니다)" };
     }
     const r = await rpc("api_log_cover_events", {
       p_rows: sendable.map((x) => ({ place_id: x.place, media_id: null,
         imp: x.imp | 0, opened: x.opened | 0, research: x.research | 0 })) });
+    /* ★ 보낸 것은 지운다. 안 지우면 다음 전송에서 **같은 노출을 또 보내** 분모가 부푼다 —
+       노출 대비로 재는 점수에서 분모가 부풀면 모든 후보가 같이 낮아지고 순위가 흐려진다. */
+    if (r.ok && window.LOG && LOG.forget) sendable.forEach((x) => LOG.forget(x._key));
     return { ok: r.ok, via: r.via, sent: r.ok ? sendable.length : 0, queued: rows.length };
   }
 

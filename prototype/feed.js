@@ -100,6 +100,7 @@
       (CAND.map.get(p.n) || CAND.map.set(p.n, []).get(p.n))
         .push({ kind: "user", img: p.imgi, by: "@" + who, mine: !!p.mine,
                 key: "u:" + p.n + ":" + p.au, stat: statOf("u:" + p.n + ":" + p.au, p.likes || 0) });
+      // 사용자 후보는 아직 서버 미디어가 아니다 — place_id 는 표지가 기관일 때만 쓴다
     });
     // 마이에서 고른 대표 픽은 **그 사람의 대표 후보**로 들어간다 — 이긴다는 뜻은 아니다
     (window.UP ? UP.album : []).forEach((x) => {
@@ -115,8 +116,14 @@
 
   function coverOf(x, idx) {
     if (!CAND.built) buildCands();
+    /* ★ 기관 사진 후보의 키를 **서버 place_id** 로 바꿨다.
+       전에는 장소 **이름**이라 서버로 보낼 수가 없었다(§13.19 `no-id`) —
+       이름으로 맞추려면 46만 곳을 뒤져야 하고 동명이인 문제도 있다.
+       씨앗을 뽑을 때 id 를 안 담은 것이 원인이었고, 내보내기를 스크립트로
+       만들면서 같이 고쳤다(`db/export/feed_seed.sh`). */
     const agency = { kind: "agency", img: null, src: x.thumb || x.img, by: "한국관광공사",
-                     key: "a:" + x.n, stat: statOf("a:" + x.n, 11) };
+                     key: x.id ? "a:" + x.id : "a:" + x.n, placeId: x.id || null,
+                     stat: statOf("a:" + (x.id || x.n), 11) };
     const all = [agency, ...(CAND.map.get(x.n) || [])];
     all.forEach((c) => { c.live = merged(c); c.score = scoreOf(c.live); });
 
@@ -131,7 +138,7 @@
     const why = trial ? "심사 중"
       : win.save >= 0 && st.save ? `저장 ${st.save}` : `♥ ${st.like}`;
     return { src: win.src || photoSrc(win.img), by: win.by, user: win.kind === "user",
-             why, trial, score: win.score, key: win.key };
+             why, trial, score: win.score, key: win.key, placeId: x.id || null };
   }
   /* 씨앗 전체에서 사람 사진이 표지를 가져간 곳의 수 — **이겨서** 가져간 수다 */
   function userCoverCount() {
@@ -231,7 +238,8 @@
     const cv = coverOf(x, idx || 0);
     return `
       <article class="fdCard${cv.user ? " byUser" : ""}${cv.trial ? " trial" : ""}"
-               data-name="${esc(x.n)}" data-ck="${esc(cv.key)}" data-place="${esc(x.n)}">
+               data-name="${esc(x.n)}" data-ck="${esc(cv.key)}" data-place="${esc(x.n)}"
+               data-pid="${esc(x.id || "")}">
         <div class="fdImg"><img src="${esc(cv.src)}" alt="" loading="lazy" data-cover>
           <span class="fdBy${cv.user ? " user" : ""}${cv.trial ? " trial" : ""}"
             >${esc(cv.by)}<i>${esc(cv.why)}</i></span></div>

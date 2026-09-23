@@ -122,8 +122,12 @@
     return els.length;
   }
 
+  /* 서버로 보낸 줄은 지운다 (§13.20). 세션 표식은 남겨 둔다 —
+     지우면 같은 카드가 다시 보일 때 노출을 또 세게 된다. */
+  function forget(key) { delete L.stat[key]; save(); }
+
   window.LOG = {
-    impression, open, react, unreact, research, watch,
+    impression, open, react, unreact, research, watch, forget,
     stat: (k) => L.stat[k] || blank(),
     all: () => L.stat,
     /* 실제 앱은 여기서 서버로 보낸다. 보내는 것은 **키와 숫자뿐**이다. */
