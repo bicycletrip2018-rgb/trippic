@@ -367,6 +367,90 @@
     }, extra || {}));
   }
 
+  /* ── 여행 하나를 통째로 올린다 (§13.23) ────────────────────────
+     ★ §6 의 핵심 경로다. 지금까지는 한 장씩만 올라갔다.
+
+     ★ **사진은 정거장마다 대표 1장만** 올린다. §6 이 이미 그렇게 정했다 —
+       대표 1장은 지도 타일에, 노출 2장은 핀·피드에, 나머지는 저장.
+       전부 올리면 첫 등록에 수십 장이 나가 **사용자가 기다리다 앱을 닫는다.**
+       나머지는 나중에 뒤에서 올리면 된다(아직 안 만들었다).
+
+     ★ 실패해도 **로컬 등록은 되돌리지 않는다.** 사용자는 이미 '완료'를 봤다.
+       되돌리면 화면이 거짓말을 한 게 되고, 무엇이 사라졌는지도 모른다.
+       → 못 올린 것을 **목록으로 돌려준다.** 숨기지 않는다. */
+  async function pushTrip(trip, stops, opts) {
+    if (!ON) return { ok: false, why: "서버 연결 없음" };
+    if (!SESSION.access_token) return { ok: false, why: "로그인 필요" };
+    const o = opts || {};
+    const out = { trip: null, pins: 0, media: 0, failed: [], bytes: 0 };
+
+    if (!trip.isOrphan) {
+      const key = "trip:" + trip.id;
+      if (LINKS[key]) out.trip = LINKS[key];
+      else {
+        const t = await insert("trips", {
+          user_id: SESSION.user_id, title: trip.title,
+          start_date: new Date(trip.start).toISOString().slice(0, 10),
+          end_date: new Date(trip.end).toISOString().slice(0, 10),
+        });
+        if (t.ok) { out.trip = t.data.id; LINKS[key] = t.data.id; saveLinks(); }
+        else out.failed.push({ what: "여행", why: t.error });
+      }
+    }
+
+    const spaceIds = [];
+    for (const sp of (o.spaces || [])) {
+      const id = await ensureSpace(sp, o.spaceNames?.[sp] || sp);
+      if (id) spaceIds.push(id);
+    }
+
+    for (const st of stops) {
+      const picked = (o.picks?.[st.id]) || [];
+      if (!picked.length) continue;
+      const place = o.placeOf?.[st.id];
+      const first = st.items.find((v) => v.id === picked[0]) || st.items[0];
+      const g = first.gps || (first.poi && { lat: first.poi.geometry.coordinates[1],
+                                             lng: first.poi.geometry.coordinates[0] });
+      if (!g) { out.failed.push({ what: st.id, why: "좌표 없음" }); continue; }
+
+      const pin = await insert("pins", {
+        user_id: SESSION.user_id,
+        trip_id: out.trip,
+        place_id: place && place.placeId ? place.placeId : null,
+        geom: `SRID=4326;POINT(${g.lng} ${g.lat})`,
+        category: safeCat(first.poi && first.poi.properties.c) || "etc",
+        visited_at: new Date(st.start || first.ts).toISOString(),
+        memo: (o.memos?.[st.id]) || null,
+        is_public: !!o.isPublic && !!place,
+        verification: first.gps ? "exif" : "manual",
+      });
+      if (!pin.ok) { out.failed.push({ what: st.id, why: pin.error }); continue; }
+      out.pins++;
+      LINKS["pin:stop:" + st.id] = pin.data.id; saveLinks();
+
+      for (const sid of spaceIds) await insert("pin_spaces", { pin_id: pin.data.id, space_id: sid });
+
+      /* 대표 1장만 — 첫 번째로 고른 사진이 대표다 */
+      const rep = st.items.find((v) => v.id === picked[0]);
+      const src = rep && o.srcOf && o.srcOf(rep);
+      if (!src) continue;
+      try {
+        const blob = await (await fetch(src)).blob();
+        const file = new File([blob], "photo.jpg", { type: blob.type || "image/jpeg" });
+        const up = await uploadPhoto(file);
+        if (!up.ok) { out.failed.push({ what: st.id, why: up.why }); continue; }
+        out.bytes += up.bytes;
+        const m = await attachMedia(pin.data.id, up,
+          { is_main: true, sort_order: 0,
+            taken_at: new Date(rep.ts || Date.now()).toISOString() });
+        if (m.ok) out.media++; else out.failed.push({ what: st.id, why: m.error });
+      } catch (e) {
+        out.failed.push({ what: st.id, why: String(e.message || e) });
+      }
+    }
+    return Object.assign({ ok: out.failed.length === 0 }, out);
+  }
+
   /* 서버가 살아 있는지 — 화면 구석에 표시한다 */
   async function ping() {
     if (!ON) return { ok: false, via: "off", note: "anonKey 미설정 — 로컬 JSON으로 돕니다" };
@@ -377,5 +461,5 @@
   window.API = Object.assign(API, { rpc, search, candidates, flushCoverEvents, ping,
     safeCat, PIN_CATEGORY, signInAnonymously, refresh, clearSession, session: SESSION,
     insert, select, addComment, listComments, links: LINKS,
-    shrink, uploadPhoto, attachMedia, ensurePin, ensureSpace });
+    shrink, uploadPhoto, attachMedia, ensurePin, ensureSpace, pushTrip });
 })();

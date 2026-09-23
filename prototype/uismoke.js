@@ -296,6 +296,26 @@
        `★ 등록이 실제로 반영된다 (내 핀 ${beforeMine} → ${afterMine})`,
        afterMine === beforeMine ? "commit이 아무것도 안 했다" : "");
     ok(/내 기록/.test(done) && /모두의 지도/.test(done), "무엇이 어디로 갔는지 보여준다");
+
+    /* ── 등록을 서버로 (§13.23) ─────────────────────────────────
+       ★ §6 의 핵심 경로다. 지금까지 한 장씩만 올라갔다.
+       ★ 서버 전송은 **완료 화면을 보여준 뒤에** 간다 — 기다리게 하면
+         등록이 느려지고, 느리면 다음부터 안 한다. */
+    ok(!!$("#doneSync"), "★ 완료 화면에 서버 전송 자리가 있다 — 조용히 보내지 않는다");
+    if (API.on && API.session.access_token) {
+      await waitFor(() => window.UP.pushed, 25000, 300);
+      const P = UP.pushed;
+      ok(!!P, "서버 전송이 끝났다");
+      ok(P.pins > 0, `★ 정거장이 핀으로 올라간다 (${P.pins}곳)`);
+      ok(P.media > 0, `★ 정거장마다 대표 1장이 올라간다 (${P.media}장 · ${Math.round(P.bytes / 1024)}KB)`);
+      ok(P.media <= P.pins,
+         "★ 전부 올리지 않는다 — 첫 등록에 수십 장이 나가면 사용자가 기다리다 앱을 닫는다");
+      ok(!!P.trip, "여행이 trips 로 올라간다");
+      ok(UP.trip && UP.registered.has(UP.trip.id),
+         "★ 서버가 어떻든 로컬 등록은 그대로다 — 되돌리면 화면이 거짓말을 한 게 된다");
+      ok(/올라갔습니다|안 갔습니다/.test(txt($("#doneSync"))),
+         `★ 결과를 화면에 적는다 (${txt($("#doneSync")).slice(0, 44)})`);
+    }
     /* ★ 배지는 **남은 일**을 센다. 발견된 여행 수를 달아 놨더니 전부 등록한 뒤에도
        숫자가 안 줄어, 배지가 여는 화면의 제목(`아직 지도에 없는 여행 N개`)과 어긋났다. */
     const badge = $("#fabBadge");

@@ -834,6 +834,13 @@
     gap:8px;padding:22px 20px;text-align:center}
   .doneBig{font-size:34px;font-weight:750;letter-spacing:-.02em}
   .doneSub{font-size:12px;color:var(--text-muted,#8b93a3)}
+  /* 서버 전송 결과 — 실패를 숨기지 않는다 (§13.23) */
+  .doneSync{width:100%;margin-top:10px;padding:10px 12px;border-radius:12px;font-size:11.5px;
+    line-height:1.6;color:var(--text-muted);text-align:left}
+  .doneSync:not(:empty){border:1px solid var(--surface-line)}
+  .doneSync b{color:var(--accent)}
+  .doneSync b.bad{color:#e0a94a}
+  .doneSync small{display:block;font-size:10.5px;opacity:.85;margin-top:3px}
   .doneRows{width:100%;display:flex;flex-direction:column;gap:6px;margin-top:12px}
   .doneRows>div{display:grid;grid-template-columns:78px 1fr;gap:2px 10px;text-align:left;
     padding:9px 11px;border-radius:10px;background:rgba(255,255,255,.04)}
@@ -2583,6 +2590,31 @@
     try { refreshPoi(); render(); }
     catch (e) { console.warn("[upload] 지도 갱신 실패 (등록은 완료됨)", e); }
     screenDone(trip, { n, pubN, pub, spaces, sum });
+
+    /* ★ 서버로는 **완료 화면을 보여준 뒤에** 올린다.
+       업로드를 기다리게 하면 등록이 느려지고, 느리면 다음부터 안 한다.
+       실패해도 로컬 등록을 되돌리지 않는다 — 사용자는 이미 '완료'를 봤고,
+       되돌리면 화면이 거짓말을 한 게 된다. 대신 **무엇이 안 갔는지 적는다.** */
+    if (window.API && API.on && API.session.access_token) {
+      const box = document.getElementById("doneSync");
+      if (box) box.textContent = "서버로 올리는 중…";
+      API.pushTrip(trip, UP.stops || [], {
+        picks: UP.picks, placeOf: UP.placeOf, memos: UP.stopMemo,
+        isPublic: !!pub, spaces,
+        spaceNames: Object.fromEntries(SPACES.map((s) => [s.id, s.name])),
+        srcOf: (rec) => { try { return PHOTOS[rec.img]; } catch (e) { return null; } },
+      }).then((r) => {
+        UP.pushed = r;
+        if (!box) return;
+        const kb = Math.round((r.bytes || 0) / 1024).toLocaleString();
+        box.innerHTML = r.ok
+          ? `<b>서버에 올라갔습니다</b> 정거장 ${r.pins}곳 · 사진 ${r.media}장 · ${kb}KB
+             <small>정거장마다 대표 1장만 먼저 올립니다 — 나머지는 내 기기에 그대로 있습니다</small>`
+          : `<b class="bad">일부가 안 갔습니다</b> 올라간 것 ${r.pins}곳 · ${r.media}장 /
+             못 간 것 ${r.failed.length}건
+             <small>${esc((r.failed[0] || {}).why || "")}</small>`;
+      });
+    }
   }
 
   /* 등록 결과 — 무엇이 어디로 갔는지 그 자리에서 보여준다 */
@@ -2605,6 +2637,7 @@
               : priv ? `${priv}장은 자격 미달로 내 기록에만 남습니다`
               : "전부 올라갔습니다"}</small></div>
         </div>
+        <div class="doneSync" id="doneSync"></div>
 
         <p class="doneHint">모두의 지도에서 빠진 사진도 <b>지워지지 않습니다.</b>
           나중에 기준이 바뀌거나 사진을 다시 고르면 그때 올라갑니다.</p>
