@@ -233,6 +233,31 @@
     ok(fl.via === "off" || fl.via === "noop" || fl.ok === false || fl.sent === 0,
        "★ 로그인 전에는 로그를 서버로 보내지 않는다 — 조작 가능한 값 위에 순위를 세우지 않는다");
 
+    /* ── 0-d. 서버에서 읽어 오기 (§13.24) ────────────────────────
+       ★ 지금까지는 **올리기만** 했다. 올린 것이 다시 보이지 않으면
+         사용자에게는 **올린 적이 없는 것**과 같다 — 기기를 바꾸는 순간 드러난다. */
+    R.lines.push("── 0-d. 서버에서 읽기 ──");
+    if (API.on) {
+      const pub = await API.publicRecords(50);
+      ok(pub.ok, `비로그인도 공개 기록을 읽는다 (${pub.ok ? pub.data.length : 0}건) — §3`);
+      if (pub.ok && pub.data.length) {
+        const f = API.toFeature(pub.data[0]);
+        ok(f && f.geometry.coordinates.length === 2,
+           "★ geom(GeoJSON)이 화면이 쓰는 모양으로 바뀐다 — 변환은 한 곳에서만 한다");
+        ok(pub.data.some((r) => (r.media || []).length),
+           "★ 사진이 embed 로 같이 온다 — 핀마다 따로 부르면 N+1 이 된다");
+      }
+      const added = await loadServerPins();
+      ok(typeof added === "number", `지도에 합쳤다 (${added}개)`);
+      const srv = poi.features.filter((x) => x.properties.server);
+      ok(srv.length > 0, `★ 서버 기록이 지도에 있다 (${srv.length}개)`);
+      ok(srv.every((x) => !x.properties.photoUrl || /^https?:/.test(x.properties.photoUrl)),
+         "서버 사진은 URL 이다 (로컬 PHOTOS 배열이 아니다)");
+      const again = await loadServerPins();
+      ok(again === 0,
+         "★ 다시 불러도 중복으로 안 쌓인다 — 열 때마다 늘어나면 지도가 거짓말을 한다");
+    }
+
     R.lines.push("── 1. 앨범에서 (끝까지) ──");
     const s1 = await openEntry(0);
     ok(s1 && /여행/.test(s1), "여행 목록이 열린다", s1?.slice(0, 40));
@@ -315,6 +340,22 @@
          "★ 서버가 어떻든 로컬 등록은 그대로다 — 되돌리면 화면이 거짓말을 한 게 된다");
       ok(/올라갔습니다|안 갔습니다/.test(txt($("#doneSync"))),
          `★ 결과를 화면에 적는다 (${txt($("#doneSync")).slice(0, 44)})`);
+      /* 마이 화면이 **서버에 무엇이 남았는지** 숫자로 말하는가.
+         칸을 그리기 전에 채우려다 늘 비어 있었다 — 순서 문제였다. */
+      $('#tabbar button[data-tab="my"]').click();
+      /* ★ 길이로 기다리면 **자리표시자("서버 기록 확인 중…")가 통과한다.**
+         기다릴 것은 '무언가 찼다'가 아니라 **결과가 왔다**는 것이다. */
+      await waitFor(() => $("#myServer") && /서버에 있는 내 기록/.test(txt($("#myServer"))), 10000, 200);
+      ok(/서버에 있는 내 기록/.test(txt($("#myServer"))),
+         `★ 서버에 무엇이 남았는지 숫자로 말한다 (${txt($("#myServer")).slice(0, 46)})`);
+      await closeSheet();
+
+      /* 올린 것이 **바로 다시 읽히는가** — 이게 안 되면 반쪽이다 */
+      const back = await API.myRecords(200);
+      ok(back.ok && back.data.length >= P.pins,
+         `★ 방금 올린 것이 서버에서 다시 읽힌다 (${back.ok ? back.data.length : 0}곳)`);
+      ok(back.data.some((r) => (r.media || []).length > 0),
+         "★ 사진도 같이 읽힌다 — 핀만 있고 사진이 없으면 빈 지도가 된다");
     }
     /* ★ 배지는 **남은 일**을 센다. 발견된 여행 수를 달아 놨더니 전부 등록한 뒤에도
        숫자가 안 줄어, 배지가 여는 화면의 제목(`아직 지도에 없는 여행 N개`)과 어긋났다. */

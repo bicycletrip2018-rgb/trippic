@@ -507,6 +507,12 @@
   .myAcctRow.off{display:block;color:var(--text-muted);font-size:12.5px}
   .myAcctRow.off small{display:block;font-size:11px;margin-top:3px}
   /* 사진 올리기 — 줄인 결과를 숫자로 보여준다 (§13.22) */
+  .myServer:not(:empty){margin-bottom:8px;padding:11px 12px;border-radius:13px;
+    border:1px solid var(--surface-line);font-size:11.5px;color:var(--text-muted)}
+  .mySrvRow{display:flex;align-items:baseline;gap:8px}
+  .mySrvRow b{font-size:12.5px;color:var(--text-primary)}
+  .mySrvRow em{margin-left:auto;font-style:normal;font-size:11.5px;color:var(--accent);font-weight:700}
+  .myServer small{display:block;margin-top:4px;font-size:10.5px}
   .myUp{margin-top:8px}
   .myUpBtn{display:block;width:100%;padding:13px;border-radius:13px;cursor:pointer;text-align:center;
     font-size:13px;font-weight:700;color:var(--accent);border:1px dashed var(--surface-line)}
@@ -1582,7 +1588,7 @@ async function runSearch(q){
           `data-x="${x.lng}" data-y="${x.lat}" data-z="15" data-label="${x.name}" data-place="${x.name}"`)).join('')
       : places.map(f=>{
           const p=f.properties, [x,y]=f.geometry.coordinates;
-          return row(`<img src="${PHOTOS[+p.img.slice(2)]}" loading="lazy" alt="">`,
+          return row(`<img src="${p.photoUrl || PHOTOS[+String(p.img||'ph0').slice(2)]}" loading="lazy" alt="">`,
                      p.n, `${CAT[p.c].k} · ${p.rn} · ♥ ${p.likes}`,
                      `data-x="${x}" data-y="${y}" data-z="15" data-label="${p.n}" data-place="${p.n}"`);
         }).join(''));
@@ -1853,6 +1859,35 @@ function renderTrust(){
   }).join('');
 }
 
+/* ★ 서버에 있는 기록을 지도에 합친다 (§13.24).
+   올린 것이 **다시 보이지 않으면** 사용자에게는 올린 적이 없는 것과 같다.
+
+   ★ 씨앗을 지우지 않고 **옆에 붙인다.** 프로토타입의 값어치는 화면이 차 있는 것인데,
+     서버 기록 7개만 남기면 지도가 텅 빈다. 실제 앱에서는 씨앗이 없으므로
+     이 합치기가 곧 전부가 된다. */
+let SERVER_PINS = [];
+async function loadServerPins(){
+  if(!(window.API && API.on)) return 0;
+  const mine = API.session.access_token ? await API.myRecords(200) : {ok:false,data:[]};
+  const pub  = await API.publicRecords(200);
+  const rows = [...(mine.data||[]), ...(pub.data||[])];
+  const seen = new Set(SERVER_PINS.map(f=>f.properties.pinId));
+  let added = 0;
+  for(const r of rows){
+    if(seen.has(r.id)) continue;
+    const f = API.toFeature(r);
+    if(!f) continue;
+    seen.add(r.id); SERVER_PINS.push(f); poi.features.push(f); added++;
+  }
+  if(added){
+    // 서버 사진은 URL 이라 PHOTOS 배열에 없다 — imgi 대신 photoUrl 을 쓴다
+    try { refreshPoi(); renderList(); } catch(e){ console.warn('[server] 지도 갱신', e); }
+  }
+  console.log('[server] 기록', rows.length, '중', added, '개를 지도에 합쳤다');
+  return added;
+}
+window.loadServerPins = loadServerPins;
+
 let listTimer=null;
 function renderList(){
   const feats = visiblePois();
@@ -1879,7 +1914,7 @@ function renderList(){
   }
   box.innerHTML = feats.slice(0,120).map(f=>{
     const p=f.properties, cat=CAT[p.c];
-    const src = PHOTOS[+p.img.slice(2)];
+    const src = p.photoUrl || PHOTOS[+String(p.img||'ph0').slice(2)];
     return `<div class="card" data-x="${f.geometry.coordinates[0]}" data-y="${f.geometry.coordinates[1]}">
       <img src="${src}" loading="lazy" alt="">
       <div class="cmeta">
@@ -2304,6 +2339,7 @@ function bench(){
     if (window.initFeed) window.initFeed();
     if (window.initHome) window.initHome();
     if (window.initMy) window.initMy();
+    if (window.loadServerPins) loadServerPins();
     window.__ready = true;
   });
 

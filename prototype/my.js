@@ -213,12 +213,14 @@
         <span>계정을 만들지 않고 바로 씁니다 — 나중에 옮길 수 있습니다</span></button>`;
       return;
     }
+    renderServerCount();
     box.innerHTML = `
       <div class="myAcctRow">
         <b>${s.anonymous ? "임시 계정" : "계정"}</b>
         <code>${esc(String(s.user_id || "").slice(0, 8))}…</code>
         ${s.anonymous ? `<em>이 기기에만</em>` : ""}
       </div>
+      <div class="myServer" id="myServer"></div>
       <div class="myUp">
         <label class="myUpBtn">사진 한 장 올려보기
           <input type="file" id="myUpFile" accept="image/*" hidden>
@@ -229,6 +231,31 @@
         앱을 지우거나 기기를 바꾸면 <b>기록이 사라집니다.</b>
         <small>나중에 카카오·애플로 이어 두면 옮길 수 있습니다 — 지금은 준비 중입니다.</small>
       </div>` : ""}`;
+    /* ★ `#myServer` 는 **바로 위 innerHTML 이 만든다.** 그 전에 채우려 했더니
+       노드가 아직 없어서(또는 곧 지워져서) 칸이 늘 비어 있었다.
+       그리는 쪽과 채우는 쪽의 순서를 지킨다. */
+    renderServerCount();
+  }
+
+  /* ★ 서버에 **무엇이 남아 있는지** 숫자로 보여준다.
+     올렸다는 말만 하고 확인할 방법이 없으면, 사용자는 기기를 바꿀 때
+     비로소 **없다는 것**을 알게 된다. */
+  async function renderServerCount() {
+    const box = $("#myServer");
+    if (!box || !(window.API && API.on && API.session.access_token)) return;
+    box.textContent = "서버 기록 확인 중…";
+    const [pins, trips] = await Promise.all([API.myRecords(200), API.myTrips()]);
+    if (!pins.ok) { box.textContent = ""; return; }
+    const photos = pins.data.reduce((n, p) => n + (p.media || []).length, 0);
+    box.innerHTML = `
+      <div class="mySrvRow">
+        <b>서버에 있는 내 기록</b>
+        <em>${pins.data.length.toLocaleString()}곳 · 사진 ${photos.toLocaleString()}장 ·
+            여행 ${(trips.data || []).length}개</em>
+      </div>
+      <small>${pins.data.length
+        ? "기기를 바꿔도 여기서 다시 불러옵니다."
+        : "아직 서버에 올라간 기록이 없습니다 — 지도에서 여행을 등록해 보세요."}</small>`;
   }
 
   function render() {

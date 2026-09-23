@@ -451,6 +451,59 @@
     return Object.assign({ ok: out.failed.length === 0 }, out);
   }
 
+  /* ── 서버에서 읽어 오기 (§13.24) ──────────────────────────────
+     ★ 지금까지는 **올리기만** 했다. 그러면 기기를 바꾸는 순간 아무것도 안 보인다 —
+       §13.21에서 말한 '반쪽'이 앱 전체 규모로 생긴다.
+       올린 것이 다시 보이지 않으면, 사용자에게는 **올린 적이 없는 것**과 같다.
+
+     ★ `geom` 은 GeoJSON 으로 온다 (`{type:'Point', coordinates:[lng,lat]}`).
+       `media` 는 embed 로 같이 받는다 — 핀마다 따로 부르면 N+1 이 된다. */
+  const PIN_COLS = "id,trip_id,place_id,geom,category,visited_at,memo,verification," +
+                   "is_public,comment_count,media(url,width,height,is_main,sort_order)";
+
+  async function myRecords(limit) {
+    if (!SESSION.access_token) return { ok: false, via: "off", data: [] };
+    return select("pins",
+      `user_id=eq.${SESSION.user_id}&deleted_at=is.null&order=visited_at.desc` +
+      `&limit=${limit || 200}&select=${PIN_COLS}`);
+  }
+
+  /* 모두의 지도 — 비로그인도 읽는다(§3). 뷰포트로 자르는 것은 다음 일이다. */
+  async function publicRecords(limit) {
+    return select("pins",
+      `is_public=eq.true&deleted_at=is.null&order=visited_at.desc` +
+      `&limit=${limit || 200}&select=${PIN_COLS}`);
+  }
+
+  async function myTrips() {
+    if (!SESSION.access_token) return { ok: false, data: [] };
+    return select("trips",
+      `user_id=eq.${SESSION.user_id}&order=start_date.desc&limit=100&select=id,title,start_date,end_date`);
+  }
+
+  /* 서버 줄 → 화면이 쓰는 모양. **여기 한 곳에서만 바꾼다** —
+     여러 곳에서 각자 바꾸면 필드 이름이 갈라진다(§13.17에서 겪었다). */
+  function toFeature(r) {
+    const c = (r.geom && r.geom.coordinates) || null;
+    if (!c) return null;
+    const m = (r.media || []).slice().sort((a, b) =>
+      (b.is_main - a.is_main) || (a.sort_order - b.sort_order))[0];
+    return {
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [c[0], c[1]] },
+      properties: {
+        n: r.memo ? r.memo.slice(0, 20) : "내 기록",
+        c: r.category || "etc", rn: "", likes: 0,
+        server: true, pinId: r.id, tripId: r.trip_id,
+        mine: true, pub: !!r.is_public, au: "u1",
+        ver: r.verification === "live" ? "live" : "exif",
+        photoUrl: m ? m.url : null,
+        nu: 1, np: (r.media || []).length,
+        visitedAt: r.visited_at, memo: r.memo, comments: r.comment_count || 0,
+      },
+    };
+  }
+
   /* 서버가 살아 있는지 — 화면 구석에 표시한다 */
   async function ping() {
     if (!ON) return { ok: false, via: "off", note: "anonKey 미설정 — 로컬 JSON으로 돕니다" };
@@ -461,5 +514,6 @@
   window.API = Object.assign(API, { rpc, search, candidates, flushCoverEvents, ping,
     safeCat, PIN_CATEGORY, signInAnonymously, refresh, clearSession, session: SESSION,
     insert, select, addComment, listComments, links: LINKS,
-    shrink, uploadPhoto, attachMedia, ensurePin, ensureSpace, pushTrip });
+    shrink, uploadPhoto, attachMedia, ensurePin, ensureSpace, pushTrip,
+    myRecords, publicRecords, myTrips, toFeature });
 })();
