@@ -42,3 +42,6 @@ yarn-error.*
 
 # 서버 연결 키 (공개 키지만 이력에 남기지 않는다)
 src/config.ts
+
+# 검사용 컴파일 산출물
+build-test/

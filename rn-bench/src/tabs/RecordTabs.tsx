@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import * as API from "../api";
 import { C, CAT } from "../theme";
+import { DayCourse } from "../DayCourse";
 
 type Pin = {
   id: string; category: string; visited_at: string; memo: string | null;
@@ -106,6 +107,7 @@ export function MyTab() {
   const [trips, setTrips] = useState<any[]>([]);
   const [signing, setSigning] = useState(false);
   const [uid, setUid] = useState<string | null>(API.SESSION.user_id);
+  const [course, setCourse] = useState(false);
 
   useEffect(() => { void API.myTrips().then((r) => setTrips(r.data ?? [])); }, [rows.length]);
 
@@ -122,6 +124,14 @@ export function MyTab() {
     <ScrollView style={s.wrap} contentContainerStyle={{ paddingBottom: 110 }}
       refreshControl={<RefreshControl refreshing={busy} onRefresh={load} tintColor={C.muted} />}>
       <Text style={s.h1}>마이</Text>
+
+      {/* ★ 하루 코스는 **내 기록에서 복원**된다 — 그래서 '갈 곳'이 아니라 '마이'에 있다.
+          추천이면 탭2 가 맞지만, 이건 있었던 일이다. */}
+      <Pressable style={s.box} onPress={() => setCourse(true)}>
+        <Text style={s.boxT}>내 하루</Text>
+        <Text style={s.boxV}>사진에서 복원한 그날의 순서 · 체류 · 이동 ›</Text>
+      </Pressable>
+      {course && <DayCourse onClose={() => setCourse(false)} />}
 
       <View style={s.box}>
         <Text style={s.boxT}>계정</Text>

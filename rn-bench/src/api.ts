@@ -131,7 +131,7 @@ export async function ensureSession() {
 
 /* ── 읽기 ──────────────────────────────────────────────────── */
 const PIN_COLS =
-  "id,trip_id,place_id,geom,category,visited_at,memo,verification,is_public,comment_count," +
+  "id,trip_id,place_id,geom,category,visited_at,stay_sec,memo,verification,is_public,comment_count," +
   "media(url,width,height,is_main,sort_order)";
 
 export const search = (q: string, limit = 14) =>
@@ -303,6 +303,14 @@ export type PushOpts = {
                    sortOrder: number; w?: number; h?: number }[]) => Promise<void>;
 };
 
+/** 정거장의 첫 사진 ~ 마지막 사진 (초). 한 장뿐이면 **모르는 것**이라 null. */
+function staySecOf(st: any): number | null {
+  const ts = (st.items || []).map((x: any) => x.ts).filter(Number.isFinite);
+  if (ts.length < 2) return null;
+  const sec = Math.round((Math.max(...ts) - Math.min(...ts)) / 1000);
+  return sec > 0 && sec <= 86400 ? sec : null;   // 하루를 넘으면 묶기가 틀린 것이다
+}
+
 export async function pushTrip(trip: any, stops: any[], o: PushOpts) {
   if (!isOn()) return { ok: false, why: "서버 연결 없음", pins: 0, media: 0, failed: [] as any[] };
   if (!SESSION.access_token) return { ok: false, why: "로그인 필요", pins: 0, media: 0, failed: [] as any[] };
@@ -336,6 +344,10 @@ export async function pushTrip(trip: any, stops: any[], o: PushOpts) {
       geom: `SRID=4326;POINT(${g.lng} ${g.lat})`,
       category: safeCat(place?.category) || "etc",
       visited_at: new Date(st.start || first.ts).toISOString(),
+      /* ★ 체류 시간은 **여기서만** 정확히 알 수 있다(032). 사진은 전부 기기에 있고
+         서버로 가는 것은 정수 하나다 — 이걸 안 보내면 하루 코스의 재료가 사라진다.
+         사진 1장이면 0 이 아니라 null 이다. 0분이라고 쓰면 거짓말이 된다. */
+      stay_sec: staySecOf(st),
       memo: o.memos?.[st.id] || null,
       /* ★ 장소를 안 고르면 공개하지 않는다 — 좌표만 있는 점은 지도에서
          무엇인지 말할 수 없고, place_stats 에도 붙지 못한다(009·011). */
