@@ -15,6 +15,8 @@ import { MapTab } from "./src/tabs/MapTab";
 import { FeedTab } from "./src/tabs/FeedTab";
 import { NewsTab, SpaceTab, MyTab } from "./src/tabs/RecordTabs";
 import { RegisterFlow } from "./src/RegisterFlow";
+import { UploadPill } from "./src/UploadPill";
+import * as Q from "./src/uploadQueue";
 import * as API from "./src/api";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./src/config";
 import { C } from "./src/theme";
@@ -26,7 +28,14 @@ export default function App() {
 
   useEffect(() => {
     API.setConfig(SUPABASE_URL, SUPABASE_ANON_KEY);
-    void API.loadSession().then(() => setReady(true));
+    void API.loadSession().then(async () => {
+      setReady(true);
+      /* ★ 지난번에 다 못 올린 사진부터 이어서 올린다. 앱을 열 때마다 확인한다 —
+         "다음에 여시면 이어서 올립니다"라고 말했으면 그렇게 되어야 한다. */
+      await API.ensureSession();
+      await Q.load();
+      void Q.start();
+    });
   }, []);
 
   /* 지도 중심 — 탭2 가 이걸 물려받는다. §12.14: 탭마다 지역을 다시 묻지 않는다. */
@@ -51,6 +60,7 @@ export default function App() {
         </Pressable>
       )}
       {reg && <RegisterFlow onClose={() => setReg(false)} />}
+      <UploadPill />
       <TabBar tab={tab} onChange={setTab} />
     </View>
   );

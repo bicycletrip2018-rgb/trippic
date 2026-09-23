@@ -107,6 +107,28 @@ export async function signInAnonymously() {
   return { ok: true, user: SESSION.user_id };
 }
 
+/* ★ 저장해 둔 세션이 **서버에 없는 계정**을 가리킬 수 있다. JWT 는 서명된 값이라
+   만료 전까지는 형식상 멀쩡하지만, 그 계정이 지워졌으면 auth.uid() 가 가리키는
+   profiles 행이 없어 쓰기가 전부 23503(FK 위반)으로 튕긴다.
+   ★ 화면에는 이게 "올리지 못했습니다 — Key is not present in table profiles" 로 보인다.
+     사용자가 할 수 있는 일이 하나도 없는 문구다. 켤 때 한 번 확인하고 조용히 다시 든다.
+   (검증 중 reset_test_data.sh 로 계정을 지웠을 때 그대로 터졌다. 계정 삭제는
+    실제로도 일어나는 일이라 이 회복 경로는 테스트 편의가 아니다.) */
+export async function ensureSession() {
+  if (!isOn()) return { ok: false, why: "키 없음" };
+  if (SESSION.access_token) {
+    try {
+      const r = await fetch(`${CFG.url}/auth/v1/user`, { headers: headers() });
+      if (r.ok) return { ok: true, why: "세션 유효" };
+    } catch {
+      // 망이 끊긴 것과 계정이 없는 것은 다르다 — 못 물어봤으면 버리지 않는다
+      return { ok: true, why: "확인 못 함 — 그대로 쓴다" };
+    }
+    await clearSession();
+  }
+  return signInAnonymously();
+}
+
 /* ── 읽기 ──────────────────────────────────────────────────── */
 const PIN_COLS =
   "id,trip_id,place_id,geom,category,visited_at,memo,verification,is_public,comment_count," +
@@ -245,12 +267,17 @@ export type PushOpts = {
   uriOf: (photoId: string) => string | undefined;
   isPublic?: boolean;
   onStep?: (done: number, total: number) => void;
+  /* 대표를 뺀 나머지를 뒤로 넘긴다 (§13.30). 없으면 대표만 올라간다 —
+     큐를 안 붙인 화면도 그대로 돌아야 한다. */
+  queue?: (jobs: { pinId: string; photoId: string; takenAt: number;
+                   sortOrder: number; w?: number; h?: number }[]) => Promise<void>;
 };
 
 export async function pushTrip(trip: any, stops: any[], o: PushOpts) {
   if (!isOn()) return { ok: false, why: "서버 연결 없음", pins: 0, media: 0, failed: [] as any[] };
   if (!SESSION.access_token) return { ok: false, why: "로그인 필요", pins: 0, media: 0, failed: [] as any[] };
-  const out = { trip: null as string | null, pins: 0, media: 0, bytes: 0, failed: [] as any[] };
+  const out = { trip: null as string | null, pins: 0, media: 0, bytes: 0,
+                queued: 0, failed: [] as any[] };
 
   if (!trip.isOrphan) {
     const t = await insert<any>("trips", {
@@ -291,15 +318,32 @@ export async function pushTrip(trip: any, stops: any[], o: PushOpts) {
 
     const rep = st.items.find((v: any) => v.id === picked[0]);
     const src = rep && o.uriOf(rep.id);
-    if (!src) continue;
-    const up = await uploadPhoto(src, { w: rep.w, h: rep.h });
-    if (!up.ok) { out.failed.push({ what: st.id, why: up.why }); continue; }
-    out.bytes += up.bytes || 0;
-    const m = await attachMedia(pinId, up, {
-      is_main: true, sort_order: 0,
-      taken_at: new Date(rep.ts || Date.now()).toISOString(),
-    });
-    if (m.ok) out.media++; else out.failed.push({ what: st.id, why: m.error });
+    if (src) {
+      const up = await uploadPhoto(src, { w: rep.w, h: rep.h });
+      if (!up.ok) out.failed.push({ what: st.id, why: up.why });
+      else {
+        out.bytes += up.bytes || 0;
+        const m = await attachMedia(pinId, up, {
+          is_main: true, sort_order: 0,
+          taken_at: new Date(rep.ts || Date.now()).toISOString(),
+        });
+        if (m.ok) out.media++; else out.failed.push({ what: st.id, why: m.error });
+      }
+    }
+
+    /* ★ 나머지는 **여기서 올리지 않는다.** 대표만 올리고 넘긴다 — 사용자는
+       '완료'를 먼저 봐야 한다. 대표가 못 올라갔어도 나머지는 넘긴다:
+       핀은 이미 만들어졌고, 사진 한 장이 없다고 나머지를 버릴 이유가 없다. */
+    const rest = picked.slice(1)
+      .map((id: string) => st.items.find((v: any) => v.id === id))
+      .filter(Boolean);
+    if (rest.length && o.queue) {
+      await o.queue(rest.map((it: any, i: number) => ({
+        pinId, photoId: it.id, takenAt: it.ts || Date.now(),
+        sortOrder: i + 1, w: it.w, h: it.h,
+      })));
+      out.queued += rest.length;
+    }
   }
   o.onStep?.(todo.length, todo.length);
   return { ok: out.failed.length === 0, ...out };

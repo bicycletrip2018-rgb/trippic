@@ -15,6 +15,7 @@ import {
 } from "react-native";
 import { C, CAT } from "./theme";
 import * as API from "./api";
+import * as Q from "./uploadQueue";
 import { ensurePermission, scanAlbum, SCAN_MAX, UNKNOWN_ACC_M } from "./album";
 import {
   clusterTrips, findOrphans, splitStop, fmtRange,
@@ -70,16 +71,24 @@ export function RegisterFlow({ onClose }: { onClose: () => void }) {
 
   async function commit() {
     setBusy("올리는 중…");
-    if (!API.SESSION.access_token) await API.signInAnonymously();
+    await API.ensureSession();   // 지워진 계정을 들고 있으면 여기서 다시 든다
     const r = await API.pushTrip(trip, stops, {
       picks, placeOf, memos, uriOf, isPublic,
       onStep: (d, t) => setBusy(`올리는 중 ${d} / ${t}`),
+      queue: Q.enqueue,
     });
     setBusy(null); setResult(r); setStep("done");
+    /* ★ '완료'를 그린 **뒤에** 큐를 민다. 먼저 밀면 이 화면이 그 앞에서 기다린다 —
+       나누어 올리는 이유가 사라진다. */
+    void Q.start();
   }
 
   const chosen = useMemo(
     () => stops.filter((st) => (picks[st.id] || []).length), [stops, picks]);
+  /* 대표를 뺀 장수 — 이만큼이 뒤에서 올라간다 */
+  const extra = useMemo(
+    () => chosen.reduce((n, st) => n + Math.max(0, (picks[st.id] || []).length - 1), 0),
+    [chosen, picks]);
 
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
@@ -110,11 +119,18 @@ export function RegisterFlow({ onClose }: { onClose: () => void }) {
         ) : step === "stops" ? (
           <StopList
             stops={stops} picks={picks} memos={memos} placeOf={placeOf}
-            isPublic={isPublic} uriOf={uriOf} count={chosen.length}
+            isPublic={isPublic} uriOf={uriOf} count={chosen.length} extra={extra}
             onToggle={(st, id) => setPicks((p) => {
               const cur = p[st.id] || [];
               return { ...p, [st.id]: cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id] };
             })}
+            onAll={(st) => setPicks((p) => ({
+              ...p,
+              /* 다 켜져 있으면 대표만 남긴다. 되돌릴 수 없는 토글은 만들지 않는다. */
+              [st.id]: (p[st.id] || []).length >= st.items.length
+                ? st.items.slice(0, 1).map((i) => i.id)
+                : st.items.map((i) => i.id),
+            }))}
             onSplit={(id) => setStops((ss) => splitStop(ss, id))}
             onMemo={(id, v) => setMemos((m) => ({ ...m, [id]: v }))}
             onPickPlace={setPickFor}
@@ -194,9 +210,10 @@ function TripList({ trips, onOpen }: { trips: Trip[]; onOpen: (t: Trip) => void 
 /* ── S3 정거장 ───────────────────────────────────────────────── */
 function StopList(p: {
   stops: Stop[]; picks: Record<string, string[]>; memos: Record<string, string>;
-  placeOf: Record<string, any>; isPublic: boolean; count: number;
+  placeOf: Record<string, any>; isPublic: boolean; count: number; extra: number;
   uriOf: (id: string) => string | undefined;
   onToggle: (st: Stop, id: string) => void; onSplit: (id: string) => void;
+  onAll: (st: Stop) => void;
   onMemo: (id: string, v: string) => void; onPickPlace: (st: Stop) => void;
   onPublic: (v: boolean) => void; onCommit: () => void;
 }) {
@@ -220,9 +237,17 @@ function StopList(p: {
                   </Text>
                 </View>
                 {st.items.length > 1 && (
-                  <Pressable onPress={() => p.onSplit(st.id)} hitSlop={8}>
-                    <Text style={s.split}>쪼개기</Text>
-                  </Pressable>
+                  <>
+                    {/* 대표만 먼저 올라가고 나머지는 뒤에서 올라간다 — 여기서 고른다 */}
+                    <Pressable onPress={() => p.onAll(st)} hitSlop={8}>
+                      <Text style={s.split}>
+                        {sel.length >= st.items.length ? "대표만" : "전부"}
+                      </Text>
+                    </Pressable>
+                    <Pressable onPress={() => p.onSplit(st.id)} hitSlop={8}>
+                      <Text style={s.split}>쪼개기</Text>
+                    </Pressable>
+                  </>
                 )}
               </View>
 
@@ -268,7 +293,9 @@ function StopList(p: {
         </Pressable>
         <Pressable
           style={[s.cta, !p.count && s.ctaOff]} disabled={!p.count} onPress={p.onCommit}>
-          <Text style={s.ctaT}>{p.count}곳 등록</Text>
+          <Text style={s.ctaT}>
+            {p.count}곳 등록{p.extra ? ` · 사진 ${p.count + p.extra}장` : ""}
+          </Text>
         </Pressable>
       </View>
     </>
@@ -352,6 +379,15 @@ function Done({ result, onClose }: { result: any; onClose: () => void }) {
       </Text>
       {!!result?.bytes && (
         <Text style={s.hint}>올린 용량 {(result.bytes / 1024 / 1024).toFixed(2)}MB</Text>
+      )}
+      {!!result?.queued && (
+        <View style={s.note}>
+          <Text style={s.noteT}>나머지 {result.queued}장은 뒤에서 올립니다</Text>
+          <Text style={s.noteB}>
+            앱을 쓰시는 동안 한 장씩 올라갑니다. 지금 닫으셔도 됩니다 —
+            다음에 여시면 남은 것부터 이어서 올립니다.
+          </Text>
+        </View>
       )}
       {!!failed.length && (
         <View style={s.note}>
