@@ -75,9 +75,15 @@ Manual linking is disabled
 ★ 실제로 이것 때문에 막혔다. provider 를 켜고 리다이렉트도 다 맞췄는데, 서버에는
 `identities` 가 **0건**이었다 — 카카오까지 가 보지도 못하고 Supabase 가 먼저 거절한다.
 
-켜는 곳: 대시보드 **Authentication** 의 프로젝트 인증 설정에서 **`Allow manual linking`**.
+켜는 곳: **Authentication → `Sign In / Providers`** 페이지(`/project/<ref>/auth/providers`)
+**위쪽의 사용자 가입 설정 묶음** 안에 **`Allow manual linking`** 이 있다.
+`Allow new users to sign up` · `Confirm email` · `Allow anonymous sign-ins` 와 **같은 자리**다
+(공식 문서 `guides/auth/general-configuration` 가 이 넷을 한 묶음으로 적어 뒀다).
+provider 목록보다 **위**에 있어서, 카카오 칸만 보고 있으면 못 본다.
 (셀프 호스팅이면 `GOTRUE_SECURITY_MANUAL_LINKING_ENABLED: true`)
-★ 메뉴 위치는 개편이 잦다. **대시보드에서 `Cmd+K` 로 `manual linking` 을 찾는 게 빠르다.**
+
+★ **`Cmd+K` 로는 못 찾는다.** 그 검색은 **페이지만** 찾고 설정 값은 안 찾는다 —
+  `manual linking` 을 치면 *No results found* 가 뜬다. (한 번 그렇게 안내했다가 헛걸음시켰다)
 
 **이게 꺼져 있어도 "카카오로 들어가기"(sign-in)는 된다.** 다만 그 길은 **계정 id 가
 바뀌므로** 임시 계정의 기록을 옮기려면 §13.40 합치기를 타야 한다. 우리가 "얹기"를
