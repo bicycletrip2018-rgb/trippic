@@ -12,17 +12,27 @@ curl -s "$SUPABASE_URL/auth/v1/settings" -H "apikey: $ANON_KEY" | python3 -m jso
 `"kakao": false` 면 아래를 해야 한다. **키를 다루는 일이라 대신 해 드릴 수 없다.**
 
 ## 1. 카카오 개발자 — 앱 만들기
+
+★ **콘솔이 개편됐다(2026-09 확인).** 예전의 *제품 설정* 묶음이 없어지고
+좌측 메뉴가 평평해졌다. 리다이렉트 URI 와 클라이언트 시크릿도 **[앱] 아래로 옮겨졌다** —
+옛 안내(제품 설정 → 카카오 로그인 → Redirect URI)를 따라가면 그 메뉴가 없어서 막힌다.
+근거: 카카오 공식 문서 `docs/latest/ko/kakaologin/prerequisite`, `docs/latest/ko/app-setting/app`.
+
 1. https://developers.kakao.com → 내 애플리케이션 → 애플리케이션 추가하기
-2. **앱 키 → REST API 키** 를 적어 둔다 (Supabase 의 *Client ID*)
-3. 제품 설정 → **카카오 로그인** → 활성화 **ON**
-4. **Redirect URI** 에 아래를 등록한다 (Supabase 가 받는 주소다):
-   ```
-   <SUPABASE_URL>/auth/v1/callback
-   ```
-5. 보안 → **Client Secret** 생성 후 **활성화 ON**, 그 값을 적어 둔다
-6. 동의 항목 → **닉네임**만 필수로 둔다.
+2. **[앱] > [플랫폼 키] > [REST API 키]** — 이 한 화면에 세 가지가 다 있다:
+   - **키 값**을 복사한다 (Supabase 의 *Client ID*)
+   - **리다이렉트 URI** 에 아래를 등록한다 (Supabase 가 받는 주소다):
+     ```
+     <SUPABASE_URL>/auth/v1/callback
+     ```
+   - **클라이언트 시크릿** → `코드 생성` 후 값을 복사한다.
+     ★ **기본이 활성화(ON)** 다 — 예전처럼 따로 켤 필요가 없다. 끄면 오히려 토큰
+     발급이 달라진다. 코드만 만들어 두면 된다.
+3. **[카카오 로그인] > [사용 설정]** → 상태 **ON**
+   (OFF 인 채로 로그인을 요청하면 `KOE004` 가 난다)
+4. **[카카오 로그인] > [동의항목]** → **닉네임**만 설정한다.
    ★ 이메일은 **받지 않는다.** §2(최소 수집)에 맞고, 카카오 이메일 동의는
-   사업자 심사가 필요해 개인 개발자는 막힌다.
+   **비즈 앱 전환 + 영업일 3~5일 심사**가 필요해 개인 개발자는 사실상 막힌다.
 
 ## 2. Supabase 대시보드
 Authentication → Providers → **Kakao**
