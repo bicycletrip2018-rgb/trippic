@@ -119,8 +119,8 @@
     map.jumpTo({ center: [127.6, 36.2], zoom: 6.6 });
     await sleep(900);
     ok(zoomUnit(map.getZoom()) === "region", "전국 줌은 '지역' 단위다");
-    ok(vis("region-heat") === "visible" && vis("region-count") === "visible",
-       "★ 지역 집계가 뜬다 (색 + 숫자)");
+    ok(vis("region-agg") === "visible" && vis("region-count") === "visible",
+       "★ 지역 집계가 뜬다 (경계 밝기 + 숫자)");
     ok(vis("poi-pin") === "none" && vis("poi-dot") === "none",
        "★ 개별 핀은 내려간다 — 수천 개를 흩뿌리지 않는다");
     const labels = map.getSource("sggPt")._data.features.length;
@@ -199,7 +199,7 @@
 
     map.jumpTo({ center: [129.16, 35.158], zoom: 14 });
     await sleep(900);
-    ok(zoomUnit(map.getZoom()) === "all" && vis("region-heat") === "none",
+    ok(zoomUnit(map.getZoom()) === "all" && vis("region-agg") === "none",
        "★ 확대하면 집계가 물러나고 장소가 돌아온다");
 
     /* ── 0-c. 서버 연결 (§13.17) ─────────────────────────────────

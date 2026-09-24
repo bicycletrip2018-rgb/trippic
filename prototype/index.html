@@ -1787,7 +1787,7 @@ function applyZoomUnit(){
   const u = zoomUnit(map.getZoom());
   const show = (id, on) => { if(map.getLayer(id))
     map.setLayoutProperty(id,'visibility', on ? 'visible':'none'); };
-  ['region-heat','region-count'].forEach(id=>show(id, u==='region'));
+  ['region-agg','region-count'].forEach(id=>show(id, u==='region'));
   // 집계 줌에서는 핀도 사진 폴리곤도 내린다 — 둘 다 "이 카페가 어디냐"에 답하는 것들이다
   POI_LAYERS.forEach(id=>show(id, u!=='region' && state.pins));
   if(map.getLayer('region-unvisited') && u==='region')
@@ -2156,8 +2156,8 @@ function applyTheme(){
   if(map.getLayer('water-body'))  map.setPaintProperty('water-body','fill-color', wc);
   if(map.getLayer('water-river')) map.setPaintProperty('water-river','line-color', wc);
   /* ★ 레이어를 만들 때 한 번 읽고 끝내면 테마를 바꿔도 그대로 남는다 */
-  if(map.getLayer('region-heat'))
-    map.setPaintProperty('region-heat','fill-color', css.getPropertyValue('--region-heat').trim());
+  if(map.getLayer('region-agg'))
+    map.setPaintProperty('region-agg','line-color', css.getPropertyValue('--region-heat').trim());
   if(map.getLayer('region-hover'))
     map.setPaintProperty('region-hover','line-color', css.getPropertyValue('--region-hover').trim());
   updateBorderColors(visited.map(f=>f.properties.code));
@@ -2343,14 +2343,21 @@ function bench(){
 
     /* 3.5) 집계 열지도 — **전국 줌에서만** 뜬다.
        feature-state 로 칠한다 (source 를 다시 만들 필요가 없어 필터 전환이 즉각적이다). */
-    map.addLayer({ id:'region-heat', type:'fill', source:'sgg',
-      /* ★ 선형으로 칠하면 거의 다 0에 붙는다 — 실측 최대 1,230곳 / 중앙값 8곳.
-         한 지역(서울)만 빨갛고 나머지는 전부 검게 보인다. **로그로 편다.** */
-      /* ★ 파랑(accent)은 행정 폴리곤에 쓰지 않는다. 색은 applyTheme 이 맞춘다. */
-      paint:{ 'fill-color':'#FFFFFF',
-              'fill-opacity':['interpolate',['linear'],
+    /* 3.5) 집계 — **칸 안은 채우지 않고 경계 밝기로만 센다.**
+       ★ "내 지도"에서는 폴리곤을 **사진으로 채운다**(§6). 집계를 면으로 칠하면
+         같은 칸을 두고 사진과 겹친다. 선은 칸 안을 비워 두어 그 원칙과 안 부딪힌다.
+       ★ 선형으로 하면 거의 다 0에 붙는다 — 실측 최대 1,230곳 / 중앙값 8곳.
+         한 지역(서울)만 밝고 나머지는 전부 어둡게 보인다. **로그로 편다.**
+       ★ 브랜드 색(accent·visited)은 행정 폴리곤에 쓰지 않는다. 색은 applyTheme 이 맞춘다. */
+    map.addLayer({ id:'region-agg', type:'line', source:'sgg',
+      paint:{ 'line-color':'#FFFFFF',
+              'line-opacity':['interpolate',['linear'],
                  ['coalesce',['feature-state','lg'],0],
-                 0,0, 0.25,0.05, 0.55,0.26, 0.8,0.52, 1,0.82] } });
+                 0,0, 0.25,0.22, 0.55,0.42, 0.8,0.62, 1,0.85],
+              /* 0곳은 선을 아예 안 그린다 — region-line 의 실선만 남는다 */
+              'line-width':['interpolate',['linear'],
+                 ['coalesce',['feature-state','lg'],0],
+                 0,0, 0.001,1.2, 1,1.7] } });
 
     // 4) hairline 경계
     map.addLayer({ id:'region-line', type:'line', source:'sgg',
@@ -2508,7 +2515,8 @@ function bench(){
        집계 줌에서만 받는다 — 확대된 상태에서 지역을 탭하면 핀을 노린 손가락을 가로챈다. */
     map.on('click', e=>{
       if(zoomUnit(map.getZoom()) !== 'region') return;
-      const f = map.queryRenderedFeatures(e.point, { layers:['region-heat','region-base'] })[0];
+      /* ★ 집계가 선이 된 뒤로는 선을 겨눌 수 없다 — 면(region-base)으로 받는다 */
+      const f = map.queryRenderedFeatures(e.point, { layers:['region-base'] })[0];
       if(!f) return;
       const code = f.properties.code || f.id;
       const g = feats.find(x=>x.properties.code === code);
@@ -2524,8 +2532,8 @@ function bench(){
                    zoom: Math.min(12.5, Math.max(Z_REGION + 0.3, cam ? cam.zoom : Z_REGION + 0.3)),
                    duration:700 });
     });
-    map.on('mouseenter','region-heat', ()=>{ map.getCanvas().style.cursor='pointer'; });
-    map.on('mouseleave','region-heat', ()=>{ map.getCanvas().style.cursor=''; });
+    map.on('mouseenter','region-base', ()=>{ map.getCanvas().style.cursor='pointer'; });
+    map.on('mouseleave','region-base', ()=>{ map.getCanvas().style.cursor=''; });
 
     let hovered = null;
     map.on('mousemove', e=>{
