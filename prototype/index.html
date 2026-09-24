@@ -11,6 +11,10 @@
     --region-empty:#16181F;
     --region-stroke:rgba(255,255,255,0.08);
     --region-stroke-visited:rgba(255,255,255,0.22);
+    /* 지역 집계·hover — 브랜드 색을 **행정 폴리곤에 쓰지 않는다**(팔레트 규칙).
+       채우는 색이 팔레트에 따로 없어 밝기로만 말한다. */
+    --region-heat:#FFFFFF;
+    --region-hover:rgba(255,255,255,0.45);
     --surface-glass:rgba(22,24,31,0.72);
     --surface-line:rgba(255,255,255,0.10);
     --text-primary:#F2F3F5;
@@ -24,6 +28,8 @@
     --region-empty:#F1EFEC;
     --region-stroke:rgba(0,0,0,0.07);
     --region-stroke-visited:rgba(0,0,0,0.18);
+    --region-heat:#0B2233;                 /* 밝은 바탕에선 흰색이 안 보인다 */
+    --region-hover:rgba(0,0,0,0.38);
     --surface-glass:rgba(255,255,255,0.80);
     --surface-line:rgba(0,0,0,0.08);
     --text-primary:#16181F;
@@ -2149,6 +2155,11 @@ function applyTheme(){
   const wc = c.water;
   if(map.getLayer('water-body'))  map.setPaintProperty('water-body','fill-color', wc);
   if(map.getLayer('water-river')) map.setPaintProperty('water-river','line-color', wc);
+  /* ★ 레이어를 만들 때 한 번 읽고 끝내면 테마를 바꿔도 그대로 남는다 */
+  if(map.getLayer('region-heat'))
+    map.setPaintProperty('region-heat','fill-color', css.getPropertyValue('--region-heat').trim());
+  if(map.getLayer('region-hover'))
+    map.setPaintProperty('region-hover','line-color', css.getPropertyValue('--region-hover').trim());
   updateBorderColors(visited.map(f=>f.properties.code));
 }
 
@@ -2335,7 +2346,8 @@ function bench(){
     map.addLayer({ id:'region-heat', type:'fill', source:'sgg',
       /* ★ 선형으로 칠하면 거의 다 0에 붙는다 — 실측 최대 1,230곳 / 중앙값 8곳.
          한 지역(서울)만 빨갛고 나머지는 전부 검게 보인다. **로그로 편다.** */
-      paint:{ 'fill-color':'#38B6FF',
+      /* ★ 파랑(accent)은 행정 폴리곤에 쓰지 않는다. 색은 applyTheme 이 맞춘다. */
+      paint:{ 'fill-color':'#FFFFFF',
               'fill-opacity':['interpolate',['linear'],
                  ['coalesce',['feature-state','lg'],0],
                  0,0, 0.25,0.05, 0.55,0.26, 0.8,0.52, 1,0.82] } });
@@ -2347,7 +2359,8 @@ function bench(){
 
     // 5) hover 강조
     map.addLayer({ id:'region-hover', type:'line', source:'sgg',
-      paint:{ 'line-color':'#38B6FF', 'line-width':1.6 },
+      /* ★ 팔레트가 `--region-hover` 를 정해 뒀는데 파랑을 박아 뒀었다. 토큰을 쓴다. */
+      paint:{ 'line-color':'rgba(255,255,255,0.45)', 'line-width':1.6 },
       filter:['==','code','__none__'] });
 
     /* 5.5) 집계 숫자 — 이름과 곳 수. 색만으로는 "많다"가 몇인지 모른다. */

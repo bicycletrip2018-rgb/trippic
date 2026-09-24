@@ -21,6 +21,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import {
   Camera,
+  type CameraRef,
   GeoJSONSource,
   Layer,
   Map,
@@ -44,6 +45,21 @@ const SGG = require("../../assets/korea-regions.json") as GeoJSON.FeatureCollect
 const Z_REGION = 9;
 const isRegionZoom = (z: number) => z < Z_REGION;
 
+/* bbox 를 화면에 담는 줌. ★ `fitBounds` 를 그냥 쓰면 **넓은 지역은 집계 줌에 그대로
+   머문다** — 웹에서 강릉시를 눌렀더니 z8.7 이라 여전히 '지역' 단위였고, 탭했는데
+   아무 일도 안 일어난 것처럼 보였다. 그래서 직접 계산해서 **반드시 집계 줌을 벗어나게**
+   클램프한다. 무엇을 눌렀든 장소 단위까지는 들어간다. */
+const mercY = (lat: number) =>
+  Math.log(Math.tan(Math.PI / 4 + (Math.max(-85, Math.min(85, lat)) * Math.PI) / 360)) / Math.PI / 2 + 0.5;
+
+function zoomForBBox(b: number[], wPx: number, hPx: number) {
+  const lonFrac = Math.max(1e-6, (b[2] - b[0]) / 360);
+  const latFrac = Math.max(1e-6, Math.abs(mercY(b[3]) - mercY(b[1])));
+  const zx = Math.log2(wPx / (256 * lonFrac));
+  const zy = Math.log2(hPx / (256 * latFrac));
+  return Math.min(12.5, Math.max(Z_REGION + 0.3, Math.min(zx, zy)));
+}
+
 /* 로그로 편다. ★ 선형으로 칠하면 거의 다 0에 붙는다 — 한 지역만 빨갛고 나머지는 검다.
    웹(§13.37)이 실측으로 고른 구간을 그대로 쓴다. */
 const STOPS: [number, number][] = [[0, 0], [0.25, 0.05], [0.55, 0.26], [0.8, 0.52], [1, 0.82]];
@@ -57,6 +73,11 @@ const opacityOf = (lg: number) => {
 
 const LAND = "#282B36";
 const BG = "#08090C";
+/* PLAN 팔레트의 경계 토큰. ★ 폴리곤을 **채우지 않는다** — accent 도 visited 도
+   "폴리곤엔 쓰지 않음"으로 못 박혀 있고, 채우는 색은 팔레트에 아예 없다.
+   방문 지역은 **경계를 진하게** 해서 드러낸다(--region-stroke-vis). */
+const STROKE = "rgba(255,255,255,0.15)";
+const STROKE_VIS = "rgba(255,255,255,0.32)";
 
 /* 웹과 같은 네 칩·같은 라벨(§13.37). '친구'라고 쓰지 않는다 — 우리에겐 1:1 친구가
    없고 공유의 단위는 스페이스다. 그렇게 쓰면 있지도 않은 친구 목록을 찾게 된다. */
@@ -136,6 +157,9 @@ export function MapTab(
   const [open, setOpen] = useState<Pin | null>(null);
   const [zoom, setZoom] = useState(5.6);
   const [agg, setAgg] = useState<API.RegionAgg[]>([]);
+  const [into, setInto] = useState<string | null>(null);   // 들어온 지역 이름
+  const camRef = useRef<CameraRef>(null);
+  const size = useRef({ w: 402, h: 700 });
   useEffect(() => { onSheet?.(!!open); }, [open]);
 
   /* 이미 읽은 상자와 그때의 스코프. 스코프가 바뀌면 이 상자는 소용없다 —
@@ -197,6 +221,24 @@ export function MapTab(
   const onMapPress = async (e: any) => {
     const pt = e?.nativeEvent?.point;
     if (!pt) { setOpen(null); return; }
+
+    /* ★ 집계 줌에서만 지역 탭을 받는다. 확대된 상태에서도 받으면
+       **핀을 노린 손가락을 지역이 가로챈다**(웹에서 정한 규칙). */
+    if (isRegionZoom(zoom)) {
+      const hit = await mapRef.current
+        ?.queryRenderedFeatures(pt, { layers: ["region-base"] })
+        .catch(() => [] as any[]);
+      const code = hit?.[0]?.properties?.code;
+      const r = code ? NAME[code] : null;
+      if (!r?.bbox) return;                       // 바다를 눌렀다 — 아무 일도 안 한다
+      setInto(r.name);
+      camRef.current?.flyTo({
+        center: [(r.bbox[0] + r.bbox[2]) / 2, (r.bbox[1] + r.bbox[3]) / 2],
+        zoom: zoomForBBox(r.bbox, size.current.w, size.current.h),
+        duration: 700,
+      });
+      return;
+    }
     const hits = await mapRef.current
       ?.queryRenderedFeatures(pt, { layers: ["pin-dot"] })
       .catch(() => [] as any[]);
@@ -223,25 +265,37 @@ export function MapTab(
 
   const region = isRegionZoom(zoom);
 
-  /* ★ 지오메트리를 다시 보내지 않는다. 691K 를 스코프 바꿀 때마다 브리지로 넘기면
-     화면이 걸린다 — 칠할 값만 `match` 식으로 보낸다(지역 수만큼의 짧은 배열). */
-  const heat = (() => {
-    if (!agg.length) return 0 as any;
+  /* ★ 지오메트리를 다시 보내지 않는다. 857K 를 스코프 바꿀 때마다 브리지로 넘기면
+     화면이 걸린다 — 칠할 값만 `match` 식으로 보낸다(지역 수만큼의 짧은 배열).
+     ★ 많고 적음은 **경계의 진하기**로 말한다. 로그로 펴는 것은 그대로다 —
+     선형으로 하면 한 곳만 도드라지고 나머지는 전부 바닥에 붙는다. */
+  const strokeExpr = (() => {
+    if (!region || !agg.length) return STROKE as any;
     const max = Math.max(...agg.map((a) => a.n));
     const pairs: any[] = [];
     for (const a of agg) {
       const lg = Math.log(1 + a.n) / Math.log(1 + max);
-      pairs.push(a.region_code, opacityOf(lg));
+      pairs.push(a.region_code, `rgba(255,255,255,${(0.15 + opacityOf(lg) * 0.55).toFixed(3)})`);
     }
-    return ["match", ["get", "code"], ...pairs, 0] as any;
+    return ["match", ["get", "code"], ...pairs, STROKE] as any;
+  })();
+
+  const widthExpr = (() => {
+    if (!region || !agg.length) return 0.5 as any;
+    const pairs: any[] = [];
+    for (const a of agg) pairs.push(a.region_code, 1.4);
+    return ["match", ["get", "code"], ...pairs, 0.5] as any;
   })();
 
   /* 라벨. ★ 0곳까지 숫자를 찍으면 화면이 0으로 덮인다 — 서버가 아예 안 준다(042).
      많은 곳부터 40개만 — 전국 화면에 251개를 겹쳐 찍으면 읽을 수 없는 죽이 된다. */
-  const NAME: Record<string, { name: string; cx: number; cy: number }> = (() => {
+  const NAME: Record<string, { name: string; cx: number; cy: number; bbox: number[] }> = (() => {
     const m: any = {};
     for (const f of SGG.features as any[]) {
-      m[f.properties.code] = { name: f.properties.name, cx: f.properties.cx, cy: f.properties.cy };
+      m[f.properties.code] = {
+        name: f.properties.name, cx: f.properties.cx, cy: f.properties.cy,
+        bbox: f.properties.bbox as number[],
+      };
     }
     return m;
   })();
@@ -271,27 +325,34 @@ export function MapTab(
 
       <Map ref={mapRef} style={st.fill} mapStyle={EMPTY_STYLE}
            onPress={(e) => { void onMapPress(e); }}
+           onLayout={(e) => {
+             const { width, height } = e.nativeEvent.layout;
+             if (width > 0 && height > 0) size.current = { w: width, h: height };
+           }}
            onRegionDidChange={(e) => {
              const z = (e as any)?.nativeEvent?.zoom;
              if (typeof z === "number") setZoom(z);
+             /* ★ 전국 줌으로 **나가면** 지역 표시를 푼다. 안 풀면 전국을 보는데
+                한 지역 이름이 남아 있다. ★ 이 검사는 **움직임이 끝난 뒤**에만 한다 —
+                매 프레임 보면 들어가는 애니메이션 도중 아직 전국 줌이라 즉시 풀린다
+                (웹에서 겪은 것). `onRegionDidChange` 가 바로 그 시점이다. */
+             if (typeof z === "number" && isRegionZoom(z)) setInto(null);
              void load(false, scope, z);
            }}>
         {/* ★ 줌 숫자가 아니라 **담을 범위**로 말한다. `zoom: 5.6` 은 벤치마크 화면에서
             물려받은 값인데, 그 숫자가 "전국이 보인다"를 뜻하는지는 기기 크기와
             배경 데이터에 따라 달라진다 — 실제로 경계 파일을 바꾸자 전국이 잘렸다.
             bounds 는 의도 그 자체라 흔들리지 않는다. */}
-        <Camera initialViewState={{ bounds: [124.4, 32.9, 132.2, 38.7] }} />
+        <Camera ref={camRef} initialViewState={{ bounds: [124.4, 32.9, 132.2, 38.7] }} />
 
         <GeoJSONSource id="sgg" data={SGG as any}>
           <Layer id="region-base" type="fill" paint={{ "fill-color": LAND }} />
           {/* ★ **끼웠다 뺐다 하지 않는다.** 조건부로 렌더하면 줌 단위가 바뀔 때
               형제 위치가 밀려 다음 레이어의 `id` 가 바뀐 것으로 잡히고,
               라이브러리가 `id cannot be changed` 로 **앱을 죽인다**(실제로 죽었다).
-              항상 두고 **투명도로만** 끈다. */}
-          <Layer id="region-heat" type="fill"
-                 paint={{ "fill-color": C.accent, "fill-opacity": region ? heat : 0 }} />
+              같은 레이어를 두고 **paint 만** 바꾼다 — paint 는 바꿔도 된다. */}
           <Layer id="region-line" type="line"
-                 paint={{ "line-color": "rgba(255,255,255,0.22)", "line-width": 0.5 }} />
+                 paint={{ "line-color": strokeExpr, "line-width": widthExpr }} />
         </GeoJSONSource>
 
         {/* 집계 줌에서는 핀을 내린다 — 둘 다 "이 카페가 어디냐"에 답하는 것들이다 */}
@@ -336,12 +397,14 @@ export function MapTab(
           </Text>
         ) : pins.length === 0 ? (
           <Text style={st.count}>
+            {into ? `${into} — ` : ""}
             {scope === "mine" ? "이 화면에는 내가 올린 기록이 없습니다"
               : scope === "shared" ? "이 화면에는 함께 보는 기록이 없습니다"
               : "이 화면에는 아직 기록이 없습니다"}
           </Text>
         ) : (
           <Text style={st.count}>
+            {into ? <Text style={st.into}>{into}  </Text> : null}
             {[
               n.mine ? `내 것 ${n.mine}곳` : null,
               n.shared ? `함께 ${n.shared}곳` : null,
@@ -429,10 +492,12 @@ const st = StyleSheet.create({
   },
   busyRow: { flexDirection: "row", alignItems: "center", gap: 7 },
   count: { color: C.muted, fontSize: 12 },
+  into: { color: C.text, fontWeight: "700" },
   hidden: { opacity: 0 },
   lab: { alignItems: "center" },
   labN: { color: "rgba(255,255,255,0.92)", fontSize: 10, fontWeight: "600" },
-  labC: { color: C.accent, fontSize: 11, fontWeight: "700" },
+  /* 방문 수는 `visited` 다 — accent 는 버튼·선택 상태에만 쓴다(팔레트 규칙) */
+  labC: { color: C.visited, fontSize: 11, fontWeight: "700" },
   sheet: {
     position: "absolute", left: 14, right: 14, bottom: 96,
     padding: 12, borderRadius: 16,
