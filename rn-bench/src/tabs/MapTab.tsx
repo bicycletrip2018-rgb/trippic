@@ -24,6 +24,7 @@ import {
   GeoJSONSource,
   Layer,
   Map,
+  Marker,
   type MapRef,
 } from "@maplibre/maplibre-react-native";
 import type { StyleSpecification } from "@maplibre/maplibre-gl-style-spec";
@@ -31,7 +32,28 @@ import * as API from "../api";
 import { dur, ymd } from "../course";
 import { C, CAT } from "../theme";
 
-const SGG = require("../../assets/korea-sgg.json");
+/* ★ 배경 경계는 **DB 에서 뽑았다**(251개, 0.001° 단순화 → 691K).
+   §13.47 에서 번들한 프로토타입의 `korea-sgg.json` 은 **코드 체계가 달랐다** —
+   250개 중 DB 와 맞는 것이 9개뿐이라 지역 숫자를 폴리곤에 붙일 수 없었다.
+   배경만 그릴 때는 코드가 필요 없어서 드러나지 않던 결함이다. */
+const SGG = require("../../assets/korea-regions.json") as GeoJSON.FeatureCollection;
+
+/* ★ 줌에 따라 **단위 자체가 바뀐다**(§13.11). 전국 줌에서 답해야 하는 질문은
+   *"어느 지역에 볼 곳이 많나"* 이지 *"이 카페가 어디냐"* 가 아니다.
+   핀 개수만 깎는 것은 같은 질문에 더 작게 답하는 것일 뿐 질문을 바꾸지 못한다. */
+const Z_REGION = 9;
+const isRegionZoom = (z: number) => z < Z_REGION;
+
+/* 로그로 편다. ★ 선형으로 칠하면 거의 다 0에 붙는다 — 한 지역만 빨갛고 나머지는 검다.
+   웹(§13.37)이 실측으로 고른 구간을 그대로 쓴다. */
+const STOPS: [number, number][] = [[0, 0], [0.25, 0.05], [0.55, 0.26], [0.8, 0.52], [1, 0.82]];
+const opacityOf = (lg: number) => {
+  for (let i = 1; i < STOPS.length; i++) {
+    const [x0, y0] = STOPS[i - 1], [x1, y1] = STOPS[i];
+    if (lg <= x1) return y0 + ((lg - x0) / (x1 - x0)) * (y1 - y0);
+  }
+  return STOPS[STOPS.length - 1][1];
+};
 
 const LAND = "#282B36";
 const BG = "#08090C";
@@ -54,6 +76,8 @@ const SRC_LABEL: Record<string, string> = { mine: "내 것", shared: "함께" };
 const VER_LABEL: Record<string, string> = {
   live: "현장 인증", exif: "사진 정보", manual: "직접 지정",
 };
+
+const EMPTY_FC: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
 const EMPTY_STYLE: StyleSpecification = {
   version: 8,
@@ -100,7 +124,9 @@ const inside = (inner: API.BBox, outer: API.BBox | null) =>
 
 /** ★ 시트가 열린 것을 App 에 알린다. `(+)` 는 App 이 지도 **위에** 띄우므로
     MapTab 안에서는 가릴 수 없다 — 그대로 두면 닫기(✕)를 덮는다. */
-export function MapTab({ onSheet }: { onSheet?: (open: boolean) => void } = {}) {
+export function MapTab(
+  { ready, onSheet }: { ready?: boolean; onSheet?: (open: boolean) => void } = {},
+) {
   const mapRef = useRef<MapRef>(null);
   const [scope, setScope] = useState<API.Scope>("all");
   const [pins, setPins] = useState<Pin[]>([]);
@@ -108,6 +134,8 @@ export function MapTab({ onSheet }: { onSheet?: (open: boolean) => void } = {}) 
   const [more, setMore] = useState(false);
   const [why, setWhy] = useState<string | null>(null);
   const [open, setOpen] = useState<Pin | null>(null);
+  const [zoom, setZoom] = useState(5.6);
+  const [agg, setAgg] = useState<API.RegionAgg[]>([]);
   useEffect(() => { onSheet?.(!!open); }, [open]);
 
   /* 이미 읽은 상자와 그때의 스코프. 스코프가 바뀌면 이 상자는 소용없다 —
@@ -115,8 +143,11 @@ export function MapTab({ onSheet }: { onSheet?: (open: boolean) => void } = {}) 
   const loaded = useRef<{ box: API.BBox | null; scope: API.Scope }>({ box: null, scope: "all" });
   const inflight = useRef(false);
 
-  const load = useCallback(async (force: boolean, sc: API.Scope) => {
+  const load = useCallback(async (force: boolean, sc: API.Scope, z?: number) => {
     if (inflight.current) return;
+    /* ★ 집계 줌에서는 핀을 **안 읽는다.** 전국 한 화면이 상자가 되면
+       "뷰포트로 자른다"가 아무것도 자르지 않는 말이 된다(031). */
+    if (isRegionZoom(z ?? zoom)) { setPins([]); loaded.current = { box: null, scope: sc }; return; }
     const b = await mapRef.current?.getBounds().catch(() => null);
     if (!b) return;
     const view: API.BBox = { w: b[0], s: b[1], e: b[2], n: b[3] };
@@ -143,7 +174,21 @@ export function MapTab({ onSheet }: { onSheet?: (open: boolean) => void } = {}) 
     })).filter((p) => Number.isFinite(p.lng) && Number.isFinite(p.lat)));
   }, []);
 
-  useEffect(() => { void load(true, scope); }, []);
+  /* ★ 집계는 **스코프가 바뀔 때만** 읽는다. 화면을 밀어도 다시 읽지 않는다 —
+     숫자가 뷰포트와 무관하니 다시 읽을 이유가 없다(042). */
+  const loadAgg = useCallback(async (sc: API.Scope) => {
+    const r = await API.pinsByRegion(sc, null);
+    setAgg(r.ok ? (r.data ?? []) : []);
+  }, []);
+
+  /* ★ **세션이 선 뒤에 읽는다.** 앱이 뜨자마자 읽으면 토큰이 아직 없어 RLS 가
+     아무것도 주지 않는다 — 핀은 `onRegionDidChange` 가 다시 불러 살아나지만
+     집계는 재시도가 없어 **영영 빈 채로 남는다.** 시뮬레이터에서 실제로 그랬다. */
+  useEffect(() => {
+    if (!ready) return;
+    void load(true, scope);
+    void loadAgg(scope);
+  }, [ready]);
 
   /* 스코프를 바꾼다. ★ 이전 스코프의 핀을 **걷어낸다.** 안 걷으면 '내 지도'를 골랐는데
      남의 핀이 남아 있고, 그건 필터가 아니라 그냥 더하기다(§13.37). */
@@ -166,13 +211,45 @@ export function MapTab({ onSheet }: { onSheet?: (open: boolean) => void } = {}) 
     setPins([]);
     setMore(false);
     loaded.current = { box: null, scope: v };
+    setAgg([]);
     void load(true, v);
+    void loadAgg(v);
   };
 
   const fc: GeoJSON.FeatureCollection = {
     type: "FeatureCollection",
     features: pins.map(toFeature).filter(Boolean) as GeoJSON.Feature[],
   };
+
+  const region = isRegionZoom(zoom);
+
+  /* ★ 지오메트리를 다시 보내지 않는다. 691K 를 스코프 바꿀 때마다 브리지로 넘기면
+     화면이 걸린다 — 칠할 값만 `match` 식으로 보낸다(지역 수만큼의 짧은 배열). */
+  const heat = (() => {
+    if (!agg.length) return 0 as any;
+    const max = Math.max(...agg.map((a) => a.n));
+    const pairs: any[] = [];
+    for (const a of agg) {
+      const lg = Math.log(1 + a.n) / Math.log(1 + max);
+      pairs.push(a.region_code, opacityOf(lg));
+    }
+    return ["match", ["get", "code"], ...pairs, 0] as any;
+  })();
+
+  /* 라벨. ★ 0곳까지 숫자를 찍으면 화면이 0으로 덮인다 — 서버가 아예 안 준다(042).
+     많은 곳부터 40개만 — 전국 화면에 251개를 겹쳐 찍으면 읽을 수 없는 죽이 된다. */
+  const NAME: Record<string, { name: string; cx: number; cy: number }> = (() => {
+    const m: any = {};
+    for (const f of SGG.features as any[]) {
+      m[f.properties.code] = { name: f.properties.name, cx: f.properties.cx, cy: f.properties.cy };
+    }
+    return m;
+  })();
+  const labels = region
+    ? [...agg].sort((a, b) => b.n - a.n).slice(0, 40)
+        .map((a) => ({ ...a, ...NAME[a.region_code] }))
+        .filter((a) => Number.isFinite(a.cx) && Number.isFinite(a.cy))
+    : [];
 
   /* 시트가 나눠 센다(§13.37) — 셋은 겹치므로 합이 전체와 같지 않을 수 있다. */
   const n = { mine: 0, shared: 0, other: 0 } as Record<string, number>;
@@ -194,16 +271,40 @@ export function MapTab({ onSheet }: { onSheet?: (open: boolean) => void } = {}) 
 
       <Map ref={mapRef} style={st.fill} mapStyle={EMPTY_STYLE}
            onPress={(e) => { void onMapPress(e); }}
-           onRegionDidChange={() => { void load(false, scope); }}>
-        <Camera initialViewState={{ center: [127.75, 36.3], zoom: 5.6 }} />
+           onRegionDidChange={(e) => {
+             const z = (e as any)?.nativeEvent?.zoom;
+             if (typeof z === "number") setZoom(z);
+             void load(false, scope, z);
+           }}>
+        {/* ★ 줌 숫자가 아니라 **담을 범위**로 말한다. `zoom: 5.6` 은 벤치마크 화면에서
+            물려받은 값인데, 그 숫자가 "전국이 보인다"를 뜻하는지는 기기 크기와
+            배경 데이터에 따라 달라진다 — 실제로 경계 파일을 바꾸자 전국이 잘렸다.
+            bounds 는 의도 그 자체라 흔들리지 않는다. */}
+        <Camera initialViewState={{ bounds: [124.4, 32.9, 132.2, 38.7] }} />
 
         <GeoJSONSource id="sgg" data={SGG as any}>
           <Layer id="region-base" type="fill" paint={{ "fill-color": LAND }} />
+          {/* ★ **끼웠다 뺐다 하지 않는다.** 조건부로 렌더하면 줌 단위가 바뀔 때
+              형제 위치가 밀려 다음 레이어의 `id` 가 바뀐 것으로 잡히고,
+              라이브러리가 `id cannot be changed` 로 **앱을 죽인다**(실제로 죽었다).
+              항상 두고 **투명도로만** 끈다. */}
+          <Layer id="region-heat" type="fill"
+                 paint={{ "fill-color": C.accent, "fill-opacity": region ? heat : 0 }} />
           <Layer id="region-line" type="line"
                  paint={{ "line-color": "rgba(255,255,255,0.22)", "line-width": 0.5 }} />
         </GeoJSONSource>
 
-        <GeoJSONSource id="pins" data={fc as any}>
+        {/* 집계 줌에서는 핀을 내린다 — 둘 다 "이 카페가 어디냐"에 답하는 것들이다 */}
+        {labels.map((l) => (
+          <Marker key={l.region_code} lngLat={[l.cx, l.cy]}>
+            <View style={st.lab}>
+              <Text style={st.labN}>{l.name}</Text>
+              <Text style={st.labC}>{l.n}곳</Text>
+            </View>
+          </Marker>
+        ))}
+
+        <GeoJSONSource id="pins" data={(region ? EMPTY_FC : fc) as any}>
           <Layer id="pin-halo" type="circle"
                  paint={{ "circle-radius": 8, "circle-color": "#000", "circle-opacity": 0.35 }} />
           <Layer id="pin-dot" type="circle"
@@ -227,6 +328,12 @@ export function MapTab({ onSheet }: { onSheet?: (open: boolean) => void } = {}) 
             <ActivityIndicator size="small" color={C.muted} />
             <Text style={st.count}>불러오는 중</Text>
           </View>
+        ) : region ? (
+          <Text style={st.count}>
+            {agg.length
+              ? `${agg.length}개 지역 · ${agg.reduce((n, a) => n + a.n, 0)}곳 — 확대하면 기록이 보입니다`
+              : "아직 기록이 없습니다"}
+          </Text>
         ) : pins.length === 0 ? (
           <Text style={st.count}>
             {scope === "mine" ? "이 화면에는 내가 올린 기록이 없습니다"
@@ -323,6 +430,9 @@ const st = StyleSheet.create({
   busyRow: { flexDirection: "row", alignItems: "center", gap: 7 },
   count: { color: C.muted, fontSize: 12 },
   hidden: { opacity: 0 },
+  lab: { alignItems: "center" },
+  labN: { color: "rgba(255,255,255,0.92)", fontSize: 10, fontWeight: "600" },
+  labC: { color: C.accent, fontSize: 11, fontWeight: "700" },
   sheet: {
     position: "absolute", left: 14, right: 14, bottom: 96,
     padding: 12, borderRadius: 16,

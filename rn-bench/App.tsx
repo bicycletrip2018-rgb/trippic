@@ -56,7 +56,7 @@ export default function App() {
       <StatusBar style="light" />
       {/* 탭을 갈아 끼우지 않고 **감춘다** — 지도를 다시 만들면 아틀라스를 다시 굽는다 */}
       <View style={[s.page, tab !== "map" && s.hidden]} pointerEvents={tab === "map" ? "auto" : "none"}>
-        <MapTab onSheet={setSheet} />
+        <MapTab ready={ready} onSheet={setSheet} />
       </View>
       {ready && tab === "feed" && <FeedTab center={center} />}
       {ready && tab === "news" && <NewsTab />}

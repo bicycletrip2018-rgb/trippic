@@ -301,6 +301,15 @@ export async function pinsInBBox(
   return { ok: r.ok, via: r.via, data: rows, more: !!rows[0]?.more };
 }
 
+/* ── 지역 집계 (§13.49 · 042) ─────────────────────────────────
+   ★ **뷰포트로 자르지 않는다.** 핀은 화면으로 잘라 읽지만(031) 지역의 숫자는 다르다 —
+     "이 지역 12곳"이 화면을 밀 때마다 8곳이 됐다가 12곳이 되면 그건 거짓말이다.
+     숫자는 **지역 전체**를 뜻한다. 돌아오는 줄은 지역 수(251) 이하고, 0곳은 안 온다. */
+export type RegionAgg = { region_code: string; n: number; n_mine: number; n_shared: number };
+
+export const pinsByRegion = (scope: Scope = "all", cat?: string | null) =>
+  rpc<RegionAgg[]>("api_pins_by_region", { p_scope: scope, p_cat: safeCat(cat) });
+
 /* 뷰포트보다 넉넉히 읽어 두면 조금씩 미는 동안은 공짜다.
    0.4(=화면의 1.8배 넓이)는 "한 화면 밀어도 안 부른다"를 만족하는 가장 작은 값이다. */
 export const PAD = 0.4;

@@ -1302,6 +1302,51 @@ select pg_temp.ok(
   (select count(*) from public.api_pins_in_bbox(129.79,35.15,129.81,35.17,300,null,'shared')) = 0,
   '스페이스가 없으면 친구 스코프는 비어 있다');
 
+-- ── 042 지역 집계 — 줌이 바뀌면 단위가 바뀐다 ────────────────────────
+-- ★ 여기서 지킬 것 셋:
+--   ① 지역 숫자는 **뷰포트와 무관**하다 — 화면을 밀 때마다 숫자가 변하면 거짓말이다
+--   ② 스코프를 그대로 따른다 — 037 과 **같은 규칙**이어야 한다(뷰가 하나이므로)
+--   ③ 0곳 지역은 아예 주지 않는다
+select pg_temp.login('11111111-1111-1111-1111-111111111111');
+
+-- ① 뷰포트와 무관: 같은 스코프면 어디를 보고 있든 같은 답이 온다
+--    (집계 함수에는 애초에 bbox 인자가 없다 — 그것이 설계다)
+select pg_temp.ok(
+  (select count(*) from public.api_pins_by_region('mine', null))
+  = (select count(distinct region_code) from public.pins
+      where user_id = auth.uid() and deleted_at is null and region_code is not null),
+  '★ 지역 숫자는 뷰포트가 아니라 지역 전체를 뜻한다');
+
+-- ② 037 과 같은 규칙: 스코프별 합이 bbox 함수의 결과와 어긋나지 않는다
+--    (전국을 덮는 상자로 부르면 둘은 같은 집합을 세게 된다)
+create or replace function pg_temp.agg(sc text) returns int language sql as $$
+  select coalesce(sum(n),0)::int from public.api_pins_by_region(sc, null) $$;
+create or replace function pg_temp.bbx(sc text) returns int language sql as $$
+  select count(*)::int from public.api_pins_in_bbox(124,33,132,39,10000,null,sc)
+   where region_code is not null $$;
+
+select pg_temp.ok(pg_temp.agg('mine')   = pg_temp.bbx('mine'),   '집계와 핀 목록이 어긋나지 않는다 — mine');
+select pg_temp.ok(pg_temp.agg('shared') = pg_temp.bbx('shared'), '집계와 핀 목록이 어긋나지 않는다 — shared');
+select pg_temp.ok(pg_temp.agg('public') = pg_temp.bbx('public'), '집계와 핀 목록이 어긋나지 않는다 — public');
+select pg_temp.ok(pg_temp.agg('all')    = pg_temp.bbx('all'),    '★ 스코프 규칙이 한 벌이다 — 집계와 목록이 같은 뷰를 본다');
+
+-- ③ 0곳은 주지 않는다
+select pg_temp.ok(
+  (select count(*) from public.api_pins_by_region('all', null) where n = 0) = 0,
+  '0곳 지역은 아예 주지 않는다 — 251줄이 거의 다 0이면 실어 보낼 이유가 없다');
+
+-- 카테고리 필터도 같은 규칙을 탄다
+select pg_temp.ok(
+  (select coalesce(sum(n),0) from public.api_pins_by_region('all','cafe'))
+  <= (select coalesce(sum(n),0) from public.api_pins_by_region('all', null)),
+  '카테고리로 좁히면 줄어들지언정 늘지 않는다');
+
+-- ★ 남의 나만 보기 핀은 집계에도 안 섞인다 — 숫자로도 새면 안 된다
+select pg_temp.login('33333333-3333-3333-3333-333333333333');
+select pg_temp.ok(
+  (select coalesce(sum(n),0) from public.api_pins_by_region('mine', null)) = 0,
+  '★ 남의 계정으로 보면 내 지도 집계는 0이다 — 숫자로도 새지 않는다');
+
 -- ── 038 초대 링크로 합류 ─────────────────────────────────────────────
 -- ★ §3 이 "초대 수락률이 핵심 지표"라고 적어 뒀는데 수락 경로가 없었다.
 --   여기서 지킬 것: ① 무엇을 수락하는지 먼저 보인다 ② 여러 링크가 한 계정에 쌓인다
