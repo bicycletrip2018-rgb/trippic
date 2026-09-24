@@ -462,13 +462,13 @@ window.TRIPPIC_STORE = {
     <a class="back" href="#top">← 트립픽 홈</a>
     <p class="eyebrow">Privacy</p>
     <h1>개인정보처리방침</h1>
-    <p class="meta">시행일 <span class="ph">[2026년 00월 00일]</span></p>
-    <p class="draft">초안입니다. 밑줄 친 <span class="ph">[대괄호]</span> 항목을 채우고, 실제 서비스 동작과 다른 부분이 없는지 확인한 뒤 게시하세요.</p>
+    <p class="meta">시행일 <span class="ph">[앱 출시일]</span></p>
+    <p class="draft">시행일은 앱 출시일에 맞춰 확정됩니다.</p>
     <nav class="toc" aria-label="목차">
       <a href="#p1">1. 수집하는 개인정보</a><a href="#p2">2. 이용 목적</a><a href="#p3">3. 보유·이용 기간</a><a href="#p4">4. 파기 절차와 방법</a><a href="#p5">5. 공개 및 제3자 제공</a><a href="#p6">6. 처리 위탁과 국외 이전</a><a href="#p7">7. 위치정보 처리</a><a href="#p8">8. 이용자의 권리</a><a href="#p9">9. 안전성 확보 조치</a><a href="#p10">10. 만 14세 미만 아동</a><a href="#p11">11. 개인정보 보호책임자</a><a href="#p12">12. 권익침해 구제</a><a href="#p13">13. 방침의 변경</a>
     </nav>
 
-    <p style="margin-top:32px"><span class="ph">[운영자 이름]</span>(이하 "운영자")는 트립픽 서비스(앱과 웹, 이하 "서비스") 이용자의 개인정보를 「개인정보 보호법」 등 관련 법령에 따라 보호하며, 개인정보를 어떻게 처리하는지 아래와 같이 알려드립니다.</p>
+    <p style="margin-top:32px">노혜성(이하 "운영자")는 트립픽 서비스(앱과 웹, 이하 "서비스") 이용자의 개인정보를 「개인정보 보호법」 등 관련 법령에 따라 보호하며, 개인정보를 어떻게 처리하는지 아래와 같이 알려드립니다.</p>
 
     <h2 id="p1">1. 수집하는 개인정보</h2>
     <div class="tbl"><table>
@@ -477,12 +477,14 @@ window.TRIPPIC_STORE = {
         <tr><td>회원가입 (카카오 로그인)</td><td>필수: 카카오 회원 식별값, 닉네임<br>선택: 이메일, 프로필 사진</td><td>이용자 동의 후 카카오로부터 제공받음</td></tr>
         <tr><td>회원가입 (Apple 로그인)</td><td>필수: Apple 회원 식별값<br>선택: 이메일(이메일 가리기 선택 시 Apple 중계 주소), 이름</td><td>이용자 동의 후 Apple로부터 제공받음</td></tr>
         <tr><td>기록 등록</td><td>사진·동영상, 사진에 포함된 촬영 일시와 촬영 위치(GPS 좌표), 장소, 메모·캡션</td><td>이용자가 직접 업로드·입력</td></tr>
+        <tr><td>사진 자동 분석</td><td>사진 선명도, 사진 속 가장 큰 얼굴이 차지하는 비율</td><td>기기 안에서 계산해 그 값만 전송 (얼굴 이미지는 전송·저장하지 않음)</td></tr>
         <tr><td>스페이스</td><td>스페이스 이름, 커버 이미지, 멤버 목록, 초대 기록</td><td>이용자가 직접 생성·입력</td></tr>
         <tr><td>현재 위치 (선택)</td><td>기기의 GPS 위치</td><td>위치 권한에 동의한 경우, "내 위치" 기준점과 현장 기록을 쓸 때 수집</td></tr>
         <tr><td>자동 수집</td><td>기기 정보(OS, 앱 버전), 접속 일시, IP 주소, 서비스 이용·오류 기록</td><td>서비스 이용 과정에서 자동 생성</td></tr>
       </tbody>
     </table></div>
-    <p>사진 파일에는 촬영 기기 모델 등 다른 메타데이터도 있을 수 있으나, 운영자는 서비스에 필요한 촬영 일시와 촬영 위치만 저장합니다. <span class="ph">[실제 저장 항목 확인 필요]</span></p>
+    <p>사진 파일에는 촬영 기기 모델 등 다른 메타데이터도 있을 수 있으나, 운영자는 서비스에 필요한 촬영 일시와 촬영 위치만 저장합니다.</p>
+    <p>사람 얼굴이 크게 나온 사진이 "모두의 지도"에 공개되지 않도록, 기기 안에서 얼굴이 사진에서 차지하는 비율을 계산해 그 숫자만 저장합니다. 누구의 얼굴인지 식별하지 않으며 얼굴 이미지를 따로 저장하지 않습니다.</p>
 
     <h2 id="p2">2. 이용 목적</h2>
     <ol>
@@ -498,13 +500,13 @@ window.TRIPPIC_STORE = {
     <h2 id="p3">3. 보유·이용 기간</h2>
     <p>회원 탈퇴 시 개인정보를 지체 없이 파기합니다. 다만 다음의 경우에는 명시한 기간 동안 보관합니다.</p>
     <ol>
-      <li>부정 이용 방지와 분쟁 대응: 탈퇴 후 <span class="ph">[30일]</span> 동안 보관 후 파기</li>
+      <li>부정 이용 방지와 분쟁 대응: 탈퇴 후 30일 동안 보관 후 파기</li>
       <li>「통신비밀보호법」에 따른 서비스 접속 기록: 3개월</li>
-      <li>이용자가 탈퇴 전 공유 스페이스에 남긴 기록은, 스페이스 탈퇴 또는 회원 탈퇴 시 이용자가 선택한 방식(회수 또는 유지)에 따라 처리합니다. <span class="ph">[정책 확정 필요]</span></li>
+      <li>이용자가 탈퇴 전 공유 스페이스에 남긴 기록은, 스페이스 탈퇴 또는 회원 탈퇴 시 이용자가 선택한 방식(회수 또는 유지)에 따라 처리합니다.</li>
     </ol>
 
     <h2 id="p4">4. 파기 절차와 방법</h2>
-    <p>보유 기간이 지나거나 처리 목적이 달성된 개인정보는 지체 없이 파기합니다. 전자 파일은 복구할 수 없는 방법으로 삭제하고, 저장소에 보관된 사진·동영상 원본도 함께 삭제합니다. 백업 데이터는 백업 보관 주기 <span class="ph">[00일]</span>가 지나면 순차적으로 삭제됩니다.</p>
+    <p>보유 기간이 지나거나 처리 목적이 달성된 개인정보는 지체 없이 파기합니다. 전자 파일은 복구할 수 없는 방법으로 삭제하고, 저장소에 보관된 사진·동영상 원본도 함께 삭제합니다. 백업 데이터는 백업 보관 기간이 지나면 순차적으로 삭제됩니다.</p>
 
     <h2 id="p5">5. 공개 및 제3자 제공</h2>
     <p>운영자는 이용자의 개인정보를 제3자에게 제공하지 않습니다. 다만 서비스의 성격상 다음 정보는 이용자의 설정에 따라 다른 사람에게 보입니다.</p>
@@ -520,12 +522,12 @@ window.TRIPPIC_STORE = {
     <div class="tbl"><table>
       <thead><tr><th>수탁자 (국가)</th><th>위탁 업무</th><th>이전 항목</th><th>이전 시기·방법</th><th>보유 기간</th></tr></thead>
       <tbody>
-        <tr><td>Supabase, Inc. (미국)<br>서버 위치: <span class="ph">[준비 중 · 확정 후 기재]</span></td><td>회원 인증, 데이터베이스 운영</td><td>회원 정보, 기록 정보, 접속 기록</td><td>서비스 이용 시 네트워크를 통해 수시 전송</td><td>위탁 계약 종료 또는 회원 탈퇴 시까지</td></tr>
+        <tr><td>Supabase, Inc. (미국)<br>서버 위치: 대한민국 서울 (AWS ap-northeast-2)</td><td>회원 인증, 데이터베이스 운영</td><td>회원 정보, 기록 정보, 접속 기록</td><td>서비스 이용 시 네트워크를 통해 수시 전송</td><td>위탁 계약 종료 또는 회원 탈퇴 시까지</td></tr>
         <tr><td>Cloudflare, Inc. (미국)</td><td>사진·동영상 저장과 전송</td><td>업로드한 사진·동영상</td><td>업로드 시 네트워크를 통해 전송</td><td>위탁 계약 종료 또는 삭제 시까지</td></tr>
         <tr><td>Kakao Corp. (대한민국)</td><td>소셜 로그인, 초대 메시지 공유</td><td>카카오 회원 식별값</td><td>로그인·공유 시</td><td>이용자와 카카오 간 약관에 따름</td></tr>
       </tbody>
     </table></div>
-    <p>이용자는 국외 이전을 거부할 수 있으나, 이 경우 서비스를 이용할 수 없습니다. 개인정보 보호 관련 문의 연락처는 <span class="ph">[각 사 개인정보 담당 연락처]</span>입니다.</p>
+    <p>이용자는 국외 이전을 거부할 수 있으나, 이 경우 서비스를 이용할 수 없습니다. 수탁자의 개인정보 처리에 관한 내용은 각 사의 개인정보 처리방침(supabase.com/privacy, cloudflare.com/privacypolicy)에서 확인할 수 있습니다.</p>
 
     <h2 id="p7">7. 위치정보 처리</h2>
     <ol>
@@ -550,7 +552,7 @@ window.TRIPPIC_STORE = {
     <p>서비스는 만 14세 미만 아동의 회원가입을 받지 않습니다.</p>
 
     <h2 id="p11">11. 개인정보 보호책임자</h2>
-    <p>성명 <span class="ph">[이름]</span> · 직책 <span class="ph">[대표]</span> · 이메일 <span class="ph">[privacy@trippic.app]</span></p>
+    <p>성명 노혜성 · 직책 운영자 · 이메일 hello@trippic.app</p>
 
     <h2 id="p12">12. 권익침해 구제</h2>
     <p>개인정보 침해에 대한 신고나 상담이 필요하면 아래 기관에 문의할 수 있습니다.</p>
@@ -571,11 +573,11 @@ window.TRIPPIC_STORE = {
     <a class="back" href="#top">← 트립픽 홈</a>
     <p class="eyebrow">Terms</p>
     <h1>이용약관</h1>
-    <p class="meta">시행일 <span class="ph">[2026년 00월 00일]</span></p>
-    <p class="draft">초안입니다. <span class="ph">[대괄호]</span> 항목을 채우고, 출시 전에 전문가 검토를 받는 것을 권합니다.</p>
+    <p class="meta">시행일 <span class="ph">[앱 출시일]</span></p>
+    <p class="draft">시행일은 앱 출시일에 맞춰 확정됩니다.</p>
 
     <h2>제1조 목적</h2>
-    <p>이 약관은 <span class="ph">[운영자 이름]</span>(이하 "운영자")가 제공하는 트립픽 서비스(이하 "서비스")의 이용 조건과 절차, 운영자와 이용자의 권리·의무를 정합니다.</p>
+    <p>이 약관은 노혜성(이하 "운영자")가 제공하는 트립픽 서비스(이하 "서비스")의 이용 조건과 절차, 운영자와 이용자의 권리·의무를 정합니다.</p>
 
     <h2>제2조 용어</h2>
     <ol>
@@ -624,7 +626,7 @@ window.TRIPPIC_STORE = {
     </ol>
 
     <h2>제9조 게시물 관리와 신고</h2>
-    <p>제8조를 위반한 기록은 신고 또는 운영자의 확인에 따라 비공개 처리하거나 삭제할 수 있으며, 반복 위반 시 이용을 제한할 수 있습니다. 권리를 침해당한 사람은 <span class="ph">[신고 이메일]</span> 또는 앱의 신고 기능으로 게시 중단을 요청할 수 있습니다.</p>
+    <p>제8조를 위반한 기록은 신고 또는 운영자의 확인에 따라 비공개 처리하거나 삭제할 수 있으며, 반복 위반 시 이용을 제한할 수 있습니다. 권리를 침해당한 사람은 hello@trippic.app 또는 앱의 신고 기능으로 게시 중단을 요청할 수 있습니다.</p>
 
     <h2>제10조 탈퇴와 이용 제한</h2>
     <p>이용자는 언제든 앱에서 탈퇴할 수 있습니다. 탈퇴 시 기록은 개인정보처리방침에 따라 처리되며, 공유 스페이스에 올린 기록은 탈퇴 전에 회수 또는 유지를 선택할 수 있습니다.</p>
@@ -638,7 +640,7 @@ window.TRIPPIC_STORE = {
     <h2>제12조 분쟁 해결</h2>
     <p>이 약관은 대한민국 법률을 따르며, 서비스 이용과 관련한 분쟁은 「민사소송법」에 따른 관할 법원에서 해결합니다.</p>
 
-    <p style="margin-top:40px;color:var(--mut)">부칙: 이 약관은 <span class="ph">[2026년 00월 00일]</span>부터 시행합니다.</p>
+    <p style="margin-top:40px;color:var(--mut)">부칙: 이 약관은 <span class="ph">[앱 출시일]</span>부터 시행합니다.</p>
   </div>
 </main>
 
@@ -647,14 +649,14 @@ window.TRIPPIC_STORE = {
     <a class="back" href="#top">← 트립픽 홈</a>
     <p class="eyebrow">Location</p>
     <h1>위치기반서비스 이용약관</h1>
-    <p class="meta">시행일 <span class="ph">[2026년 00월 00일]</span></p>
-    <p class="draft">초안입니다. 위치기반서비스사업 신고를 마친 뒤 <span class="ph">[대괄호]</span> 항목(신고번호 등)을 채워 게시하세요. 신고 요건과 문구는 방송통신위원회 안내나 전문가 검토로 확인하는 것을 권합니다.</p>
+    <p class="meta">시행일 <span class="ph">[앱 출시일]</span></p>
+    <p class="draft">시행일과 위치기반서비스사업 신고번호는 신고와 출시에 맞춰 확정됩니다.</p>
     <nav class="toc" aria-label="목차">
       <a href="#l1">제1조 목적</a><a href="#l2">제2조 약관 외 준칙</a><a href="#l3">제3조 서비스 내용과 요금</a><a href="#l4">제4조 위치정보의 수집 방법</a><a href="#l5">제5조 보유와 파기</a><a href="#l6">제6조 이용·제공사실 확인자료</a><a href="#l7">제7조 제3자 제공과 통보</a><a href="#l8">제8조 이용자의 권리</a><a href="#l9">제9조 만 14세 미만 아동</a><a href="#l10">제10조 위치정보관리책임자</a><a href="#l11">제11조 손해배상과 면책</a><a href="#l12">제12조 분쟁의 조정</a><a href="#l13">제13조 운영자 정보</a>
     </nav>
 
     <h2 id="l1">제1조 목적</h2>
-    <p>이 약관은 <span class="ph">[운영자 이름]</span>(이하 "운영자")가 제공하는 트립픽의 위치기반서비스(이하 "서비스")와 관련해, 운영자와 개인위치정보주체(이하 "이용자")의 권리·의무 및 책임 사항을 정합니다.</p>
+    <p>이 약관은 노혜성(이하 "운영자")가 제공하는 트립픽의 위치기반서비스(이하 "서비스")와 관련해, 운영자와 개인위치정보주체(이하 "이용자")의 권리·의무 및 책임 사항을 정합니다.</p>
 
     <h2 id="l2">제2조 약관 외 준칙</h2>
     <p>이 약관에 정하지 않은 사항은 「위치정보의 보호 및 이용 등에 관한 법률」, 「개인정보 보호법」 등 관련 법령과 트립픽 <a href="#terms">이용약관</a>, <a href="#privacy">개인정보처리방침</a>을 따릅니다.</p>
@@ -703,7 +705,7 @@ window.TRIPPIC_STORE = {
 
     <h2 id="l10">제10조 위치정보관리책임자</h2>
     <p>운영자는 개인위치정보를 보호하기 위해 위치정보관리책임자를 아래와 같이 지정합니다.</p>
-    <p>성명 <span class="ph">[이름]</span> · 이메일 <span class="ph">[privacy@trippic.app]</span></p>
+    <p>성명 노혜성 · 이메일 hello@trippic.app</p>
 
     <h2 id="l11">제11조 손해배상과 면책</h2>
     <ol>
@@ -716,12 +718,12 @@ window.TRIPPIC_STORE = {
 
     <h2 id="l13">제13조 운영자 정보</h2>
     <ul>
-      <li>운영자: 개인 개발자 <span class="ph">[이름]</span></li>
-      <li>연락처: <span class="ph">[hello@trippic.app]</span></li>
+      <li>운영자: 개인 개발자 노혜성</li>
+      <li>연락처: hello@trippic.app</li>
       <li>위치기반서비스사업 신고번호: <span class="ph">[신고 후 기재]</span></li>
     </ul>
 
-    <p style="margin-top:40px;color:var(--mut)">부칙: 이 약관은 <span class="ph">[2026년 00월 00일]</span>부터 시행합니다.</p>
+    <p style="margin-top:40px;color:var(--mut)">부칙: 이 약관은 <span class="ph">[앱 출시일]</span>부터 시행합니다.</p>
   </div>
 </main>
 
@@ -730,8 +732,8 @@ window.TRIPPIC_STORE = {
     <div>
       <a class="brand" href="#top"><b>TRIPPIC</b></a>
       <dl class="biz">
-        <dt>운영</dt><dd>개인 개발자 <span class="ph">[이름]</span></dd>
-        <dt>문의</dt><dd class="mail"><span id="mailAddr" class="ph">[hello@trippic.app]</span><button type="button" id="copyMail">복사</button></dd>
+        <dt>운영</dt><dd>개인 개발자 노혜성</dd>
+        <dt>문의</dt><dd class="mail"><span id="mailAddr">hello@trippic.app</span><button type="button" id="copyMail">복사</button></dd>
       </dl>
     </div>
     <div class="flinks">
