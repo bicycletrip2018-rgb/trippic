@@ -44,8 +44,24 @@ curl -s "$SUPABASE_URL/auth/v1/settings" -H "apikey: $ANON_KEY" | python3 -m jso
 Authentication → Providers → **Kakao**
 - Enable **ON**
 - Client ID = REST API 키
-- Client Secret = 위에서 만든 값
+- Client Secret = 위에서 만든 값 (**카카오 로그인** 쪽 코드다. 비즈니스 인증 코드가
+  아니다 — 둘 다 있는 화면이라 헷갈린다)
 - Callback URL 이 카카오에 등록한 것과 **글자까지 같은지** 확인
+
+### ★ `Allow users without an email` 을 **반드시 ON** 으로
+우리는 §2(최소 수집)에 따라 카카오에서 **닉네임만** 받는다. 그러면 카카오가 이메일을
+**안 준다.** 이 스위치가 OFF 면 Supabase 가 *"external provider 에서 이메일을 못 받았다"*
+며 **마지막 단계에서 로그인을 거절한다.**
+
+★ 화면 어디에도 이 둘이 연결돼 있다고 안 적혀 있다 — 동의항목은 카카오 콘솔에 있고
+  이 스위치는 Supabase 에 있어서, **켜 두고도 왜 안 되는지 모르게 된다.**
+
+★ Supabase 가 보내는 scope 는 `account_email profile_image profile_nickname` 로 **고정**이다.
+  `?scopes=` 로 줄이려 해도 **덧붙기만 하고 빼지지 않는다**(실측:
+  `scope=account_email+profile_image+profile_nickname+profile_nickname`).
+  그래도 카카오는 동의항목에 없는 scope 를 무시하고 로그인 화면까지 진행한다(실측:
+  `accounts.kakao.com/login` 으로 302, KOE 오류 없음). 그러니 **막는 것은 이메일 요구가
+  아니라 이 스위치 하나다.**
 
 ## 3. 돌아올 주소 등록
 Authentication → URL Configuration → **Redirect URLs** 에 앱이 돌아올 주소를 넣는다.
