@@ -63,6 +63,26 @@ Authentication → Providers → **Kakao**
   `accounts.kakao.com/login` 으로 302, KOE 오류 없음). 그러니 **막는 것은 이메일 요구가
   아니라 이 스위치 하나다.**
 
+### ★ `Allow manual linking` 도 **반드시 ON** 으로
+우리 마이 탭의 버튼은 **"이어 두기"(얹기)** 다 — 지금 임시 계정 id 를 지킨 채 카카오를
+더하는 것이고, Supabase 의 `linkIdentity`(`/auth/v1/user/identities/authorize`)를 쓴다.
+**이 기능은 기본이 꺼져 있다.** 꺼진 채로 누르면 화면에 이렇게 뜬다:
+
+```
+Manual linking is disabled
+```
+
+★ 실제로 이것 때문에 막혔다. provider 를 켜고 리다이렉트도 다 맞췄는데, 서버에는
+`identities` 가 **0건**이었다 — 카카오까지 가 보지도 못하고 Supabase 가 먼저 거절한다.
+
+켜는 곳: 대시보드 **Authentication** 의 프로젝트 인증 설정에서 **`Allow manual linking`**.
+(셀프 호스팅이면 `GOTRUE_SECURITY_MANUAL_LINKING_ENABLED: true`)
+★ 메뉴 위치는 개편이 잦다. **대시보드에서 `Cmd+K` 로 `manual linking` 을 찾는 게 빠르다.**
+
+**이게 꺼져 있어도 "카카오로 들어가기"(sign-in)는 된다.** 다만 그 길은 **계정 id 가
+바뀌므로** 임시 계정의 기록을 옮기려면 §13.40 합치기를 타야 한다. 우리가 "얹기"를
+먼저 두는 이유가 그것이다.
+
 ## 3. 돌아올 주소 등록
 Authentication → URL Configuration → **Redirect URLs** 에 앱이 돌아올 주소를 넣는다.
 여기 없는 주소로는 **돌려보내지 않는다** (그게 이 목록의 존재 이유다).
