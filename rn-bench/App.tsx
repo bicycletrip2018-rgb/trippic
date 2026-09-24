@@ -86,5 +86,5 @@ const s = StyleSheet.create({
     backgroundColor: C.accent, shadowColor: "#000", shadowOpacity: 0.4,
     shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6,
   },
-  fabT: { color: "#fff", fontSize: 26, fontWeight: "300", marginTop: -2 },
+  fabT: { color: C.onAccent, fontSize: 26, fontWeight: "300", marginTop: -2 },
 });

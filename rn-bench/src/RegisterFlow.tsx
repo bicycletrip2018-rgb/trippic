@@ -451,7 +451,7 @@ const s = StyleSheet.create({
   thumb: { width: 74, height: 74, borderRadius: 10, backgroundColor: "#222" },
   thumbOn: { borderWidth: 2, borderColor: C.accent },
   tick: {
-    position: "absolute", right: 4, bottom: 4, color: "#fff", fontSize: 10,
+    position: "absolute", right: 4, bottom: 4, color: C.onAccent, fontSize: 10,
     fontWeight: "700", backgroundColor: C.accent, paddingHorizontal: 5,
     paddingVertical: 1, borderRadius: 6, overflow: "hidden",
   },
@@ -478,11 +478,11 @@ const s = StyleSheet.create({
   pubRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   box: {
     width: 22, height: 22, borderRadius: 6, borderWidth: 1, borderColor: C.line,
-    textAlign: "center", lineHeight: 22, color: "#fff", fontSize: 13,
+    textAlign: "center", lineHeight: 22, color: C.onAccent, fontSize: 13,
   },
   boxOn: { backgroundColor: C.accent, borderColor: C.accent },
   cta: { backgroundColor: C.accent, borderRadius: 13, paddingVertical: 15, alignItems: "center" },
   ctaOff: { opacity: 0.4 },
-  ctaT: { color: "#fff", fontSize: 15, fontWeight: "700" },
+  ctaT: { color: C.onAccent, fontSize: 15, fontWeight: "700" },
   doneT: { color: C.text, fontSize: 16, fontWeight: "700", lineHeight: 24 },
 });

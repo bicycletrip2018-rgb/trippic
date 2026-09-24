@@ -236,7 +236,7 @@ const s = StyleSheet.create({
   chip: { paddingHorizontal: 13, paddingVertical: 7, borderRadius: 99, borderWidth: 1, borderColor: C.line },
   chipOn: { backgroundColor: C.accent, borderColor: C.accent },
   chipT: { color: C.muted, fontSize: 12, fontWeight: "600" },
-  chipTOn: { color: "#fff" },
+  chipTOn: { color: C.onAccent },
   rail: { marginTop: 18 },
   railT: { color: C.text, fontSize: 15, fontWeight: "700", paddingHorizontal: 18 },
   railWhy: { color: C.muted, fontSize: 11, paddingHorizontal: 18, marginTop: 3, marginBottom: 9 },

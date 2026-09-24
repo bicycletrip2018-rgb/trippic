@@ -38,7 +38,7 @@ export const TOKENS = {
   land: "#282B36",
   stroke: "rgba(255,255,255,0.22)",
   water: "#0E182E",
-  accent: "#E8614D",
+  accent: "#38B6FF",
 };
 
 /* 폴리곤은 z8.6에서 물러나고 핀이 인계받는다. PLAN §9 LOD */

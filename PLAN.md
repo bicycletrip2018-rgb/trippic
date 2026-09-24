@@ -1322,10 +1322,14 @@ z ≥ 12      상호명 라벨
 --surface-glass:     rgba(22,24,31,0.72) + backdrop-blur(20px)
 --text-primary:      #F2F3F5
 --text-muted:        #8A8F9A
---accent:            #E8614D  /* 최소한으로만. 폴리곤엔 절대 쓰지 않음 */
+--accent:            #38B6FF  /* 바다 파랑. 최소한으로만. 폴리곤엔 절대 쓰지 않음 */
+                              /* ~~#E8614D 코랄~~ → 2026-09-24 브랜드를 바다·산(파랑·초록)으로 바꾸며 교체 */
+--on-accent:         #04233A  /* 파랑 위 글씨. 흰색은 대비 2.3:1이라 못 쓴다 */
 --photo-veil:        7%       /* 톤 통일 오버레이 */
 
 /* Light */
+--accent:            #0A7CC9  /* 밝은 바탕에선 한 단계 짙게 — 글씨로 쓰여도 읽혀야 한다 */
+--on-accent:         #FFFFFF
 --map-bg:            #FDFCFA
 --region-empty:      #ECE8E2
 --region-stroke:     rgba(0,0,0,0.12)

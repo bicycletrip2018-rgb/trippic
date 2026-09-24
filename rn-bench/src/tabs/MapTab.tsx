@@ -309,7 +309,7 @@ const st = StyleSheet.create({
   },
   chipOn: { backgroundColor: C.accent, borderColor: C.accent },
   chipT: { color: C.muted, fontSize: 12 },
-  chipTOn: { color: "#fff", fontWeight: "700" },
+  chipTOn: { color: C.onAccent, fontWeight: "700" },
   fill: { flex: 1 },
   /* ★ 탭바가 `bottom:26` 에 **떠 있다**(높이 ~62). 문서 흐름의 맨 아래에 두면
      그 뒤로 깔려 글자가 잘린다 — 시뮬레이터에서 실제로 잘렸다.
@@ -335,7 +335,7 @@ const st = StyleSheet.create({
     color: C.muted, fontSize: 10.5, paddingHorizontal: 6, paddingVertical: 2,
     borderRadius: 6, backgroundColor: "rgba(255,255,255,0.07)", overflow: "hidden",
   },
-  badgeSrc: { color: C.text, backgroundColor: "rgba(232,97,77,0.22)" },
+  badgeSrc: { color: C.text, backgroundColor: "rgba(56,182,255,0.22)" },
   close: { marginLeft: "auto", paddingHorizontal: 4 },
   closeT: { color: C.muted, fontSize: 15 },
   photo: { width: "100%", borderRadius: 11, backgroundColor: "#0B0C10" },
