@@ -4,6 +4,8 @@ export const C = {
   text: "#F2F3F5", muted: "#8b93a3", accent: "#38B6FF", warn: "#e0a94a",
   /* 파랑 위 글씨. 흰색은 대비 2.3:1이라 못 쓴다 */
   onAccent: "#04233A",
+  /* 보조 색 — "다녀온 것"에만 쓴다(방문 수, 현장 인증). 버튼·선택 상태는 accent */
+  visited: "#3EE08F",
 };
 export const CAT: Record<string, { k: string; c: string }> = {
   nature: { k: "자연", c: "#8FBF9A" }, beach: { k: "해변", c: "#6FB5B3" },

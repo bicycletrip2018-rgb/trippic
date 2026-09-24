@@ -17,6 +17,7 @@
     --text-muted:#8A8F9A;
     --accent:#38B6FF;
     --on-accent:#04233A;   /* 파랑 위 글씨 — 흰색은 대비 2.3:1이라 못 쓴다 */
+    --visited:#3EE08F;     /* 보조 색 — "다녀온 것"에만. 버튼·선택은 accent */
   }
   :root[data-theme="light"]{
     --map-bg:#FAF9F7;
@@ -29,6 +30,7 @@
     --text-muted:#6B7078;
     --accent:#0A7CC9;      /* 밝은 바탕에선 한 단계 짙게 — 글씨로 쓰여도 읽혀야 한다 */
     --on-accent:#FFFFFF;
+    --visited:#0F8A50;     /* 밝은 바탕에선 짙게 — 글씨로 읽혀야 한다 */
   }
   *{box-sizing:border-box}
   html,body{height:100%;margin:0;background:var(--map-bg);
@@ -47,7 +49,7 @@
   #layer{font-size:15px;font-weight:600;letter-spacing:-.2px;display:flex;align-items:center;gap:6px}
   #layer small{color:var(--text-muted);font-weight:500;font-size:11px;display:block;margin-top:1px}
   #cov{margin-left:auto;text-align:right;font-variant-numeric:tabular-nums}
-  #cov b{font-size:17px;font-weight:700;letter-spacing:-.4px}
+  #cov b{font-size:17px;font-weight:700;letter-spacing:-.4px;color:var(--visited)}
   #cov span{display:block;font-size:11px;color:var(--text-muted);margin-top:1px}
 
   #panel{position:absolute;left:14px;bottom:14px;z-index:5;padding:14px;width:288px;max-width:calc(100vw - 28px)}
@@ -385,7 +387,7 @@
   /* 시트 카드의 현장 인증 — 뷰어에만 있고 가장 많이 보는 화면엔 없었다 */
   .cver{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:99px;
     font-size:9.5px;font-weight:700;border:1px solid var(--surface-line);color:var(--text-muted)}
-  .cver.live{border-color:var(--accent);color:var(--accent)}
+  .cver.live{border-color:var(--visited);color:var(--visited)}
   /* 스페이스 안 댓글 — 공개 기록에는 안 붙는다 (§12.6 수정) */
   .vwNoC{margin:10px 0 0;font-size:11px;color:var(--text-muted);line-height:1.6}
   .vwNoC small{display:block;font-size:10.5px;opacity:.8;margin-top:2px}
