@@ -244,8 +244,13 @@ export function MyTab() {
         {uid ? (
           <>
             <Text style={s.boxV}>임시 계정 {uid.slice(0, 8)}…</Text>
+            {/* ★ "준비 중"을 **박아 두지 않는다.** provider 를 켜면 바로 위에 버튼이
+                뜨는데 이 줄은 여전히 준비 중이라고 말해 화면이 자기모순이 된다
+                (카카오를 켜고 실제로 그랬다). 켜진 것을 보고 말한다. */}
             <Text style={s.warn}>앱을 지우거나 기기를 바꾸면 기록이 사라집니다.{"\n"}
-              나중에 카카오·애플로 이어 두면 옮길 수 있습니다 — 지금은 준비 중입니다.</Text>
+              {socials.length
+                ? `위에서 ${socials.map(API.provName).join("·")}로 이어 두면 옮길 수 있습니다.`
+                : "나중에 카카오·애플로 이어 두면 옮길 수 있습니다 — 지금은 준비 중입니다."}</Text>
           </>
         ) : (
           <Pressable style={s.cta} onPress={start} disabled={signing}>
