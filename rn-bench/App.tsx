@@ -26,6 +26,8 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("map");
   const [ready, setReady] = useState(false);
   const [reg, setReg] = useState(false);
+  /* 핀 상세 시트가 떠 있는 동안은 (+) 를 감춘다 — 시트의 닫기 버튼을 덮는다 */
+  const [sheet, setSheet] = useState(false);
 
   useEffect(() => {
     API.setConfig(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -54,7 +56,7 @@ export default function App() {
       <StatusBar style="light" />
       {/* 탭을 갈아 끼우지 않고 **감춘다** — 지도를 다시 만들면 아틀라스를 다시 굽는다 */}
       <View style={[s.page, tab !== "map" && s.hidden]} pointerEvents={tab === "map" ? "auto" : "none"}>
-        <MapTab />
+        <MapTab onSheet={setSheet} />
       </View>
       {ready && tab === "feed" && <FeedTab center={center} />}
       {ready && tab === "news" && <NewsTab />}
@@ -62,7 +64,7 @@ export default function App() {
       {ready && tab === "my" && <MyTab />}
       {/* ★ (+) 는 지도 위에 둔다 — §12.27: 등록은 별도 탭이 아니라
           "보고 있는 지도에 한 점을 더하는 일"이다. 탭을 새로 만들면 탭1과 겹친다. */}
-      {tab === "map" && (
+      {tab === "map" && !sheet && (
         <Pressable style={s.fab} onPress={() => setReg(true)}>
           <Text style={s.fabT}>＋</Text>
         </Pressable>
