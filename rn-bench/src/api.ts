@@ -107,6 +107,31 @@ export async function signInAnonymously() {
   return { ok: true, user: SESSION.user_id };
 }
 
+/* ── 세션 갱신 ─────────────────────────────────────────────────
+   ★ 액세스 토큰은 **한 시간이면 만료된다.** 그때 `refresh_token` 으로 갈아 끼우면
+     같은 계정을 이어 쓴다. 이 경로가 없으면 아래 `ensureSession` 이 만료를
+     "계정이 없어졌다"로 읽고 **계정을 버린다** — 실제로 그렇게 동작하고 있었다.
+   ★ 익명 계정은 **되찾을 방법이 없다.** 비밀번호도 이메일도 없어서, 버려진 계정의
+     기록은 영영 고아가 된다. 그러니 버리기 전에 반드시 여기를 거친다. */
+async function refreshSession() {
+  if (!SESSION.refresh_token) return false;
+  try {
+    const r = await fetch(`${CFG.url}/auth/v1/token?grant_type=refresh_token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: CFG.anonKey },
+      body: JSON.stringify({ refresh_token: SESSION.refresh_token }),
+    });
+    const j: any = await r.json().catch(() => ({}));
+    if (!r.ok || !j.access_token) return false;
+    SESSION.access_token = j.access_token;
+    SESSION.refresh_token = j.refresh_token ?? SESSION.refresh_token;
+    SESSION.user_id = j.user?.id ?? SESSION.user_id;
+    SESSION.anonymous = j.user?.is_anonymous ?? SESSION.anonymous;
+    await saveSession();
+    return true;
+  } catch { return false; }
+}
+
 /* ★ 저장해 둔 세션이 **서버에 없는 계정**을 가리킬 수 있다. JWT 는 서명된 값이라
    만료 전까지는 형식상 멀쩡하지만, 그 계정이 지워졌으면 auth.uid() 가 가리키는
    profiles 행이 없어 쓰기가 전부 23503(FK 위반)으로 튕긴다.
@@ -124,6 +149,10 @@ export async function ensureSession() {
       // 망이 끊긴 것과 계정이 없는 것은 다르다 — 못 물어봤으면 버리지 않는다
       return { ok: true, why: "확인 못 함 — 그대로 쓴다" };
     }
+    /* ★ **버리기 전에 갱신을 먼저 해 본다.** 여기 오는 이유는 두 가지인데
+       (토큰 만료 / 계정 삭제) 둘을 구분하지 않고 버리면, 한 시간만 두었다가
+       다시 연 사용자의 기록을 **고아로 만든다.** 갱신이 되면 같은 계정이다. */
+    if (await refreshSession()) return { ok: true, why: "세션 갱신" };
     await clearSession();
   }
   return signInAnonymously();
@@ -167,6 +196,10 @@ export const provName = (p: string) => PROV_NAME[p] ?? p;
 /* 지금 임시 계정에 **얹는다**. 계정 id 가 그대로라 아무것도 안 옮긴다. */
 export async function linkProvider(provider: Social, redirectTo: string) {
   if (!SESSION.access_token) return { ok: false, why: "먼저 시작해야 합니다" };
+  /* ★ 앱을 띄워 둔 채 한 시간이 지나면 토큰이 만료돼 있다. 그대로 보내면
+     서버가 `invalid JWT: token is expired` 로 튕기고, 화면에는 사용자가 할 수
+     있는 일이 하나도 없는 영문 문구가 뜬다(실제로 그렇게 막혔다). */
+  await ensureSession();
   const p = await providers();
   if (!p[provider])
     return { ok: false, why: `${provName(provider)} 로그인이 아직 켜져 있지 않습니다` };
