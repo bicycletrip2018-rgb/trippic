@@ -1,43 +1,48 @@
 /**
- * TRIPPIC — RN 네이티브 성능 벤치마크
+ * TRIPPIC — 지도 탭 (§13.47)
  *
- * 측정 대상 (PLAN.md §13 "실기기 성능 측정"의 항목들)
- *   1. Skia.Surface.MakeOffscreen(N) 이 성공하는가        ← 1순위 위험
- *   2. 아틀라스 합성 시간 (2048 / 4096)
- *   3. PNG 인코딩 + 파일 기록 시간
- *   4. ImageSource 가 그 파일을 실제로 렌더하는가          ← 스크린샷으로 확인
- *   5. 아이콘 1개 생성 시간 (× 786개 환산)
+ * ★ 여기 있던 것은 **Skia 벤치마크 화면**이었다. 아틀라스 합성 시간을 재고
+ *   `localhost:5173` 에서 사진을 받던 측정 도구다. 그 측정은 끝났고(§13 실기기 측정),
+ *   같은 자리에 **제품 지도**가 온다. 측정 코드는 지웠다 — 두 벌을 남기면
+ *   어느 쪽이 진짜 화면인지 매번 헷갈린다.
  *
- * 데이터는 로컬 HTTP 서버(localhost:5173)에서 받는다 — 앱 번들을 42MB로 불리지 않는다.
+ * ★ **지도는 하나고, 무엇을 볼지만 고른다**(§13.37). 지도를 셋으로 나누지 않는다.
+ *   나누면 §12.27 에서 접었던 '정리함'과 같은 실수가 된다(같은 일을 하는 화면이 둘).
+ *   그래서 칩은 **필터지 분류가 아니다** — 셋은 겹칠 수 있고, 그건 결함이 아니다.
+ *
+ * ★ **뷰포트로 잘라 읽는다**(§13.31). 전국을 한 번에 읽지 않는다. 화면보다 1.8배
+ *   넓게(PAD 0.4) 읽어 두면 조금씩 미는 동안은 왕복이 공짜다.
+ *
+ * ★ 배경 지도는 **앱에 넣었다**(593K). 웹은 `localhost:5173` 에서 받았지만 앱이
+ *   개발 서버에 매달리면 그건 제품이 아니다. 사진은 여전히 URL 로 받는다 —
+ *   번들을 42MB 로 불리지 않는다는 원칙(§13)은 그대로다.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
-import * as FileSystem from "expo-file-system/legacy";
-import {
-  Skia,
-  ClipOp,
-  FillType,
-  ImageFormat,
-  PaintStyle,
-  type SkImage,
-} from "@shopify/react-native-skia";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import {
   Camera,
   GeoJSONSource,
-  ImageSource,
   Layer,
   Map,
+  type MapRef,
 } from "@maplibre/maplibre-react-native";
-import type { StyleSpecification, ExpressionSpecification } from "@maplibre/maplibre-gl-style-spec";
+import type { StyleSpecification } from "@maplibre/maplibre-gl-style-spec";
+import * as API from "../api";
+import { C, CAT } from "../theme";
 
-const HOST = "http://localhost:5173";
+const SGG = require("../../assets/korea-sgg.json");
+
 const LAND = "#282B36";
 const BG = "#08090C";
 
-type Line = { t: string; v: string; ok?: boolean };
-
-const mercX = (lon: number) => (lon * Math.PI) / 180;
-const mercY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+/* 웹과 같은 네 칩·같은 라벨(§13.37). '친구'라고 쓰지 않는다 — 우리에겐 1:1 친구가
+   없고 공유의 단위는 스페이스다. 그렇게 쓰면 있지도 않은 친구 목록을 찾게 된다. */
+const SCOPES: { v: API.Scope; k: string }[] = [
+  { v: "all", k: "전부" },
+  { v: "mine", k: "내 지도" },
+  { v: "shared", k: "함께" },
+  { v: "public", k: "모두의" },
+];
 
 const EMPTY_STYLE: StyleSpecification = {
   version: 8,
@@ -45,239 +50,183 @@ const EMPTY_STYLE: StyleSpecification = {
   layers: [{ id: "bg", type: "background", paint: { "background-color": BG } }],
 };
 
+type Pin = {
+  id: string;
+  lng: number;
+  lat: number;
+  category: string | null;
+  source: string | null;
+  memo: string | null;
+  media_url: string | null;
+};
+
+const toFeature = (r: any): GeoJSON.Feature | null => {
+  const lng = Number(r?.lng), lat = Number(r?.lat);
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+  return {
+    type: "Feature",
+    geometry: { type: "Point", coordinates: [lng, lat] },
+    properties: {
+      pinId: r.id,
+      cat: r.category ?? "etc",
+      color: CAT[r.category ?? "etc"]?.c ?? CAT.etc.c,
+      source: r.source ?? "other",
+    },
+  };
+};
+
+const inside = (inner: API.BBox, outer: API.BBox | null) =>
+  !!outer &&
+  inner.w >= outer.w && inner.e <= outer.e &&
+  inner.s >= outer.s && inner.n <= outer.n;
+
 export function MapTab() {
-  const [log, setLog] = useState<Line[]>([]);
-  const [atlas, setAtlas] = useState<{ uri: string; coords: any } | null>(null);
-  const [regions, setRegions] = useState<any>(null);
-  const started = useRef(false);
+  const mapRef = useRef<MapRef>(null);
+  const [scope, setScope] = useState<API.Scope>("all");
+  const [pins, setPins] = useState<Pin[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [more, setMore] = useState(false);
+  const [why, setWhy] = useState<string | null>(null);
 
-  const add = useCallback((t: string, v: string, ok?: boolean) => {
-    setLog((L) => [...L, { t, v, ok }]);
+  /* 이미 읽은 상자와 그때의 스코프. 스코프가 바뀌면 이 상자는 소용없다 —
+     서버가 **다른 집합**을 준다(§13.37). */
+  const loaded = useRef<{ box: API.BBox | null; scope: API.Scope }>({ box: null, scope: "all" });
+  const inflight = useRef(false);
+
+  const load = useCallback(async (force: boolean, sc: API.Scope) => {
+    if (inflight.current) return;
+    const b = await mapRef.current?.getBounds().catch(() => null);
+    if (!b) return;
+    const view: API.BBox = { w: b[0], s: b[1], e: b[2], n: b[3] };
+    if (!force && loaded.current.scope === sc && inside(view, loaded.current.box)) return;
+
+    inflight.current = true;
+    setBusy(true);
+    const box = API.padBox(view);
+    const r = await API.pinsInBBox(box, { limit: 300, scope: sc });
+    inflight.current = false;
+    setBusy(false);
+
+    if (!r.ok) { setWhy("지도를 불러오지 못했습니다 — 잠시 뒤 다시 시도합니다"); return; }
+    setWhy(null);
+    loaded.current = { box, scope: sc };
+    setMore(r.more);
+    setPins((r.data as any[]).map((row) => ({
+      id: row.id, lng: Number(row.lng), lat: Number(row.lat),
+      category: row.category, source: row.source, memo: row.memo, media_url: row.media_url,
+    })).filter((p) => Number.isFinite(p.lng) && Number.isFinite(p.lat)));
   }, []);
 
-  useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-    void run();
-  }, []);
+  useEffect(() => { void load(true, scope); }, []);
 
-  async function run() {
-    try {
-      // ── 데이터 ─────────────────────────────────────────────
-      let t0 = Date.now();
-      const sgg = await fetch(`${HOST}/korea-sgg.json`).then((r) => r.json());
-      add("행정경계 로드", `${Date.now() - t0}ms · ${sgg.features.length}개`);
-      setRegions(sgg);
+  /* 스코프를 바꾼다. ★ 이전 스코프의 핀을 **걷어낸다.** 안 걷으면 '내 지도'를 골랐는데
+     남의 핀이 남아 있고, 그건 필터가 아니라 그냥 더하기다(§13.37). */
+  const changeScope = (v: API.Scope) => {
+    if (v === scope) return;
+    setScope(v);
+    setPins([]);
+    setMore(false);
+    loaded.current = { box: null, scope: v };
+    void load(true, v);
+  };
 
-      const meta = await fetch(`${HOST}/photos/_meta.json`).then((r) => r.json());
-      add("사진 메타", `${meta.length}장`);
+  const fc: GeoJSON.FeatureCollection = {
+    type: "FeatureCollection",
+    features: pins.map(toFeature).filter(Boolean) as GeoJSON.Feature[],
+  };
 
-      // ── 사진 디코드 (Skia) ─────────────────────────────────
-      t0 = Date.now();
-      const N_PHOTOS = 40;
-      const imgs: SkImage[] = [];
-      for (let i = 0; i < N_PHOTOS; i++) {
-        const data = await Skia.Data.fromURI(`${HOST}/photos/p${meta[i].i + 1}.jpg`);
-        const img = Skia.Image.MakeImageFromEncoded(data);
-        if (img) imgs.push(img);
-      }
-      add("사진 디코드", `${Date.now() - t0}ms · ${imgs.length}장 (${((Date.now() - t0) / imgs.length).toFixed(0)}ms/장)`,
-          imgs.length === N_PHOTOS);
-      if (!imgs.length) { add("중단", "사진을 하나도 못 읽었다", false); return; }
-
-      // ── ① 워밍업 가설 검증: 같은 크기를 두 번 ────────────────
-      for (const px of [2048, 2048, 4096]) {
-        const t = Date.now();
-        const s = Skia.Surface.MakeOffscreen(px, px);
-        add(`MakeOffscreen(${px})`, s ? `성공 · ${Date.now() - t}ms` : "실패(null)", !!s);
-        s?.dispose?.();
-      }
-
-      // ── ② 아틀라스: 인코딩 포맷 비교 ★진짜 병목 찾기 ────────
-      const visited = sgg.features.slice(0, 90);
-      let w = 180, s0 = 90, e = -180, n = -90;
-      for (const f of sgg.features) {
-        const b = f.properties.bbox;
-        w = Math.min(w, b[0]); s0 = Math.min(s0, b[1]);
-        e = Math.max(e, b[2]); n = Math.max(n, b[3]);
-      }
-      const aspect = (mercX(e) - mercX(w)) / (mercY(n) - mercY(s0));
-
-      // 워밍업 (셰이더 컴파일 비용을 측정에서 분리)
-      buildAtlas(visited, [w, s0, e, n], aspect, imgs, 2048, () => {}, ImageFormat.PNG, 100);
-
-      const FORMATS: [string, number, number][] = [
-        ["PNG q100", ImageFormat.PNG, 100],
-        ["PNG q0",   ImageFormat.PNG, 0],
-        ["WEBP q80", ImageFormat.WEBP, 80],
-        ["WEBP q100",ImageFormat.WEBP, 100],
-        ["JPEG q85", ImageFormat.JPEG, 85],
-      ];
-      let best: any = null;
-      for (const [label, fmt, q] of FORMATS) {
-        const r = buildAtlas(visited, [w, s0, e, n], aspect, imgs, 2048, add, fmt, q, label);
-        if (label === "WEBP q80" && r) best = r;
-      }
-      if (best) setAtlas(best);   // WEBP가 ImageSource에서 렌더되는지 확인
-
-      // ── ③ 아이콘 생성 ──────────────────────────────────────
-      for (const [lb, fm, q] of [["아이콘 PNG", ImageFormat.PNG, 100],
-                                 ["아이콘 WEBP80", ImageFormat.WEBP, 80]] as [string, number, number][]) {
-        const tIcon = Date.now();
-        const ICONS = 30;
-        let made = 0;
-        for (let i = 0; i < ICONS; i++) if (circleIcon(imgs[i % imgs.length], "#C98A6E", 80, fm, q)) made++;
-        const per = (Date.now() - tIcon) / ICONS;
-        add(lb, `${per.toFixed(1)}ms/개 → 786개 ${(per * 786 / 1000).toFixed(1)}초`, made === ICONS);
-      }
-
-      add("완료", "지도에 아틀라스가 보이면 WEBP도 ImageSource에서 렌더된다는 뜻", true);
-    } catch (err: any) {
-      add("예외", String(err?.message ?? err), false);
-    }
-  }
-
-  function buildAtlas(
-    visited: any[], bbox: number[], aspect: number,
-    imgs: SkImage[], maxPx: number,
-    log: (t: string, v: string, ok?: boolean) => void,
-    fmt: number = ImageFormat.PNG, quality: number = 100, label?: string,
-  ) {
-    let W = maxPx, H = Math.round(maxPx / aspect);
-    if (H > maxPx) { H = maxPx; W = Math.round(maxPx * aspect); }
-
-    const t0 = Date.now();
-    const surface = Skia.Surface.MakeOffscreen(W, H);
-    if (!surface) { log(`아틀라스 ${maxPx}`, "MakeOffscreen 실패", false); return null; }
-
-    const canvas = surface.getCanvas();
-    const paint = Skia.Paint();
-    const [bw, bs, be, bn] = bbox;
-    const mx0 = mercX(bw), my0 = mercY(bn);
-    const dx = mercX(be) - mx0, dy = mercY(bs) - my0;
-    const PX = (lon: number) => ((mercX(lon) - mx0) / dx) * W;
-    const PY = (lat: number) => ((mercY(lat) - my0) / dy) * H;
-
-    visited.forEach((f: any, idx: number) => {
-      const img = imgs[idx % imgs.length];
-      const path = Skia.Path.Make();
-      path.setFillType(FillType.EvenOdd);
-      for (const poly of f.geometry.coordinates) {
-        for (const ring of poly) {
-          ring.forEach(([lon, lat]: number[], i: number) => {
-            const x = PX(lon), y = PY(lat);
-            if (i === 0) path.moveTo(x, y); else path.lineTo(x, y);
-          });
-          path.close();
-        }
-      }
-      const b = f.properties.bbox;
-      const x0 = PX(b[0]), x1 = PX(b[2]), y0 = PY(b[3]), y1 = PY(b[1]);
-      const rw = x1 - x0, rh = y1 - y0;
-      const sc = Math.max(rw / img.width(), rh / img.height());
-      const dw = img.width() * sc, dh = img.height() * sc;
-
-      canvas.save();
-      canvas.clipPath(path, ClipOp.Intersect, true);
-      canvas.drawImageRect(
-        img,
-        Skia.XYWHRect(0, 0, img.width(), img.height()),
-        Skia.XYWHRect(x0 + (rw - dw) / 2, y0 + (rh - dh) / 2, dw, dh),
-        paint,
-      );
-      canvas.restore();
-    });
-    const tDraw = Date.now() - t0;
-
-    const t1 = Date.now();
-    const snap = surface.makeImageSnapshot();
-    const bytes = snap.encodeToBytes(fmt as any, quality);
-    const tEnc = Date.now() - t1;
-
-    const t2 = Date.now();
-    const ext = fmt === ImageFormat.PNG ? "png" : fmt === ImageFormat.WEBP ? "webp" : "jpg";
-    const path = `${FileSystem.cacheDirectory}atlas_${maxPx}_${Date.now()}.${ext}`;
-    let b64 = "";
-    for (let i = 0; i < bytes.length; i += 8192) {
-      b64 += String.fromCharCode(...bytes.subarray(i, i + 8192));
-    }
-    FileSystem.writeAsStringAsync(path, globalThis.btoa(b64), {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-    const tWrite = Date.now() - t2;
-
-    log(label ?? `아틀라스 ${W}×${H}`,
-        `그리기 ${tDraw}ms · 인코딩 ${tEnc}ms · 기록 ${tWrite}ms · ${(bytes.length / 1048576).toFixed(2)}MB`,
-        true);
-
-    return {
-      uri: path,
-      coords: [[bw, bn], [be, bn], [be, bs], [bw, bs]] as any,
-    };
-  }
-
-  function circleIcon(img: SkImage, color: string, px = 80,
-                      fmt: number = ImageFormat.PNG, q = 100): string | null {
-    const s = Skia.Surface.MakeOffscreen(px, px);
-    if (!s) return null;
-    const c = s.getCanvas();
-    const r = px / 2, ring = 5;
-    const clip = Skia.Path.Make();
-    clip.addCircle(r, r, r - ring);
-    c.save();
-    c.clipPath(clip, ClipOp.Intersect, true);
-    const sc = Math.max((px - ring * 2) / img.width(), (px - ring * 2) / img.height());
-    const dw = img.width() * sc, dh = img.height() * sc;
-    c.drawImageRect(img, Skia.XYWHRect(0, 0, img.width(), img.height()),
-      Skia.XYWHRect(r - dw / 2, r - dh / 2, dw, dh), Skia.Paint());
-    c.restore();
-    const p = Skia.Paint();
-    p.setStyle(PaintStyle.Stroke); p.setStrokeWidth(ring); p.setColor(Skia.Color(color));
-    c.drawCircle(r, r, r - ring / 2, p);
-    return s.makeImageSnapshot().encodeToBase64(fmt as any, q);
-  }
+  /* 시트가 나눠 센다(§13.37) — 셋은 겹치므로 합이 전체와 같지 않을 수 있다. */
+  const n = { mine: 0, shared: 0, other: 0 } as Record<string, number>;
+  for (const p of pins) n[p.source ?? "other"] = (n[p.source ?? "other"] ?? 0) + 1;
 
   return (
     <View style={st.root}>
-      <View style={st.mapBox}>
-        <Map style={st.fill} mapStyle={EMPTY_STYLE}>
-          <Camera initialViewState={{ center: [127.75, 36.3], zoom: 5.6 }} />
-          {regions ? (
-            <GeoJSONSource id="sgg" data={regions}>
-              <Layer id="region-base" type="fill" paint={{ "fill-color": LAND }} />
-              <Layer id="region-line" type="line"
-                paint={{ "line-color": "rgba(255,255,255,0.22)", "line-width": 0.5 }} />
-            </GeoJSONSource>
-          ) : null}
-          {atlas ? (
-            <ImageSource id="atlas" url={atlas.uri} coordinates={atlas.coords}>
-              <Layer id="atlas-l" type="raster" paint={{ "raster-opacity": 1 }} />
-            </ImageSource>
-          ) : null}
-        </Map>
+      <View style={st.head}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={st.chipRow}>
+          {SCOPES.map((s) => (
+            <Pressable key={s.v} onPress={() => changeScope(s.v)}
+                       style={[st.chip, scope === s.v && st.chipOn]}>
+              <Text style={[st.chipT, scope === s.v && st.chipTOn]}>{s.k}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
       </View>
-      <ScrollView style={st.logBox} contentContainerStyle={{ padding: 10 }}>
-        <Text style={st.h}>RN 네이티브 벤치마크</Text>
-        {log.map((l, i) => (
-          <View key={i} style={st.row}>
-            <Text style={[st.k, l.ok === false && st.bad, l.ok === true && st.good]}>{l.t}</Text>
-            <Text style={st.v}>{l.v}</Text>
+
+      <Map ref={mapRef} style={st.fill} mapStyle={EMPTY_STYLE}
+           onRegionDidChange={() => { void load(false, scope); }}>
+        <Camera initialViewState={{ center: [127.75, 36.3], zoom: 5.6 }} />
+
+        <GeoJSONSource id="sgg" data={SGG as any}>
+          <Layer id="region-base" type="fill" paint={{ "fill-color": LAND }} />
+          <Layer id="region-line" type="line"
+                 paint={{ "line-color": "rgba(255,255,255,0.22)", "line-width": 0.5 }} />
+        </GeoJSONSource>
+
+        <GeoJSONSource id="pins" data={fc as any}>
+          <Layer id="pin-halo" type="circle"
+                 paint={{ "circle-radius": 8, "circle-color": "#000", "circle-opacity": 0.35 }} />
+          <Layer id="pin-dot" type="circle"
+                 paint={{
+                   "circle-radius": 5,
+                   "circle-color": ["get", "color"] as any,
+                   "circle-stroke-width": 1.5,
+                   "circle-stroke-color": "rgba(255,255,255,0.85)",
+                 }} />
+        </GeoJSONSource>
+      </Map>
+
+      <View style={st.foot}>
+        {why ? (
+          <Text style={st.warn}>{why}</Text>
+        ) : busy ? (
+          <View style={st.busyRow}>
+            <ActivityIndicator size="small" color={C.muted} />
+            <Text style={st.count}>불러오는 중</Text>
           </View>
-        ))}
-      </ScrollView>
+        ) : pins.length === 0 ? (
+          <Text style={st.count}>
+            {scope === "mine" ? "이 화면에는 내가 올린 기록이 없습니다"
+              : scope === "shared" ? "이 화면에는 함께 보는 기록이 없습니다"
+              : "이 화면에는 아직 기록이 없습니다"}
+          </Text>
+        ) : (
+          <Text style={st.count}>
+            {[
+              n.mine ? `내 것 ${n.mine}곳` : null,
+              n.shared ? `함께 ${n.shared}곳` : null,
+              n.other ? `남 ${n.other}곳` : null,
+            ].filter(Boolean).join(" · ")}
+            {more ? "  더 있습니다 — 확대하면 더 보입니다" : ""}
+          </Text>
+        )}
+      </View>
     </View>
   );
 }
 
 const st = StyleSheet.create({
-  root: { flex: 1, backgroundColor: BG, paddingTop: 50 },
-  mapBox: { height: "45%" },
+  root: { flex: 1, backgroundColor: BG },
+  head: { paddingTop: 52, paddingBottom: 8, backgroundColor: BG },
+  chipRow: { paddingHorizontal: 12, gap: 6 },
+  chip: {
+    paddingHorizontal: 11, paddingVertical: 6, borderRadius: 99,
+    borderWidth: 1, borderColor: C.line, backgroundColor: C.surface,
+  },
+  chipOn: { backgroundColor: C.accent, borderColor: C.accent },
+  chipT: { color: C.muted, fontSize: 12 },
+  chipTOn: { color: "#fff", fontWeight: "700" },
   fill: { flex: 1 },
-  logBox: { flex: 1, backgroundColor: "#0E0F13" },
-  h: { color: "#F2F3F5", fontSize: 15, fontWeight: "700", marginBottom: 8 },
-  row: { flexDirection: "row", marginBottom: 5 },
-  k: { color: "#8A8F9A", width: 150, fontSize: 11 },
-  v: { color: "#F2F3F5", flex: 1, fontSize: 11 },
-  good: { color: "#4ADE80" },
-  bad: { color: "#F87171" },
+  /* ★ 탭바가 `bottom:26` 에 **떠 있다**(높이 ~62). 문서 흐름의 맨 아래에 두면
+     그 뒤로 깔려 글자가 잘린다 — 시뮬레이터에서 실제로 잘렸다.
+     그래서 탭바 위(88+여백)에 같은 모양의 알약으로 띄운다. */
+  foot: {
+    /* (+) 는 right:18 에 54 폭으로 떠 있다 — 그 왼쪽에서 끝낸다(18+54+12) */
+    position: "absolute", left: 14, right: 84, bottom: 96,
+    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 14,
+    backgroundColor: "rgba(22,24,31,0.92)", borderWidth: 1, borderColor: C.line,
+  },
+  busyRow: { flexDirection: "row", alignItems: "center", gap: 7 },
+  count: { color: C.muted, fontSize: 12 },
+  warn: { color: C.warn, fontSize: 12 },
 });

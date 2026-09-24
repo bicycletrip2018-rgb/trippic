@@ -286,12 +286,16 @@ export const myRecords = (limit = 200) =>
      이 함수가 피하려는 일 그 자체다. */
 export type BBox = { w: number; s: number; e: number; n: number };
 
+/** 지도는 하나고 무엇을 볼지만 고른다(§13.37). 셋은 **겹친다** — 분류가 아니라 필터다. */
+export type Scope = "all" | "mine" | "shared" | "public";
+
 export async function pinsInBBox(
-  b: BBox, opts?: { limit?: number; cat?: string | null },
+  b: BBox, opts?: { limit?: number; cat?: string | null; scope?: Scope },
 ) {
   const r = await rpc<any[]>("api_pins_in_bbox", {
     p_w: b.w, p_s: b.s, p_e: b.e, p_n: b.n,
     p_limit: opts?.limit ?? 300, p_cat: safeCat(opts?.cat),
+    p_scope: opts?.scope ?? "all",
   });
   const rows = r.ok ? (r.data ?? []) : [];
   return { ok: r.ok, via: r.via, data: rows, more: !!rows[0]?.more };
