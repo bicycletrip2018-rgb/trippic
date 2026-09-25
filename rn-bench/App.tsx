@@ -28,6 +28,8 @@ export default function App() {
   const [reg, setReg] = useState(false);
   /* 핀 상세 시트가 떠 있는 동안은 (+) 를 감춘다 — 시트의 닫기 버튼을 덮는다 */
   const [sheet, setSheet] = useState(false);
+  /* 소셜에서 돌아왔다는 신호 — 마이 탭이 이걸 보고 계정 상태를 다시 읽는다 */
+  const [authTick, setAuthTick] = useState(0);
 
   useEffect(() => {
     API.setConfig(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -45,7 +47,10 @@ export default function App() {
      `url` 이벤트로, 꺼져 있었으면 그 링크가 앱을 깨우면서 온다(§13.42).
      하나만 받으면 "카카오 눌렀는데 아무 일도 안 일어난다"가 절반의 경우에 생긴다. */
   useEffect(() => listenForAuth((r) => {
-    if (r.ok) void API.loadSession();
+    /* ★ 세션만 다시 읽으면 **화면은 모른다.** `SESSION` 은 모듈 값이라 바뀌어도
+       리렌더가 안 된다 — 서버에는 이어졌는데 마이 탭은 계속 "임시 계정"이라고
+       말했다(§13.52). 신호를 하나 올려 그 탭이 다시 읽게 한다. */
+    if (r.ok) void API.loadSession().then(() => setAuthTick((t) => t + 1));
   }), []);
 
   /* 지도 중심 — 탭2 가 이걸 물려받는다. §12.14: 탭마다 지역을 다시 묻지 않는다. */
@@ -61,7 +66,7 @@ export default function App() {
       {ready && tab === "feed" && <FeedTab center={center} />}
       {ready && tab === "news" && <NewsTab />}
       {ready && tab === "space" && <SpaceTab />}
-      {ready && tab === "my" && <MyTab />}
+      {ready && tab === "my" && <MyTab authTick={authTick} />}
       {/* ★ (+) 는 지도 위에 둔다 — §12.27: 등록은 별도 탭이 아니라
           "보고 있는 지도에 한 점을 더하는 일"이다. 탭을 새로 만들면 탭1과 겹친다. */}
       {tab === "map" && !sheet && (

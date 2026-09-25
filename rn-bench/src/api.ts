@@ -25,7 +25,24 @@ export const SESSION = {
   refresh_token: null as string | null,
   user_id: null as string | null,
   anonymous: false,
+  /* ★ **어디에 이어 두었는가.** 이게 없으면 화면이 연결된 뒤에도 "임시 계정"이라
+     말하고 "이어 두기" 버튼을 계속 내놓는다 — 실제로 그렇게 동작했다(§13.52).
+     서버는 `/auth/v1/user` 의 `identities` 로 이미 알려 주고 있었다. */
+  linked: [] as string[],
 };
+
+/* ★ `/auth/v1/user` 응답을 세션에 **한 곳에서만** 푼다. 예전에는 세 곳이
+   제각기 `user_id`·`anonymous` 만 집어 갔고, 그래서 `identities` 를
+   아무도 안 읽었다. 새 필드를 더할 자리를 하나로 둔다. */
+function absorbUser(me: any) {
+  if (!me?.id) return false;
+  SESSION.user_id = me.id;
+  SESSION.anonymous = !!me.is_anonymous;
+  SESSION.linked = (me.identities ?? [])
+    .map((i: any) => i.provider)
+    .filter((p: string) => p && p !== "anonymous" && p !== "email");
+  return true;
+}
 
 export async function loadSession() {
   try {
@@ -40,6 +57,7 @@ async function saveSession() {
 export async function clearSession() {
   SESSION.access_token = SESSION.refresh_token = SESSION.user_id = null;
   SESSION.anonymous = false;
+  SESSION.linked = [];
   try { await FileSystem.deleteAsync(SES_FILE, { idempotent: true }); } catch {}
 }
 
@@ -125,8 +143,9 @@ async function refreshSession() {
     if (!r.ok || !j.access_token) return false;
     SESSION.access_token = j.access_token;
     SESSION.refresh_token = j.refresh_token ?? SESSION.refresh_token;
-    SESSION.user_id = j.user?.id ?? SESSION.user_id;
-    SESSION.anonymous = j.user?.is_anonymous ?? SESSION.anonymous;
+    /* ★ 갱신 응답에도 `user` 가 통째로 실려 온다. 없으면 **건드리지 않는다** —
+       못 읽은 것을 "연결이 없다"로 바꿔 쓰면 화면이 거꾸로 거짓말한다. */
+    absorbUser(j.user);
     await saveSession();
     return true;
   } catch { return false; }
@@ -144,7 +163,13 @@ export async function ensureSession() {
   if (SESSION.access_token) {
     try {
       const r = await fetch(`${CFG.url}/auth/v1/user`, { headers: headers() });
-      if (r.ok) return { ok: true, why: "세션 유효" };
+      /* ★ 이 응답에 `identities` 가 실려 온다. 예전에는 `r.ok` 만 보고 **버렸다** —
+         그래서 앱을 다시 열면 이어 둔 계정이 다시 "임시 계정"으로 보였다.
+         요청을 늘리지 않고 읽기만 하면 된다. */
+      if (r.ok) {
+        if (absorbUser(await r.json().catch(() => null))) await saveSession();
+        return { ok: true, why: "세션 유효" };
+      }
     } catch {
       // 망이 끊긴 것과 계정이 없는 것은 다르다 — 못 물어봤으면 버리지 않는다
       return { ok: true, why: "확인 못 함 — 그대로 쓴다" };
@@ -286,10 +311,9 @@ export async function consumeAuthRedirect(url: string) {
     Object.assign(SESSION, prev);
     return { ok: false, why: "로그인을 마치지 못했습니다 — 다시 시도해 주십시오" };
   }
-  SESSION.user_id = me.id;
-  SESSION.anonymous = !!me.is_anonymous;
+  absorbUser(me);
   await saveSession();
-  return { ok: true, user: SESSION.user_id };
+  return { ok: true, user: SESSION.user_id, linked: [...SESSION.linked] };
 }
 
 /* ── 읽기 ──────────────────────────────────────────────────── */

@@ -137,7 +137,7 @@ export function SpaceTab() {
 /* ── 탭5 마이 ─────────────────────────────────────────────────
    ★ 익명 계정은 **기기에 묶인다.** 그걸 화면이 말해야 한다 —
      말 안 하면 사용자는 **잃고 나서야** 안다. */
-export function MyTab() {
+export function MyTab({ authTick = 0 }: { authTick?: number }) {
   const { rows, busy, load } = useRecords("mine");
   const [trips, setTrips] = useState<any[]>([]);
   const [signing, setSigning] = useState(false);
@@ -148,6 +148,16 @@ export function MyTab() {
   const [socials, setSocials] = useState<API.Social[]>([]);
   const [kakaoMsg, setKakaoMsg] = useState<string | null>(null);
   const [appleNative, setAppleNative] = useState(false);
+  /* ★ 어디에 이어 두었는지. `SESSION` 은 모듈 값이라 바뀌어도 리렌더가 안 된다 —
+     돌아온 순간 App 이 `authTick` 을 올려 주면 그때 다시 읽는다. */
+  const [linked, setLinked] = useState<string[]>(API.SESSION.linked);
+  useEffect(() => {
+    setLinked([...API.SESSION.linked]);
+    setUid(API.SESSION.user_id);
+    if (API.SESSION.linked.length) { setKakaoMsg(null); void load(); }
+  }, [authTick]);
+  /* 아직 안 이어 둔 것만 버튼으로 낸다 — 이미 된 것을 또 권하지 않는다 */
+  const todo = socials.filter((k) => !linked.includes(k));
   useEffect(() => {
     void API.providers().then((p) => setSocials(API.SOCIALS.filter((k) => p[k])));
     /* ★ 애플은 **기기가 되는지**도 본다. provider 가 켜져 있어도 이 기기에서
@@ -192,16 +202,27 @@ export function MyTab() {
       </Pressable>
       {course && <DayCourse onClose={() => setCourse(false)} />}
 
-      {/* 카카오로 이어 두기 — 계정 id 가 그대로라 아무것도 옮기지 않는다(§13.41) */}
+      {/* 카카오로 이어 두기 — 계정 id 가 그대로라 아무것도 옮기지 않는다(§13.41)
+          ★ **끝난 일을 다시 권하지 않는다.** 이어 둔 뒤에도 같은 버튼이 남아 있으면
+            사용자는 실패한 줄 알고 또 누른다 — 실제로 그래서 요청이 두 번 나갔고,
+            나중 것이 앞의 것을 무효로 만들어 왕복이 죽었다(§13.52). */}
       {!!socials.length && uid && (
         <View style={s.box}>
           <Text style={s.boxT}>계정 이어 두기</Text>
-          <Text style={s.boxV}>
-            지금 계정에 얹습니다. 기록은 그대로 있고, 다른 기기에서 같은 곳으로
-            들어오시면 됩니다.
-          </Text>
+          {!!linked.length && (
+            <Text style={s.boxV}>
+              {linked.map(API.provName).join("·")}에 이어 두었습니다. 다른 기기에서
+              같은 곳으로 들어오시면 이 기록이 그대로 보입니다.
+            </Text>
+          )}
+          {!!todo.length && (
+            <Text style={s.boxV}>
+              지금 계정에 얹습니다. 기록은 그대로 있고, 다른 기기에서 같은 곳으로
+              들어오시면 됩니다.
+            </Text>
+          )}
           {/* ★ provider 마다 칸을 복사하지 않는다 — 하나 늘 때마다 문구가 갈라진다 */}
-          {socials.map((k) => (
+          {todo.map((k) => (
             <Pressable key={k} style={s.cta} onPress={async () => {
               setKakaoMsg(`${API.provName(k)}로 이동합니다…`);
               const r = await openSocial(k, "link");
@@ -243,14 +264,23 @@ export function MyTab() {
         <Text style={s.boxT}>계정</Text>
         {uid ? (
           <>
-            <Text style={s.boxV}>임시 계정 {uid.slice(0, 8)}…</Text>
+            <Text style={s.boxV}>
+              {linked.length ? `${linked.map(API.provName).join("·")} 계정` : "임시 계정"}
+              {" "}{uid.slice(0, 8)}…
+            </Text>
             {/* ★ "준비 중"을 **박아 두지 않는다.** provider 를 켜면 바로 위에 버튼이
                 뜨는데 이 줄은 여전히 준비 중이라고 말해 화면이 자기모순이 된다
-                (카카오를 켜고 실제로 그랬다). 켜진 것을 보고 말한다. */}
-            <Text style={s.warn}>앱을 지우거나 기기를 바꾸면 기록이 사라집니다.{"\n"}
-              {socials.length
-                ? `위에서 ${socials.map(API.provName).join("·")}로 이어 두면 옮길 수 있습니다.`
-                : "나중에 카카오·애플로 이어 두면 옮길 수 있습니다 — 지금은 준비 중입니다."}</Text>
+                (카카오를 켜고 실제로 그랬다). 켜진 것을 보고 말한다.
+                ★ 같은 이유로 **이어 둔 뒤에는 경고를 지운다.** 서버에 남는 계정을
+                  두고 "지우면 사라집니다"라고 하면 그건 그냥 거짓말이다(§13.52). */}
+            {linked.length ? (
+              <Text style={s.boxV}>앱을 지워도 남습니다. 같은 계정으로 들어오면 됩니다.</Text>
+            ) : (
+              <Text style={s.warn}>앱을 지우거나 기기를 바꾸면 기록이 사라집니다.{"\n"}
+                {socials.length
+                  ? `위에서 ${socials.map(API.provName).join("·")}로 이어 두면 옮길 수 있습니다.`
+                  : "나중에 카카오·애플로 이어 두면 옮길 수 있습니다 — 지금은 준비 중입니다."}</Text>
+            )}
           </>
         ) : (
           <Pressable style={s.cta} onPress={start} disabled={signing}>
