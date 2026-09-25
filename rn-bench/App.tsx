@@ -15,6 +15,8 @@ import { MapTab } from "./src/tabs/MapTab";
 import { FeedTab } from "./src/tabs/FeedTab";
 import { NewsTab, SpaceTab, MyTab } from "./src/tabs/RecordTabs";
 import { RegisterFlow } from "./src/RegisterFlow";
+import { LiveCapture } from "./src/LiveCapture";
+import { AddSheet } from "./src/AddSheet";
 import { UploadPill } from "./src/UploadPill";
 import * as Q from "./src/uploadQueue";
 import { listenForAuth } from "./src/oauth";
@@ -26,6 +28,11 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("map");
   const [ready, setReady] = useState(false);
   const [reg, setReg] = useState(false);
+  /* ★ (+) 는 이제 **두 갈래다.** 지금 찍기(현장 인증)와 앨범 정리(소급)는
+     기준 좌표부터 다르다(§6.5) — 한 버튼에 묶으면 사용자가 그 차이를 모른 채
+     들어가고, 왜 뱃지가 안 붙는지도 모른다. */
+  const [add, setAdd] = useState(false);
+  const [live, setLive] = useState(false);
   /* 핀 상세 시트가 떠 있는 동안은 (+) 를 감춘다 — 시트의 닫기 버튼을 덮는다 */
   const [sheet, setSheet] = useState(false);
   /* 소셜에서 돌아왔다는 신호 — 마이 탭이 이걸 보고 계정 상태를 다시 읽는다 */
@@ -70,10 +77,17 @@ export default function App() {
       {/* ★ (+) 는 지도 위에 둔다 — §12.27: 등록은 별도 탭이 아니라
           "보고 있는 지도에 한 점을 더하는 일"이다. 탭을 새로 만들면 탭1과 겹친다. */}
       {tab === "map" && !sheet && (
-        <Pressable style={s.fab} onPress={() => setReg(true)}>
+        <Pressable style={s.fab} onPress={() => setAdd(true)}>
           <Text style={s.fabT}>＋</Text>
         </Pressable>
       )}
+      {add && (
+        <AddSheet
+          onClose={() => setAdd(false)}
+          onLive={() => { setAdd(false); setLive(true); }}
+          onAlbum={() => { setAdd(false); setReg(true); }} />
+      )}
+      {live && <LiveCapture onClose={() => setLive(false)} />}
       {reg && <RegisterFlow onClose={() => setReg(false)} />}
       <UploadPill />
       <TabBar tab={tab} onChange={setTab} />

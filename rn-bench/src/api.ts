@@ -548,9 +548,118 @@ export async function uploadPhoto(
 }
 
 /* 올린 사진을 기록(핀)에 붙인다 — 저장소에만 있으면 아무도 못 본다 */
+/* ★ `type` 을 **박아 두지 않는다.** 표는 처음부터 `photo|video` 를 받게 만들어
+   뒀는데(002) 여기가 "photo" 를 상수로 넣고 있어서 동영상이 들어갈 자리가
+   없었다. 동영상은 `poster_url` 과 `duration_sec` 이 **없으면 제약에 걸린다**
+   (`media_video_poster` · `media_video_len`) — 그래서 호출자가 같이 준다. */
 export const attachMedia = (pinId: string, up: any, extra?: any) =>
-  insert<any>("media", { pin_id: pinId, type: "photo", url: up.url,
-                         width: up.w, height: up.h, ...(extra || {}) });
+  insert<any>("media", { pin_id: pinId, type: up.type ?? "photo", url: up.url,
+                         width: up.w, height: up.h,
+                         ...(up.posterUrl ? { poster_url: up.posterUrl } : {}),
+                         ...(up.durationSec ? { duration_sec: up.durationSec } : {}),
+                         ...(extra || {}) });
+
+/* ── 동영상 올리기 (§13.53) ─────────────────────────────────────
+   ★ 사진처럼 **줄이지 못한다.** `expo-image-manipulator` 는 이미지 변환기다.
+     그래서 화질은 **찍을 때** 정한다(`videoQuality: Medium`, live.ts) — 올린 뒤에
+     줄일 방법이 없으니 들어오는 쪽에서 막는 수밖에 없다.
+   ★ 버킷 상한(030: 12MB)을 **올리기 전에** 잰다. 넘겨서 413 을 받으면 사용자는
+     "왜 안 올라가는지" 모른다 — 숫자를 보여 주고 다시 찍게 하는 편이 낫다. */
+export const VIDEO_MAX_BYTES = 12 * 1024 * 1024;
+
+export async function uploadVideo(
+  srcUri: string, posterUri: string, durationSec: number,
+  meta?: { w?: number | null; h?: number | null },
+) {
+  if (!isOn()) return { ok: false as const, why: "서버 연결 없음" };
+  if (!SESSION.access_token) return { ok: false as const, why: "로그인 필요" };
+
+  const info: any = await FileSystem.getInfoAsync(srcUri);
+  const bytes = info?.size ?? 0;
+  if (bytes > VIDEO_MAX_BYTES) {
+    return { ok: false as const,
+             why: `동영상이 ${(bytes / 1048576).toFixed(1)}MB 입니다 — `
+                + `${(VIDEO_MAX_BYTES / 1048576) | 0}MB 까지 올릴 수 있습니다. 더 짧게 찍어 주십시오.` };
+  }
+
+  /* ★ 표지를 **먼저** 올린다. 표지가 없으면 `media_video_poster` 제약에 걸려
+     행이 안 들어간다 — 무거운 동영상을 올린 뒤에 그걸 알게 되면 그 시간이 통째로
+     버려진다. 가벼운 것부터 확인한다. */
+  const poster = await uploadPhoto(posterUri, { maxEdge: 1080 });
+  if (!poster.ok) return { ok: false as const, why: `표지를 올리지 못했습니다 — ${poster.why}` };
+
+  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  const path = `${SESSION.user_id}/${id}.mp4`;      // 경로 첫 칸이 주인이다(030)
+  try {
+    const r = await FileSystem.uploadAsync(
+      `${CFG.url}/storage/v1/object/photos/${path}`, srcUri,
+      { httpMethod: "POST",
+        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+        headers: { apikey: CFG.anonKey, Authorization: `Bearer ${SESSION.access_token}`,
+                   "Content-Type": "video/mp4", "x-upsert": "false" } });
+    if (r.status >= 300) {
+      STATE.lastError = `upload ${r.status} ${String(r.body).slice(0, 140)}`;
+      return { ok: false as const, why: STATE.lastError };
+    }
+  } catch (e: any) {
+    STATE.lastError = String(e?.message ?? e);
+    return { ok: false as const, why: STATE.lastError };
+  }
+  return { ok: true as const, type: "video" as const,
+           url: `${CFG.url}/storage/v1/object/public/photos/${path}`,
+           posterUrl: poster.url, durationSec,
+           w: meta?.w ?? poster.w, h: meta?.h ?? poster.h, bytes };
+}
+
+/* ── 지금 여기 (§13.53 · 016) ──────────────────────────────────
+   ★ 소급 등록(`pushTrip`)과 **같은 함수로 묶지 않는다.** 둘은 기준 좌표가 다르다 —
+     저쪽은 사진 EXIF, 이쪽은 **기기 GPS** 다(§6.5). 한 함수에 두 기준을 넣으면
+     분기가 늘고, 언젠가 한쪽 기준이 다른 쪽으로 새어 나간다.
+   ★ `live` 는 **주장이 아니라 조건**이다. 016 의 두 제약(±1일 · 150m)을 넘으면
+     서버가 거절한다. 그래서 여기서 미리 낮춰 보낸다 — 거절당하고 나서
+     "왜 안 되지" 하는 것보다, 뱃지를 안 받는 이유를 미리 말하는 편이 낫다. */
+export async function pushLive(shot: {
+  uri: string; type: "photo" | "video"; w?: number; h?: number;
+  durationSec?: number; posterUri?: string;
+  lat: number; lng: number; accuracyM: number; liveOk: boolean; takenAt: number;
+}, o?: { placeId?: string | null; category?: string | null; memo?: string | null;
+         isPublic?: boolean }) {
+  if (!isOn()) return { ok: false, why: "서버 연결 없음" };
+  if (!SESSION.access_token) return { ok: false, why: "로그인 필요" };
+
+  const pin = await insert<any>("pins", {
+    user_id: SESSION.user_id,
+    place_id: o?.placeId ?? null,
+    geom: `SRID=4326;POINT(${shot.lng} ${shot.lat})`,
+    category: safeCat(o?.category) || "etc",
+    visited_at: new Date(shot.takenAt).toISOString(),
+    /* 한 장이면 체류 시간을 **모른다.** 0 이라고 쓰면 거짓말이다(§13.23 과 같은 규칙) */
+    stay_sec: null,
+    memo: o?.memo || null,
+    /* 장소를 못 고르면 공개하지 않는다 — 좌표만 있는 점은 무엇인지 말할 수 없다(009) */
+    is_public: !!o?.isPublic && !!o?.placeId,
+    verification: shot.liveOk ? "live" : "manual",
+    gps_accuracy_m: shot.accuracyM,
+  });
+  if (!pin.ok) return { ok: false, why: pin.error };
+  const pinId = pin.data?.[0]?.id ?? pin.data?.id;
+
+  const up = shot.type === "video"
+    ? await uploadVideo(shot.uri, shot.posterUri!, shot.durationSec ?? 1,
+                        { w: shot.w, h: shot.h })
+    : await uploadPhoto(shot.uri, { w: shot.w, h: shot.h });
+  if (!up.ok) {
+    /* ★ 핀은 남긴다. 사진이 못 올라갔다고 **그 자리에 있었다는 사실**까지
+       지울 이유가 없다 — 지도는 이미 채워졌고, 사진은 나중에 붙일 수 있다. */
+    return { ok: false, pinId, live: shot.liveOk, why: `올리지 못했습니다 — ${up.why}` };
+  }
+  const m = await attachMedia(pinId, up, {
+    is_main: true, sort_order: 0,
+    taken_at: new Date(shot.takenAt).toISOString(),
+  });
+  if (!m.ok) return { ok: false, pinId, live: shot.liveOk, why: m.error };
+  return { ok: true, pinId, live: shot.liveOk };
+}
 
 /* ── 여행 하나를 통째로 올린다 (§13.23) ────────────────────────
    ★ **사진은 정거장마다 대표 1장만.** §6 이 그렇게 정했다 — 전부 올리면

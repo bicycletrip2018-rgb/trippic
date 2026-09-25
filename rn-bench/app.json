@@ -14,7 +14,10 @@
           "NSAllowsLocalNetworking": true,
           "NSAllowsArbitraryLoads": true
         },
-        "NSPhotoLibraryUsageDescription": "찍으신 사진의 촬영 시각과 위치만 읽어 여행을 자동으로 묶습니다. 사진은 기기 밖으로 나가지 않으며, 올릴 사진은 직접 고르십니다."
+        "NSPhotoLibraryUsageDescription": "찍으신 사진의 촬영 시각과 위치만 읽어 여행을 자동으로 묶습니다. 사진은 기기 밖으로 나가지 않으며, 올릴 사진은 직접 고르십니다.",
+        "NSCameraUsageDescription": "지금 이 자리에서 찍어 올릴 때만 카메라를 엽니다. 이 경로로 찍은 것에만 '현장 인증'이 붙습니다 — 앨범에서 고른 사진에는 붙지 않습니다.",
+        "NSMicrophoneUsageDescription": "동영상을 찍을 때 소리를 함께 담습니다. 사진만 찍으실 때는 쓰지 않습니다.",
+        "NSLocationWhenInUseUsageDescription": "찍는 순간의 위치를 받아 어느 장소인지 찾고, 그 좌표가 '현장 인증'의 근거가 됩니다. 앱을 쓰지 않는 동안에는 위치를 보지 않습니다."
       },
       "usesAppleSignIn": true
     },
@@ -34,7 +37,22 @@
     "plugins": [
       "@maplibre/maplibre-react-native",
       "expo-media-library",
-      "expo-apple-authentication"
+      "expo-apple-authentication",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "찍으신 사진의 촬영 시각과 위치만 읽어 여행을 자동으로 묶습니다. 사진은 기기 밖으로 나가지 않으며, 올릴 사진은 직접 고르십니다.",
+          "cameraPermission": "지금 이 자리에서 찍어 올릴 때만 카메라를 엽니다. 이 경로로 찍은 것에만 '현장 인증'이 붙습니다 — 앨범에서 고른 사진에는 붙지 않습니다.",
+          "microphonePermission": "동영상을 찍을 때 소리를 함께 담습니다. 사진만 찍으실 때는 쓰지 않습니다."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "찍는 순간의 위치를 받아 어느 장소인지 찾고, 그 좌표가 '현장 인증'의 근거가 됩니다. 앱을 쓰지 않는 동안에는 위치를 보지 않습니다.",
+          "isAndroidBackgroundLocationEnabled": false
+        }
+      ]
     ]
   }
 }
