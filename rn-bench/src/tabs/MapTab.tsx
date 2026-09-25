@@ -42,8 +42,30 @@ const SGG = require("../../assets/korea-regions.json") as GeoJSON.FeatureCollect
 /* ★ 줌에 따라 **단위 자체가 바뀐다**(§13.11). 전국 줌에서 답해야 하는 질문은
    *"어느 지역에 볼 곳이 많나"* 이지 *"이 카페가 어디냐"* 가 아니다.
    핀 개수만 깎는 것은 같은 질문에 더 작게 답하는 것일 뿐 질문을 바꾸지 못한다. */
-const Z_REGION = 9;
+const Z_REGION = 9;    // 이 아래는 시·군·구 집계
+const Z_ALL = 13;      // 이 위는 전부
+/* ★ **세 단계다.** 웹은 처음부터 셋이었는데(§13.11) 앱은 둘뿐이라, z9 를 넘는 순간
+   300개가 한꺼번에 쏟아졌다. 가운데가 빠지면 *"이 근처에 뭐가 있나"* 에 답하는
+   줌이 없어진다 — 지역에서 바로 골목으로 떨어진다(§13.54). */
+type Unit = "region" | "top" | "all";
+const unitOf = (z: number): Unit => (z < Z_REGION ? "region" : z < Z_ALL ? "top" : "all");
 const isRegionZoom = (z: number) => z < Z_REGION;
+
+/* 가운데 단계에서 몇 개를 세울까. 웹이 실측으로 고른 값을 그대로 쓴다. */
+const topN = (z: number) => (z < 12 ? 10 : z < 14 ? 16 : 24);
+
+/* ★ 카테고리 쿼터 — 한 갈래가 썸네일의 40%를 넘지 못하게 막는다.
+   반응 수만으로 뽑으면 맛집이 화면을 덮는다(웹 실측: 전체의 43%).
+   **"여행 추억 지도"가 "맛집 앱"으로 미끄러지는 것을 막는 가장 싼 장치**다. */
+const QUOTA_RATIO = 0.4;
+
+/* 카테고리 칩. ★ 서버는 `p_cat` 을 **처음부터 받고 있었다**(031·042) —
+   앱이 `null` 만 넘기고 있었을 뿐이다(§13.54). */
+const CATS: { v: string | null; k: string }[] = [
+  { v: null, k: "전체" },
+  ...API.PIN_CATEGORY.filter((c) => c !== "etc")
+    .map((c) => ({ v: c as string | null, k: CAT[c]?.k ?? c })),
+];
 
 /* bbox 를 화면에 담는 줌. ★ `fitBounds` 를 그냥 쓰면 **넓은 지역은 집계 줌에 그대로
    머문다** — 웹에서 강릉시를 눌렀더니 z8.7 이라 여전히 '지역' 단위였고, 탭했는데
@@ -121,6 +143,9 @@ type Pin = {
   verification: string | null;
   is_public: boolean;
   comment_count: number;
+  /* 가운데 단계의 순위 재료. 서버는 계속 주고 있었는데 앱이 버리고 있었다. */
+  like_count: number;
+  save_count: number;
 };
 
 const toFeature = (r: any): GeoJSON.Feature | null => {
@@ -134,6 +159,9 @@ const toFeature = (r: any): GeoJSON.Feature | null => {
       cat: r.category ?? "etc",
       color: CAT[r.category ?? "etc"]?.c ?? CAT.etc.c,
       source: r.source ?? "other",
+      /* ★ 레이어를 **끼웠다 뺐다 하지 않는다**(§13.47 에서 앱이 죽었다).
+         고른 것과 아닌 것을 `top` 한 칸으로 구분하고 **paint 로만** 달리 그린다. */
+      top: r.__top ? 1 : 0,
     },
   };
 };
@@ -150,6 +178,7 @@ export function MapTab(
 ) {
   const mapRef = useRef<MapRef>(null);
   const [scope, setScope] = useState<API.Scope>("all");
+  const [cat, setCat] = useState<string | null>(null);
   const [pins, setPins] = useState<Pin[]>([]);
   const [busy, setBusy] = useState(false);
   const [more, setMore] = useState(false);
@@ -164,29 +193,40 @@ export function MapTab(
 
   /* 이미 읽은 상자와 그때의 스코프. 스코프가 바뀌면 이 상자는 소용없다 —
      서버가 **다른 집합**을 준다(§13.37). */
-  const loaded = useRef<{ box: API.BBox | null; scope: API.Scope }>({ box: null, scope: "all" });
+  const loaded = useRef<{ box: API.BBox | null; scope: API.Scope; cat: string | null }>(
+    { box: null, scope: "all", cat: null });
   const inflight = useRef(false);
+  /* ★ `load` 는 의존성이 비어 있어 **처음 값에 얼어붙는다.** 스코프는 인자로 받아
+     피했는데 카테고리까지 인자로 늘리면 호출부마다 둘을 다 실어야 한다 —
+     `onRegionDidChange` 는 그때의 최신 값을 알아야 하므로 ref 로 들고 본다. */
+  const catRef = useRef<string | null>(null);
 
   const load = useCallback(async (force: boolean, sc: API.Scope, z?: number) => {
+    const ct = catRef.current;
     if (inflight.current) return;
     /* ★ 집계 줌에서는 핀을 **안 읽는다.** 전국 한 화면이 상자가 되면
        "뷰포트로 자른다"가 아무것도 자르지 않는 말이 된다(031). */
-    if (isRegionZoom(z ?? zoom)) { setPins([]); loaded.current = { box: null, scope: sc }; return; }
+    if (isRegionZoom(z ?? zoom)) {
+      setPins([]); loaded.current = { box: null, scope: sc, cat: ct }; return;
+    }
     const b = await mapRef.current?.getBounds().catch(() => null);
     if (!b) return;
     const view: API.BBox = { w: b[0], s: b[1], e: b[2], n: b[3] };
-    if (!force && loaded.current.scope === sc && inside(view, loaded.current.box)) return;
+    /* 카테고리가 바뀌면 이 상자는 소용없다 — 서버가 **다른 집합**을 준다.
+       스코프와 같은 이유다(§13.37). */
+    if (!force && loaded.current.scope === sc && loaded.current.cat === ct
+        && inside(view, loaded.current.box)) return;
 
     inflight.current = true;
     setBusy(true);
     const box = API.padBox(view);
-    const r = await API.pinsInBBox(box, { limit: 300, scope: sc });
+    const r = await API.pinsInBBox(box, { limit: 300, scope: sc, cat: ct });
     inflight.current = false;
     setBusy(false);
 
     if (!r.ok) { setWhy("지도를 불러오지 못했습니다 — 잠시 뒤 다시 시도합니다"); return; }
     setWhy(null);
-    loaded.current = { box, scope: sc };
+    loaded.current = { box, scope: sc, cat: ct };
     setMore(r.more);
     setPins((r.data as any[]).map((row) => ({
       id: row.id, lng: Number(row.lng), lat: Number(row.lat),
@@ -195,13 +235,17 @@ export function MapTab(
       visited_at: row.visited_at ?? null, stay_sec: row.stay_sec ?? null,
       verification: row.verification ?? null, is_public: !!row.is_public,
       comment_count: row.comment_count ?? 0,
+      like_count: row.like_count ?? 0, save_count: row.save_count ?? 0,
     })).filter((p) => Number.isFinite(p.lng) && Number.isFinite(p.lat)));
   }, []);
 
   /* ★ 집계는 **스코프가 바뀔 때만** 읽는다. 화면을 밀어도 다시 읽지 않는다 —
      숫자가 뷰포트와 무관하니 다시 읽을 이유가 없다(042). */
-  const loadAgg = useCallback(async (sc: API.Scope) => {
-    const r = await API.pinsByRegion(sc, null);
+  const loadAgg = useCallback(async (sc: API.Scope, ct: string | null) => {
+    /* ★ 집계도 **같은 필터로** 센다. 필터를 무시하고 전체를 세면 '맛집'을 켜고
+       전국으로 나가도 지도가 안 변한다 — 그러면 *"맛집이 많은 지역"* 을 볼 수가
+       없다. §13.11 이 신뢰 필터에서 정한 것과 같은 규칙이다. */
+    const r = await API.pinsByRegion(sc, ct);
     setAgg(r.ok ? (r.data ?? []) : []);
   }, []);
 
@@ -211,7 +255,7 @@ export function MapTab(
   useEffect(() => {
     if (!ready) return;
     void load(true, scope);
-    void loadAgg(scope);
+    void loadAgg(scope, cat);
   }, [ready]);
 
   /* 스코프를 바꾼다. ★ 이전 스코프의 핀을 **걷어낸다.** 안 걷으면 '내 지도'를 골랐는데
@@ -252,18 +296,65 @@ export function MapTab(
     setScope(v);
     setPins([]);
     setMore(false);
-    loaded.current = { box: null, scope: v };
+    loaded.current = { box: null, scope: v, cat };
     setAgg([]);
     void load(true, v);
-    void loadAgg(v);
+    void loadAgg(v, cat);
   };
+
+  /* 카테고리를 바꾼다. 스코프와 **같은 절차다** — 이전 것을 걷어내지 않으면
+     필터가 아니라 그냥 더하기가 된다(§13.37). */
+  const changeCat = (v: string | null) => {
+    if (v === cat) return;
+    setOpen(null);
+    setCat(v);
+    catRef.current = v;
+    setPins([]);
+    setMore(false);
+    loaded.current = { box: null, scope, cat: v };
+    setAgg([]);
+    void load(true, scope);
+    void loadAgg(scope, v);
+  };
+
+  const unit = unitOf(zoom);
+  const region = unit === "region";
+
+  /* ── 가운데 단계: **무엇을 세울지 고른다** (§13.54 · 웹 §13.11 이식) ──────
+     ★ 순위는 **보이는 것 안에서만** 매긴다. 전역 순위로는 지역별 밀도 차이를
+       못 잡는다 — 웹 실측으로 강남 1,748곳 / 강릉 116곳이라, 같은 기준을 쓰면
+       **강릉엔 아무것도 안 뜬다.** 서버가 이미 뷰포트로 잘라 줬으므로(031)
+       여기 있는 것이 곧 '보이는 것'이다.
+     ★ 그리고 **카테고리 쿼터**를 건다. 반응 수만으로 뽑으면 맛집이 화면을 덮는다. */
+  const picked = (() => {
+    if (unit !== "top") return null;                 // 'all' 은 전부, 'region' 은 핀 자체가 없다
+    const N = topN(zoom);
+    if (pins.length <= N) return null;               // 어차피 다 보인다 — 고를 이유가 없다
+    const sorted = [...pins].sort(
+      (a, b) => (b.like_count - a.like_count)
+             || (b.save_count - a.save_count)
+             || (b.comment_count - a.comment_count));
+    const quota = Math.max(2, Math.ceil(N * QUOTA_RATIO));
+    const used: Record<string, number> = {};
+    const out = new Set<string>();
+    const spill: Pin[] = [];
+    for (const p of sorted) {
+      if (out.size >= N) break;
+      const c = p.category ?? "etc";
+      if ((used[c] ?? 0) < quota) { used[c] = (used[c] ?? 0) + 1; out.add(p.id); }
+      else spill.push(p);
+    }
+    /* 쿼터 때문에 자리가 남으면 밀렸던 것으로 채운다 — 빈자리를 남기지 않는다 */
+    for (const p of spill) { if (out.size >= N) break; out.add(p.id); }
+    return out;
+  })();
 
   const fc: GeoJSON.FeatureCollection = {
     type: "FeatureCollection",
-    features: pins.map(toFeature).filter(Boolean) as GeoJSON.Feature[],
+    features: pins
+      .map((p) => toFeature({ ...p, __top: !picked || picked.has(p.id) }))
+      .filter(Boolean) as GeoJSON.Feature[],
   };
-
-  const region = isRegionZoom(zoom);
 
   /* ★ 지오메트리를 다시 보내지 않는다. 857K 를 스코프 바꿀 때마다 브리지로 넘기면
      화면이 걸린다 — 칠할 값만 `match` 식으로 보낸다(지역 수만큼의 짧은 배열).
@@ -305,6 +396,8 @@ export function MapTab(
         .filter((a) => Number.isFinite(a.cx) && Number.isFinite(a.cy))
     : [];
 
+  const catLabel = cat ? `${CAT[cat]?.k ?? cat} · ` : "";
+
   /* 시트가 나눠 센다(§13.37) — 셋은 겹치므로 합이 전체와 같지 않을 수 있다. */
   const n = { mine: 0, shared: 0, other: 0 } as Record<string, number>;
   for (const p of pins) n[p.source ?? "other"] = (n[p.source ?? "other"] ?? 0) + 1;
@@ -320,6 +413,22 @@ export function MapTab(
               <Text style={[st.chipT, scope === s.v && st.chipTOn]}>{s.k}</Text>
             </Pressable>
           ))}
+        </ScrollView>
+        {/* ★ 두 줄을 **한 줄로 합치지 않는다.** '내 지도'와 '맛집'은 서로 다른 질문이라
+            (누구의 것인가 / 무엇인가) 한 줄에 섞으면 둘이 배타적인 것처럼 보인다. */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={st.chipRow}>
+          {CATS.map((c) => {
+            const on = cat === c.v;
+            return (
+              <Pressable key={c.v ?? "all"} onPress={() => changeCat(c.v)}
+                         style={[st.chip2, on && st.chip2On,
+                                 on && c.v ? { borderColor: CAT[c.v]?.c } : null]}>
+                {!!c.v && <View style={[st.chipDot, { backgroundColor: CAT[c.v]?.c }]} />}
+                <Text style={[st.chip2T, on && st.chip2TOn]}>{c.k}</Text>
+              </Pressable>
+            );
+          })}
         </ScrollView>
       </View>
 
@@ -366,13 +475,21 @@ export function MapTab(
         ))}
 
         <GeoJSONSource id="pins" data={(region ? EMPTY_FC : fc) as any}>
+          {/* ★ 밀린 핀을 **지우지 않는다.** 지우면 "이 동네엔 이것뿐"으로 읽히는데
+              사실이 아니다 — 작고 흐리게 두면 *"더 있다, 확대하면 보인다"* 가 된다.
+              레이어는 그대로 두고 **paint 만** 바꾼다(끼웠다 빼면 앱이 죽는다). */}
           <Layer id="pin-halo" type="circle"
-                 paint={{ "circle-radius": 8, "circle-color": "#000", "circle-opacity": 0.35 }} />
+                 paint={{
+                   "circle-radius": ["case", ["==", ["get", "top"], 1], 8, 4] as any,
+                   "circle-color": "#000",
+                   "circle-opacity": ["case", ["==", ["get", "top"], 1], 0.35, 0.18] as any,
+                 }} />
           <Layer id="pin-dot" type="circle"
                  paint={{
-                   "circle-radius": 5,
+                   "circle-radius": ["case", ["==", ["get", "top"], 1], 5, 2.5] as any,
                    "circle-color": ["get", "color"] as any,
-                   "circle-stroke-width": 1.5,
+                   "circle-opacity": ["case", ["==", ["get", "top"], 1], 1, 0.5] as any,
+                   "circle-stroke-width": ["case", ["==", ["get", "top"], 1], 1.5, 0] as any,
                    "circle-stroke-color": "rgba(255,255,255,0.85)",
                  }} />
         </GeoJSONSource>
@@ -392,13 +509,16 @@ export function MapTab(
         ) : region ? (
           <Text style={st.count}>
             {agg.length
-              ? `${agg.length}개 지역 · ${agg.reduce((n, a) => n + a.n, 0)}곳 — 확대하면 기록이 보입니다`
-              : "아직 기록이 없습니다"}
+              ? `${catLabel}${agg.length}개 지역 · ${agg.reduce((n, a) => n + a.n, 0)}곳 — 확대하면 기록이 보입니다`
+              : cat ? `${CAT[cat]?.k ?? cat} 기록이 아직 없습니다` : "아직 기록이 없습니다"}
           </Text>
         ) : pins.length === 0 ? (
           <Text style={st.count}>
             {into ? `${into} — ` : ""}
-            {scope === "mine" ? "이 화면에는 내가 올린 기록이 없습니다"
+            {/* ★ 카테고리를 켜 둔 채 비면 **그 사실을 말한다.** 안 그러면
+                "이 동네엔 아무것도 없다"로 읽히는데, 사실은 필터가 걸러낸 것이다. */}
+            {cat ? `이 화면에는 ${CAT[cat]?.k ?? cat} 기록이 없습니다`
+              : scope === "mine" ? "이 화면에는 내가 올린 기록이 없습니다"
               : scope === "shared" ? "이 화면에는 함께 보는 기록이 없습니다"
               : "이 화면에는 아직 기록이 없습니다"}
           </Text>
@@ -410,6 +530,9 @@ export function MapTab(
               n.shared ? `함께 ${n.shared}곳` : null,
               n.other ? `남 ${n.other}곳` : null,
             ].filter(Boolean).join(" · ")}
+            {/* ★ 가운데 단계에서는 **골랐다는 것을 말한다.** 안 말하면 흐린 점이
+                버그로 보이고, 사용자는 왜 어떤 것만 진한지 알 수 없다. */}
+            {picked ? `  · 눈에 띄는 ${picked.size}곳` : ""}
             {more ? "  더 있습니다 — 확대하면 더 보입니다" : ""}
           </Text>
         )}
@@ -471,7 +594,7 @@ function PinSheet({ pin, onClose }: { pin: Pin; onClose: () => void }) {
 
 const st = StyleSheet.create({
   root: { flex: 1, backgroundColor: BG },
-  head: { paddingTop: 52, paddingBottom: 8, backgroundColor: BG },
+  head: { paddingTop: 52, paddingBottom: 8, gap: 6, backgroundColor: BG },
   chipRow: { paddingHorizontal: 12, gap: 6 },
   chip: {
     paddingHorizontal: 11, paddingVertical: 6, borderRadius: 99,
@@ -480,6 +603,19 @@ const st = StyleSheet.create({
   chipOn: { backgroundColor: C.accent, borderColor: C.accent },
   chipT: { color: C.muted, fontSize: 12 },
   chipTOn: { color: C.onAccent, fontWeight: "700" },
+  /* ★ 카테고리 칩은 **accent 로 채우지 않는다.** 스코프 줄이 이미 accent 를 쓰고
+     있어서 둘 다 파랗게 차면 어느 줄이 무엇인지 구분이 안 된다. 여기서는 그
+     카테고리 **자기 색**으로 테두리만 준다 — 지도 위의 점과 같은 색이라
+     "이 색을 고른 것"이 바로 읽힌다. */
+  chip2: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingHorizontal: 10, paddingVertical: 5, borderRadius: 99,
+    borderWidth: 1, borderColor: "transparent", backgroundColor: "rgba(255,255,255,0.05)",
+  },
+  chip2On: { backgroundColor: C.surface, borderColor: C.line },
+  chipDot: { width: 7, height: 7, borderRadius: 4 },
+  chip2T: { color: C.muted, fontSize: 12 },
+  chip2TOn: { color: C.text, fontWeight: "700" },
   fill: { flex: 1 },
   /* ★ 탭바가 `bottom:26` 에 **떠 있다**(높이 ~62). 문서 흐름의 맨 아래에 두면
      그 뒤로 깔려 글자가 잘린다 — 시뮬레이터에서 실제로 잘렸다.

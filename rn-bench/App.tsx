@@ -41,10 +41,17 @@ export default function App() {
   useEffect(() => {
     API.setConfig(SUPABASE_URL, SUPABASE_ANON_KEY);
     void API.loadSession().then(async () => {
+      /* ★ `ready` 는 **`ensureSession` 뒤에** 올린다. 앞에 올리면 지도가 토큰이
+         서기 전에 읽어 RLS 가 아무것도 주지 않는다 — 핀은 `onRegionDidChange` 가
+         다시 불러 살아나지만 **집계는 재시도가 없어 영영 빈 채로 남는다.**
+         §13.47 에서 `ready` 를 붙일 때 이 순서를 놓쳤고, 토큰이 살아 있는 동안은
+         드러나지 않다가 **만료된 세션으로 앱을 열자 바로 나왔다**(§13.54).
+         ★ `ensureSession` 은 망이 끊겨도 돌아온다(그대로 쓴다고 답한다) —
+           여기서 기다려도 영영 안 뜨는 일은 없다. */
+      await API.ensureSession();
       setReady(true);
       /* ★ 지난번에 다 못 올린 사진부터 이어서 올린다. 앱을 열 때마다 확인한다 —
          "다음에 여시면 이어서 올립니다"라고 말했으면 그렇게 되어야 한다. */
-      await API.ensureSession();
       await Q.load();
       void Q.start();
     });
