@@ -17,8 +17,10 @@
  *   개발 서버에 매달리면 그건 제품이 아니다. 사진은 여전히 URL 로 받는다 —
  *   번들을 42MB 로 불리지 않는다는 원칙(§13)은 그대로다.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import {
+  ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View,
+} from "react-native";
 import {
   Camera,
   type CameraRef,
@@ -101,13 +103,21 @@ const BG = "#08090C";
 const STROKE = "rgba(255,255,255,0.15)";
 const STROKE_VIS = "rgba(255,255,255,0.32)";
 
-/* 웹과 같은 네 칩·같은 라벨(§13.37). '친구'라고 쓰지 않는다 — 우리에겐 1:1 친구가
-   없고 공유의 단위는 스페이스다. 그렇게 쓰면 있지도 않은 친구 목록을 찾게 된다. */
-const SCOPES: { v: API.Scope; k: string }[] = [
-  { v: "all", k: "전부" },
-  { v: "mine", k: "내 지도" },
-  { v: "shared", k: "함께" },
-  { v: "public", k: "모두의" },
+/* ★ '친구'라고 쓰지 않는다 — 우리에겐 1:1 친구가 없고 공유의 단위는 스페이스다.
+   그렇게 쓰면 있지도 않은 친구 목록을 찾게 된다(§13.37).
+
+   ★ **`모두의`는 필터가 아니라 모드 전환이다.** 앞의 셋은 *"내 기록 중 무엇을
+     볼까"* 인데 `모두의`는 **내 기록을 벗어난다.** 같은 줄에 나란히 두면 넷이
+     대등한 필터로 보이므로 **구분선으로 가른다**(§13.55).
+
+   ★ `전부` → `내 모든 기록`. 이름만 바뀐 게 아니라 **담는 것이 달라졌다** —
+     옛 `all` 은 남의 공개 핀까지 담았다(실측: 5곳 중 3곳이 남의 것). */
+type ScopeChip = { v: API.Scope; k: string; sep?: boolean };
+const SCOPES: ScopeChip[] = [
+  { v: "mine_all", k: "내 모든 기록" },
+  { v: "mine", k: "나의 여행" },
+  { v: "shared", k: "스페이스" },
+  { v: "public", k: "모두의 지도", sep: true },
 ];
 
 /* ★ 출처 배지 — **한 핀에 하나.** 남의 것에는 안 붙인다(§13.37): 기본값이라
@@ -177,8 +187,12 @@ export function MapTab(
   { ready, onSheet }: { ready?: boolean; onSheet?: (open: boolean) => void } = {},
 ) {
   const mapRef = useRef<MapRef>(null);
-  const [scope, setScope] = useState<API.Scope>("all");
+  const [scope, setScope] = useState<API.Scope>("mine_all");
   const [cat, setCat] = useState<string | null>(null);
+  /* 고른 스페이스 하나. null 이면 스코프 전체다. */
+  const [space, setSpace] = useState<string | null>(null);
+  const [spaces, setSpaces] = useState<{ id: string; title: string }[]>([]);
+  const [pickSpace, setPickSpace] = useState(false);
   const [pins, setPins] = useState<Pin[]>([]);
   const [busy, setBusy] = useState(false);
   const [more, setMore] = useState(false);
@@ -193,21 +207,23 @@ export function MapTab(
 
   /* 이미 읽은 상자와 그때의 스코프. 스코프가 바뀌면 이 상자는 소용없다 —
      서버가 **다른 집합**을 준다(§13.37). */
-  const loaded = useRef<{ box: API.BBox | null; scope: API.Scope; cat: string | null }>(
-    { box: null, scope: "all", cat: null });
+  const loaded = useRef<{ box: API.BBox | null; scope: API.Scope;
+                          cat: string | null; space: string | null }>(
+    { box: null, scope: "mine_all", cat: null, space: null });
   const inflight = useRef(false);
   /* ★ `load` 는 의존성이 비어 있어 **처음 값에 얼어붙는다.** 스코프는 인자로 받아
      피했는데 카테고리까지 인자로 늘리면 호출부마다 둘을 다 실어야 한다 —
      `onRegionDidChange` 는 그때의 최신 값을 알아야 하므로 ref 로 들고 본다. */
   const catRef = useRef<string | null>(null);
+  const spaceRef = useRef<string | null>(null);
 
   const load = useCallback(async (force: boolean, sc: API.Scope, z?: number) => {
-    const ct = catRef.current;
+    const ct = catRef.current, sp = spaceRef.current;
     if (inflight.current) return;
     /* ★ 집계 줌에서는 핀을 **안 읽는다.** 전국 한 화면이 상자가 되면
        "뷰포트로 자른다"가 아무것도 자르지 않는 말이 된다(031). */
     if (isRegionZoom(z ?? zoom)) {
-      setPins([]); loaded.current = { box: null, scope: sc, cat: ct }; return;
+      setPins([]); loaded.current = { box: null, scope: sc, cat: ct, space: sp }; return;
     }
     const b = await mapRef.current?.getBounds().catch(() => null);
     if (!b) return;
@@ -215,18 +231,18 @@ export function MapTab(
     /* 카테고리가 바뀌면 이 상자는 소용없다 — 서버가 **다른 집합**을 준다.
        스코프와 같은 이유다(§13.37). */
     if (!force && loaded.current.scope === sc && loaded.current.cat === ct
-        && inside(view, loaded.current.box)) return;
+        && loaded.current.space === sp && inside(view, loaded.current.box)) return;
 
     inflight.current = true;
     setBusy(true);
     const box = API.padBox(view);
-    const r = await API.pinsInBBox(box, { limit: 300, scope: sc, cat: ct });
+    const r = await API.pinsInBBox(box, { limit: 300, scope: sc, cat: ct, space: sp });
     inflight.current = false;
     setBusy(false);
 
     if (!r.ok) { setWhy("지도를 불러오지 못했습니다 — 잠시 뒤 다시 시도합니다"); return; }
     setWhy(null);
-    loaded.current = { box, scope: sc, cat: ct };
+    loaded.current = { box, scope: sc, cat: ct, space: sp };
     setMore(r.more);
     setPins((r.data as any[]).map((row) => ({
       id: row.id, lng: Number(row.lng), lat: Number(row.lat),
@@ -241,11 +257,22 @@ export function MapTab(
 
   /* ★ 집계는 **스코프가 바뀔 때만** 읽는다. 화면을 밀어도 다시 읽지 않는다 —
      숫자가 뷰포트와 무관하니 다시 읽을 이유가 없다(042). */
-  const loadAgg = useCallback(async (sc: API.Scope, ct: string | null) => {
+  /* ★ **늦게 온 답이 새 답을 덮는다.** 열자마자 `mine_all` 집계가 나가는데, 그
+     사이에 칩을 누르면 `shared`(0곳)가 먼저 돌아오고 **느린 `mine_all` 이 나중에
+     도착해 덮어쓴다.** 화면은 `스페이스` 인데 숫자는 내 기록이 되는, 조용하고
+     재현이 어려운 거짓말이다(§13.55 에서 실제로 잡았다).
+     → 요청마다 번호를 붙이고 **마지막 것만** 받는다. 핀 쪽은 `loaded.current` 가
+       우연히 막아 주지만 집계에는 그런 것이 없었다. */
+  const aggSeq = useRef(0);
+
+  const loadAgg = useCallback(async (sc: API.Scope, ct: string | null,
+                                    sp: string | null = null) => {
+    const seq = ++aggSeq.current;
     /* ★ 집계도 **같은 필터로** 센다. 필터를 무시하고 전체를 세면 '맛집'을 켜고
        전국으로 나가도 지도가 안 변한다 — 그러면 *"맛집이 많은 지역"* 을 볼 수가
        없다. §13.11 이 신뢰 필터에서 정한 것과 같은 규칙이다. */
-    const r = await API.pinsByRegion(sc, ct);
+    const r = await API.pinsByRegion(sc, ct, sp);
+    if (seq !== aggSeq.current) return;      // 그 사이 더 새 요청이 나갔다
     setAgg(r.ok ? (r.data ?? []) : []);
   }, []);
 
@@ -255,7 +282,10 @@ export function MapTab(
   useEffect(() => {
     if (!ready) return;
     void load(true, scope);
-    void loadAgg(scope, cat);
+    void loadAgg(scope, cat, space);
+    /* ★ 목록은 **한 번만** 읽는다. 스페이스는 지도를 보는 중에 늘어나지 않는다 —
+       늘어나는 순간(초대 수락)은 §13.38 이 이미 스코프를 바꿔 준다. */
+    void API.mySpaces().then((r) => setSpaces(r.ok ? (r.data ?? []) : []));
   }, [ready]);
 
   /* 스코프를 바꾼다. ★ 이전 스코프의 핀을 **걷어낸다.** 안 걷으면 '내 지도'를 골랐는데
@@ -291,15 +321,38 @@ export function MapTab(
   };
 
   const changeScope = (v: API.Scope) => {
-    if (v === scope) return;
+    /* ★ `스페이스` 를 **다시 누르면** 고르는 창을 연다. 한 번 고른 뒤에 다른
+       스페이스로 옮길 길이 없으면, 바꾸려고 딴 칩을 거쳐 돌아와야 한다. */
+    if (v === scope) { if (v === "shared" && spaces.length) setPickSpace(true); return; }
     setOpen(null);          // 스코프가 바뀌면 그 핀은 더 이상 이 화면의 것이 아니다
     setScope(v);
+    /* ★ 스페이스 좁히기는 `스페이스` 스코프에서만 뜻이 있다 — 다른 칩으로 가면
+       **푼다.** 안 풀면 '모두의 지도'를 보면서 내 스페이스로 걸러진다. */
+    const sp = v === "shared" ? spaceRef.current : null;
+    if (sp !== spaceRef.current) { spaceRef.current = sp; setSpace(sp); }
     setPins([]);
     setMore(false);
-    loaded.current = { box: null, scope: v, cat };
+    loaded.current = { box: null, scope: v, cat, space: sp };
     setAgg([]);
     void load(true, v);
-    void loadAgg(v, cat);
+    void loadAgg(v, cat, sp);
+    /* 스페이스가 여럿인데 아직 안 골랐으면 고르는 창을 띄운다 */
+    if (v === "shared" && !sp && spaces.length > 1) setPickSpace(true);
+  };
+
+  /* 스페이스 하나로 좁힌다(또는 푼다). 스코프 바꾸기와 **같은 절차다.** */
+  const changeSpace = (id: string | null) => {
+    setPickSpace(false);
+    if (id === space) return;
+    setOpen(null);
+    setSpace(id);
+    spaceRef.current = id;
+    setPins([]);
+    setMore(false);
+    loaded.current = { box: null, scope: "shared", cat, space: id };
+    setAgg([]);
+    void load(true, "shared");
+    void loadAgg("shared", cat, id);
   };
 
   /* 카테고리를 바꾼다. 스코프와 **같은 절차다** — 이전 것을 걷어내지 않으면
@@ -311,10 +364,10 @@ export function MapTab(
     catRef.current = v;
     setPins([]);
     setMore(false);
-    loaded.current = { box: null, scope, cat: v };
+    loaded.current = { box: null, scope, cat: v, space };
     setAgg([]);
     void load(true, scope);
-    void loadAgg(scope, v);
+    void loadAgg(scope, v, space);
   };
 
   const unit = unitOf(zoom);
@@ -407,12 +460,25 @@ export function MapTab(
       <View style={st.head}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}
                     contentContainerStyle={st.chipRow}>
-          {SCOPES.map((s) => (
-            <Pressable key={s.v} onPress={() => changeScope(s.v)}
-                       style={[st.chip, scope === s.v && st.chipOn]}>
-              <Text style={[st.chipT, scope === s.v && st.chipTOn]}>{s.k}</Text>
-            </Pressable>
-          ))}
+          {SCOPES.map((c) => {
+            const on = scope === c.v;
+            /* 스페이스를 하나 골랐으면 **그 이름을 칩에 쓴다** — 칩이 '스페이스'라고만
+               적혀 있으면 무엇으로 좁혀진 상태인지 화면 어디에도 안 적힌다. */
+            const label = c.v === "shared" && on && space
+              ? (spaces.find((x) => x.id === space)?.title ?? c.k)
+              : c.k;
+            return (
+              <React.Fragment key={c.v}>
+                {c.sep && <View style={st.sep} />}
+                <Pressable onPress={() => changeScope(c.v)}
+                           style={[st.chip, on && st.chipOn]}>
+                  <Text style={[st.chipT, on && st.chipTOn]} numberOfLines={1}>
+                    {label}{c.v === "shared" && spaces.length > 1 ? " ▾" : ""}
+                  </Text>
+                </Pressable>
+              </React.Fragment>
+            );
+          })}
         </ScrollView>
         {/* ★ 두 줄을 **한 줄로 합치지 않는다.** '내 지도'와 '맛집'은 서로 다른 질문이라
             (누구의 것인가 / 무엇인가) 한 줄에 섞으면 둘이 배타적인 것처럼 보인다. */}
@@ -494,6 +560,12 @@ export function MapTab(
                  }} />
         </GeoJSONSource>
       </Map>
+
+      {pickSpace && (
+        <SpacePicker
+          spaces={spaces} current={space}
+          onPick={changeSpace} onClose={() => setPickSpace(false)} />
+      )}
 
       {open && <PinSheet pin={open} onClose={() => setOpen(null)} />}
 
@@ -592,6 +664,48 @@ function PinSheet({ pin, onClose }: { pin: Pin; onClose: () => void }) {
   );
 }
 
+/* ── 스페이스 고르기 (§13.55) ───────────────────────────────────
+   ★ 드롭다운이 아니라 **바닥에서 올라오는 시트**다. 칩이 화면 맨 위에 있어서
+     거기 붙은 드롭다운은 **한 손으로 닿지 않는다.** 고르는 일은 손가락이
+     닿는 곳에서 해야 한다.
+   ★ `전체`를 맨 위에 둔다 — 좁힌 것을 **푸는 길**이 없으면 한 번 고른 뒤
+     빠져나오지 못한다. */
+function SpacePicker(
+  { spaces, current, onPick, onClose }: {
+    spaces: { id: string; title: string }[];
+    current: string | null;
+    onPick: (id: string | null) => void;
+    onClose: () => void;
+  },
+) {
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={st.spDim} onPress={onClose}>
+        <Pressable style={st.spSheet} onPress={() => {}}>
+          <View style={st.spGrip} />
+          <Text style={st.spTitle}>어느 스페이스를 볼까요</Text>
+          <ScrollView style={{ maxHeight: 320 }}>
+            <Pressable style={[st.spRow, !current && st.spRowOn]} onPress={() => onPick(null)}>
+              <Text style={[st.spRowT, !current && st.spRowTOn]}>전체</Text>
+              <Text style={st.spRowS}>함께 보는 기록 전부</Text>
+            </Pressable>
+            {spaces.map((sp) => (
+              <Pressable key={sp.id}
+                         style={[st.spRow, current === sp.id && st.spRowOn]}
+                         onPress={() => onPick(sp.id)}>
+                <Text style={[st.spRowT, current === sp.id && st.spRowTOn]}>{sp.title}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+          <Pressable style={st.spCancel} onPress={onClose}>
+            <Text style={st.spCancelT}>닫기</Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
 const st = StyleSheet.create({
   root: { flex: 1, backgroundColor: BG },
   head: { paddingTop: 52, paddingBottom: 8, gap: 6, backgroundColor: BG },
@@ -616,6 +730,28 @@ const st = StyleSheet.create({
   chipDot: { width: 7, height: 7, borderRadius: 4 },
   chip2T: { color: C.muted, fontSize: 12 },
   chip2TOn: { color: C.text, fontWeight: "700" },
+  /* ★ `모두의 지도` 앞의 금. 필터가 아니라 **모드 전환**이라는 표시다. */
+  sep: { width: 1, alignSelf: "stretch", marginHorizontal: 3, backgroundColor: C.line },
+  spDim: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "flex-end" },
+  spSheet: {
+    backgroundColor: C.bg, borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    padding: 16, paddingBottom: 34, gap: 8,
+  },
+  spGrip: {
+    width: 38, height: 4, borderRadius: 2, backgroundColor: C.line,
+    alignSelf: "center", marginBottom: 6,
+  },
+  spTitle: { color: C.text, fontSize: 16, fontWeight: "700", marginBottom: 4 },
+  spRow: {
+    backgroundColor: C.surface, borderRadius: 12, padding: 14, marginBottom: 8,
+    borderWidth: 1, borderColor: "transparent",
+  },
+  spRowOn: { borderColor: C.accent },
+  spRowT: { color: C.text, fontSize: 15 },
+  spRowTOn: { fontWeight: "700" },
+  spRowS: { color: C.muted, fontSize: 12, marginTop: 3 },
+  spCancel: { alignItems: "center", paddingVertical: 12 },
+  spCancelT: { color: C.muted, fontSize: 14 },
   fill: { flex: 1 },
   /* ★ 탭바가 `bottom:26` 에 **떠 있다**(높이 ~62). 문서 흐름의 맨 아래에 두면
      그 뒤로 깔려 글자가 잘린다 — 시뮬레이터에서 실제로 잘렸다.

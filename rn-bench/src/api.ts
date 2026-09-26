@@ -344,15 +344,21 @@ export const myRecords = (limit = 200) =>
 export type BBox = { w: number; s: number; e: number; n: number };
 
 /** 지도는 하나고 무엇을 볼지만 고른다(§13.37). 셋은 **겹친다** — 분류가 아니라 필터다. */
-export type Scope = "all" | "mine" | "shared" | "public";
+/* ★ `mine_all` 이 기본이다(043). `all` 은 *"볼 수 있는 전부"* 라 **남의 공개 핀까지**
+   담는다 — 그걸 첫 화면의 `내 모든 기록` 자리에 두면 이름이 거짓말이 되고,
+   처음 앱을 연 사람이 자기 기록을 못 찾는다(§13.55). `all` 은 지우지 않는다:
+   웹이 쓰고 있고 '탐색'으로서 뜻이 있다. **기본값만 옮겼다.** */
+export type Scope = "mine_all" | "all" | "mine" | "shared" | "public";
 
 export async function pinsInBBox(
-  b: BBox, opts?: { limit?: number; cat?: string | null; scope?: Scope },
+  b: BBox,
+  opts?: { limit?: number; cat?: string | null; scope?: Scope; space?: string | null },
 ) {
   const r = await rpc<any[]>("api_pins_in_bbox", {
     p_w: b.w, p_s: b.s, p_e: b.e, p_n: b.n,
     p_limit: opts?.limit ?? 300, p_cat: safeCat(opts?.cat),
-    p_scope: opts?.scope ?? "all",
+    p_scope: opts?.scope ?? "mine_all",
+    p_space: opts?.space ?? null,
   });
   const rows = r.ok ? (r.data ?? []) : [];
   return { ok: r.ok, via: r.via, data: rows, more: !!rows[0]?.more };
@@ -364,8 +370,17 @@ export async function pinsInBBox(
      숫자는 **지역 전체**를 뜻한다. 돌아오는 줄은 지역 수(251) 이하고, 0곳은 안 온다. */
 export type RegionAgg = { region_code: string; n: number; n_mine: number; n_shared: number };
 
-export const pinsByRegion = (scope: Scope = "all", cat?: string | null) =>
-  rpc<RegionAgg[]>("api_pins_by_region", { p_scope: scope, p_cat: safeCat(cat) });
+export const pinsByRegion = (
+  scope: Scope = "mine_all", cat?: string | null, space?: string | null,
+) => rpc<RegionAgg[]>("api_pins_by_region",
+      { p_scope: scope, p_cat: safeCat(cat), p_space: space ?? null });
+
+/* ★ 함께 쓰는 스페이스 목록. `personal`(= '내 지도')은 **빼고** 준다 —
+   그건 스코프 `나의 여행`이 이미 답하는 것이라, 목록에 또 두면 같은 것을
+   두 자리에서 고르게 된다. RLS(spaces_read)가 내 것만 내준다. */
+export const mySpaces = () =>
+  select<{ id: string; title: string }[]>(
+    "spaces", "select=id,title&type=eq.shared&order=created_at.desc&limit=50");
 
 /* 뷰포트보다 넉넉히 읽어 두면 조금씩 미는 동안은 공짜다.
    0.4(=화면의 1.8배 넓이)는 "한 화면 밀어도 안 부른다"를 만족하는 가장 작은 값이다. */
