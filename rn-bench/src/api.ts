@@ -388,6 +388,12 @@ export type SpaceRow = {
 };
 export const mySpaces = () => rpc<SpaceRow[]>("api_my_spaces", {});
 
+/** 나가기(046). 방장이면 가장 오래된 멤버에게 넘어가고, 마지막이면 방이 접힌다.
+    ★ **올린 기록은 남는다** — 화면이 누르기 전에 그 말을 해야 한다. */
+export const leaveSpace = (id: string) =>
+  rpc<any>("api_leave_space", { p_space: id })
+    .then((r) => r.data ?? { ok: false, why: r.error ?? "나가지 못했습니다" });
+
 /** 이름 바꾸기 — **멤버 누구나**. 빈 이름을 주면 자동 이름으로 되돌린다(044). */
 export const renameSpace = (id: string, title: string) =>
   rpc<any>("api_rename_space", { p_space: id, p_title: title })

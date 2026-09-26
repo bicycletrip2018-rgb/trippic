@@ -184,7 +184,12 @@ const inside = (inner: API.BBox, outer: API.BBox | null) =>
 /** ★ 시트가 열린 것을 App 에 알린다. `(+)` 는 App 이 지도 **위에** 띄우므로
     MapTab 안에서는 가릴 수 없다 — 그대로 두면 닫기(✕)를 덮는다. */
 export function MapTab(
-  { ready, onSheet }: { ready?: boolean; onSheet?: (open: boolean) => void } = {},
+  { ready, onSheet, onAdd }: {
+    ready?: boolean;
+    onSheet?: (open: boolean) => void;
+    /** 빈 화면의 CTA — (+) 와 **같은 문**으로 보낸다(두 벌로 만들지 않는다) */
+    onAdd?: () => void;
+  } = {},
 ) {
   const mapRef = useRef<MapRef>(null);
   const [scope, setScope] = useState<API.Scope>("mine_all");
@@ -321,14 +326,17 @@ export function MapTab(
   };
 
   const changeScope = (v: API.Scope) => {
-    /* ★ `스페이스` 를 **다시 누르면** 고르는 창을 연다. 한 번 고른 뒤에 다른
-       스페이스로 옮길 길이 없으면, 바꾸려고 딴 칩을 거쳐 돌아와야 한다. */
-    if (v === scope) { if (v === "shared" && spaces.length) setPickSpace(true); return; }
+    /* ★ `공유 스페이스` 를 **다시 누르면** 고르는 창을 연다. 한 번 고른 뒤에 다른
+       방으로 옮길 길이 없으면, 바꾸려고 딴 칩을 거쳐 돌아와야 한다. */
+    if (v === scope) { if (v === "shared") setPickSpace(true); return; }
     setOpen(null);          // 스코프가 바뀌면 그 핀은 더 이상 이 화면의 것이 아니다
     setScope(v);
     /* ★ 스페이스 좁히기는 `스페이스` 스코프에서만 뜻이 있다 — 다른 칩으로 가면
        **푼다.** 안 풀면 '모두의 지도'를 보면서 내 스페이스로 걸러진다. */
-    const sp = v === "shared" ? spaceRef.current : null;
+    /* ★ `공유 스페이스` 는 **반드시 방 하나를 고른다**(`전체` 를 없앴다).
+       방이 하나뿐이면 **묻지 않고 그걸 쓴다** — 선택지가 하나인 물음은 일이다. */
+    let sp = v === "shared" ? spaceRef.current : null;
+    if (v === "shared" && !sp && spaces.length === 1) sp = spaces[0].id;
     if (sp !== spaceRef.current) { spaceRef.current = sp; setSpace(sp); }
     setPins([]);
     setMore(false);
@@ -336,12 +344,12 @@ export function MapTab(
     setAgg([]);
     void load(true, v);
     void loadAgg(v, cat, sp);
-    /* 스페이스가 여럿인데 아직 안 골랐으면 고르는 창을 띄운다 */
-    if (v === "shared" && !sp && spaces.length > 1) setPickSpace(true);
+    /* 아직 고른 방이 없으면 고르는 창을 띄운다 — 방이 없으면 빈 화면이 안내한다 */
+    if (v === "shared" && !sp) setPickSpace(true);
   };
 
   /* 스페이스 하나로 좁힌다(또는 푼다). 스코프 바꾸기와 **같은 절차다.** */
-  const changeSpace = (id: string | null) => {
+  const changeSpace = (id: string) => {
     setPickSpace(false);
     if (id === space) return;
     setOpen(null);
@@ -401,6 +409,25 @@ export function MapTab(
     for (const p of spill) { if (out.size >= N) break; out.add(p.id); }
     return out;
   })();
+
+  /* ★ 나가기는 **되돌릴 수 없다.** 확인은 시트가 받는다 — `Alert` 는 `Modal`
+     안에서 모달 뒤에 가려 **안 보인다**(실제로 안 떴다). */
+  const doLeave = async (sp: API.SpaceRow) => {
+    const r: any = await API.leaveSpace(sp.id);
+    if (!r?.ok) { setWhy(r?.why ?? "나가지 못했습니다"); return; }
+    setPickSpace(false);
+    const rest = spaces.filter((x) => x.id !== sp.id);
+    setSpaces(rest);
+    /* 보고 있던 방에서 나갔으면 **그 화면에 머물 수 없다** — 남은 방이 하나면
+       그리로, 없으면 `나의 모든 여행` 으로 돌린다. 빈 지도에 두지 않는다. */
+    if (space === sp.id) {
+      if (rest.length === 1) changeSpace(rest[0].id);
+      else if (rest.length === 0) changeScope("mine_all");
+      else { spaceRef.current = null; setSpace(null); setPins([]); setAgg([]); setPickSpace(true); }
+    }
+    setWhy(r.closed ? `${sp.title} 스페이스를 접었습니다`
+                    : `${sp.title}에서 나왔습니다`);
+  };
 
   const fc: GeoJSON.FeatureCollection = {
     type: "FeatureCollection",
@@ -564,7 +591,10 @@ export function MapTab(
       {pickSpace && (
         <SpacePicker
           spaces={spaces} current={space}
-          onPick={changeSpace} onClose={() => setPickSpace(false)} />
+          onPick={changeSpace}
+          onClose={() => setPickSpace(false)}
+          onLeave={(sp) => { void doLeave(sp); }}
+          onAdd={() => { setPickSpace(false); onAdd?.(); }} />
       )}
 
       {open && <PinSheet pin={open} onClose={() => setOpen(null)} />}
@@ -664,50 +694,108 @@ function PinSheet({ pin, onClose }: { pin: Pin; onClose: () => void }) {
   );
 }
 
-/* ── 스페이스 고르기 (§13.55) ───────────────────────────────────
-   ★ 드롭다운이 아니라 **바닥에서 올라오는 시트**다. 칩이 화면 맨 위에 있어서
-     거기 붙은 드롭다운은 **한 손으로 닿지 않는다.** 고르는 일은 손가락이
-     닿는 곳에서 해야 한다.
-   ★ `전체`를 맨 위에 둔다 — 좁힌 것을 **푸는 길**이 없으면 한 번 고른 뒤
-     빠져나오지 못한다. */
+/* ── 공유 스페이스 고르기 (§13.55 · §13.57) ─────────────────────
+   ★ **`전체`를 없앴다.** `나의 모든 여행`이 이미 *내 것 + 공유 전부* 를 담으므로
+     `공유 스페이스 > 전체` 는 *"공유는 전부인데 내 개인 기록만 빼고"* 라는 아주
+     드문 상태다. 있으나 마나 한 칸은 고르는 일만 한 번 더 시킨다.
+     → **방을 하나 고르는 화면**이 된다. 방이 하나뿐이면 묻지 않고 그걸 쓴다.
+
+   ★ 드롭다운이 아니라 **바닥에서 올라오는 시트**인 이유: 칩이 화면 맨 위에 있어
+     거기 붙은 드롭다운은 한 손으로 닿지 않는다. 그리고 방은 **이름만으로는
+     못 고른다** — 멤버 수·기록 수·나가기가 한 줄에 같이 있어야 한다.
+     드롭다운에는 그 자리가 없다. */
 function SpacePicker(
-  { spaces, current, onPick, onClose }: {
+  { spaces, current, onPick, onClose, onLeave, onAdd }: {
     spaces: API.SpaceRow[];
     current: string | null;
-    onPick: (id: string | null) => void;
+    onPick: (id: string) => void;
     onClose: () => void;
+    onLeave: (sp: API.SpaceRow) => void;
+    onAdd: () => void;
   },
 ) {
+  /* 어느 방의 나가기를 묻는 중인가. 한 번에 하나만 열린다. */
+  const [confirm, setConfirm] = useState<string | null>(null);
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={st.spDim} onPress={onClose}>
         <Pressable style={st.spSheet} onPress={() => {}}>
           <View style={st.spGrip} />
-          <Text style={st.spTitle}>어느 공유 스페이스를 볼까요</Text>
-          <ScrollView style={{ maxHeight: 320 }}>
-            <Pressable style={[st.spRow, !current && st.spRowOn]} onPress={() => onPick(null)}>
-              <Text style={[st.spRowT, !current && st.spRowTOn]}>전체</Text>
-              <Text style={st.spRowS}>공유 스페이스 전부</Text>
-            </Pressable>
-            {!spaces.length && (
+
+          {!spaces.length ? (
+            /* ★ 빈 화면에서 **할 일을 준다.** "없습니다"만 적으면 사용자는
+               여기서 막힌다 — 무엇을 해야 생기는지는 우리가 안다. */
+            <>
+              <Text style={st.spTitle}>공유한 추억이 없습니다</Text>
               <Text style={st.spEmpty}>
-                아직 공유 스페이스가 없습니다.{"\n"}
-                스페이스 탭에서 만들고 초대 링크를 보내 보십시오.
+                여행 사진·동영상을 올리고 지인을 초대해 보십시오.{"\n"}
+                같이 다녀온 사람과 한 장의 지도를 채우게 됩니다.
               </Text>
-            )}
-            {spaces.map((sp) => (
-              <Pressable key={sp.id}
-                         style={[st.spRow, current === sp.id && st.spRowOn]}
-                         onPress={() => onPick(sp.id)}>
-                <Text style={[st.spRowT, current === sp.id && st.spRowTOn]}>{sp.title}</Text>
-                {/* ★ 빈 방과 쌓인 방은 다른 것이다 — 골라 들어갔는데 비어 있으면
-                    고장으로 읽힌다. 고르기 **전에** 말해 준다. */}
-                <Text style={st.spRowS}>
-                  멤버 {sp.members}명 · {sp.pins ? `기록 ${sp.pins}곳` : "아직 기록 없음"}
-                </Text>
+              <Pressable style={st.spCta} onPress={onAdd}>
+                <Text style={st.spCtaT}>사진·동영상 올리기</Text>
               </Pressable>
-            ))}
-          </ScrollView>
+            </>
+          ) : (
+            <>
+              <Text style={st.spTitle}>어느 공유 스페이스를 볼까요</Text>
+              <ScrollView style={{ maxHeight: 360 }}>
+                {spaces.map((sp) => {
+                  const on = current === sp.id;
+                  const asking = confirm === sp.id;
+                  const last = sp.members <= 1;
+                  return (
+                    <View key={sp.id} style={[st.spRow, on && st.spRowOn,
+                                              asking && st.spRowAsk]}>
+                      <View style={st.spRowTop}>
+                        <Pressable style={{ flex: 1 }}
+                                   onPress={() => (asking ? setConfirm(null) : onPick(sp.id))}>
+                          <Text style={[st.spRowT, on && st.spRowTOn]}>{sp.title}</Text>
+                          {/* 빈 방과 쌓인 방은 다른 것이다 — **고르기 전에** 말한다 */}
+                          <Text style={st.spRowS}>
+                            멤버 {sp.members}명 · {sp.pins ? `기록 ${sp.pins}곳` : "아직 기록 없음"}
+                          </Text>
+                        </Pressable>
+                        {!asking && (
+                          /* ★ 글자에 `hitSlop` 만 주면 **48pt 최소 터치 영역**에 못 미치고,
+                             ScrollView 안에서는 작은 목표가 스크롤로 먹힌다. 실제로
+                             안 눌렸다 — 여백을 넣어 버튼을 **진짜 크기로** 만든다. */
+                          <Pressable style={st.spLeaveBtn}
+                                     onPress={() => setConfirm(sp.id)}>
+                            <Text style={st.spLeave}>나가기</Text>
+                          </Pressable>
+                        )}
+                      </View>
+
+                      {/* ★ 확인을 **시트 안에서** 받는다. `Alert` 는 `Modal` 안에서
+                          모달 뒤에 가려 안 보인다(실제로 안 떴다). 그리고 여기서
+                          물으면 **어느 방인지 보면서** 읽게 된다. */}
+                      {asking && (
+                        <View style={st.spAsk}>
+                          <Text style={st.spAskT}>
+                            {last
+                              ? "마지막 멤버라 이 스페이스는 사라집니다."
+                              : `남은 ${sp.members - 1}명은 그대로 보게 됩니다.`}
+                            {"\n"}올리신 기록은 남습니다 — 같이 다녀온 여행이라
+                            지우면 그분들 지도에 구멍이 납니다.
+                          </Text>
+                          <View style={st.spAskRow}>
+                            <Pressable style={st.spAskBtn} onPress={() => setConfirm(null)}>
+                              <Text style={st.spAskBtnT}>그만두기</Text>
+                            </Pressable>
+                            <Pressable style={[st.spAskBtn, st.spAskGo]}
+                                       onPress={() => { setConfirm(null); onLeave(sp); }}>
+                              <Text style={[st.spAskBtnT, st.spAskGoT]}>나가기</Text>
+                            </Pressable>
+                          </View>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            </>
+          )}
+
           <Pressable style={st.spCancel} onPress={onClose}>
             <Text style={st.spCancelT}>닫기</Text>
           </Pressable>
@@ -763,8 +851,23 @@ const st = StyleSheet.create({
   spRowS: { color: C.muted, fontSize: 12, marginTop: 3 },
   spCancel: { alignItems: "center", paddingVertical: 12 },
   spCancelT: { color: C.muted, fontSize: 14 },
-  spEmpty: { color: C.muted, fontSize: 13, lineHeight: 20,
-             textAlign: "center", paddingVertical: 18 },
+  spEmpty: { color: C.muted, fontSize: 13, lineHeight: 21, paddingVertical: 6 },
+  spCta: { backgroundColor: C.accent, borderRadius: 13, paddingVertical: 15,
+           alignItems: "center", marginTop: 10 },
+  spCtaT: { color: C.onAccent, fontSize: 15, fontWeight: "700" },
+  spLeaveBtn: { paddingVertical: 14, paddingLeft: 16, paddingRight: 2,
+                justifyContent: "center" },
+  spLeave: { color: C.muted, fontSize: 13 },
+  spRowTop: { flexDirection: "row", alignItems: "center" },
+  spRowAsk: { borderColor: C.warn },
+  spAsk: { marginTop: 12, gap: 10 },
+  spAskT: { color: C.muted, fontSize: 12, lineHeight: 19 },
+  spAskRow: { flexDirection: "row", gap: 8 },
+  spAskBtn: { flex: 1, alignItems: "center", paddingVertical: 11,
+              borderRadius: 10, backgroundColor: "rgba(255,255,255,0.07)" },
+  spAskBtnT: { color: C.text, fontSize: 14 },
+  spAskGo: { backgroundColor: "rgba(224,169,74,0.18)" },
+  spAskGoT: { color: C.warn, fontWeight: "700" },
   fill: { flex: 1 },
   /* ★ 탭바가 `bottom:26` 에 **떠 있다**(높이 ~62). 문서 흐름의 맨 아래에 두면
      그 뒤로 깔려 글자가 잘린다 — 시뮬레이터에서 실제로 잘렸다.
