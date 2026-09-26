@@ -1023,15 +1023,31 @@ window.KR={"w":521.8,"h":560.0,"p":[{"c":"11010","n":"종로구","s":"서울특�
     el('path',{d:'M0 0 L-1.35 -3.1 A3.4 3.4 0 0 1 1.35 -3.1 Z',fill:'#38B6FF','fill-opacity':'.22'},gm);
     el('circle',{r:'1.1',fill:'#38B6FF','fill-opacity':'.3',class:'me-pulse'},gm);
     el('path',{d:'M0 -1.25 L0.72 -0.18 A0.82 0.82 0 1 1 -0.72 -0.18 Z',fill:'#38B6FF',stroke:'#fff','stroke-width':'0.2','stroke-linejoin':'round'},gm);
+    var badges=[];
     spots.slice().reverse().forEach(function(s,i){
       var p=pr(s[0],s[1]),r=s[3],id='cp'+i;
       var cy=p[1]-r-0.45,rr=r*0.42,cp=el('clipPath',{id:id},nd);el('rect',{x:p[0]-r,y:cy-r,width:2*r,height:2*r,rx:rr},cp);
       el('path',{d:'M'+p[0]+' '+p[1]+' l-0.5 -0.8 h1 z',fill:'#fff'},nm);
       el('rect',{x:p[0]-r-0.18,y:cy-r-0.18,width:2*r+0.36,height:2*r+0.36,rx:rr+0.12,fill:'#fff'},nm);
       el('image',{href:'img/'+s[2]+'.jpg',x:p[0]-r,y:cy-r,width:2*r,height:2*r,preserveAspectRatio:'xMidYMid slice','clip-path':'url(#'+id+')'},nm);
-      var bw=s[4].length*0.4+0.8,bx=p[0]+r*0.45,by=cy-r-0.1;
-      el('rect',{x:bx,y:by-0.62,width:bw,height:1.2,rx:0.6,fill:'#0A7CC9',stroke:'#fff','stroke-width':'0.1'},nm);
-      var tx=el('text',{x:bx+bw/2,y:by+0.24,'text-anchor':'middle','font-size':'0.72','font-weight':'700',fill:'#fff','font-family':'Pretendard Variable, sans-serif'},nm);tx.textContent=s[4];
+      badges.push([p[0]+r*0.72,cy-r+0.05,s[4]]);
+    });
+    /* ★ 숫자 뱃지는 **보통 크기로 그린 뒤 축소**한다. 지도 좌표(1칸≈17px)에서 글자를
+       0.7 같은 크기로 쓰면 브라우저가 글자 폭을 0으로 반올림해 숫자가 포개진다. */
+    var K2=0.058;
+    badges.forEach(function(b){
+      var g=el('g',{transform:'translate('+b[0]+' '+b[1]+') scale('+K2+')'},nm);
+      var bg=el('rect',{x:0,y:-11,height:22,rx:11,fill:'#fff'},g);
+      el('path',{d:'M9 -3.6h2l1-1.4h3l1 1.4h2a1.2 1.2 0 0 1 1.2 1.2v5.2a1.2 1.2 0 0 1-1.2 1.2H9a1.2 1.2 0 0 1-1.2-1.2v-5.2A1.2 1.2 0 0 1 9 -3.6z',fill:'#0A7CC9'},g);
+      el('circle',{cx:13.5,cy:0.2,r:1.9,fill:'#fff'},g);
+      var tx=el('text',{x:23,y:4.2,'font-size':'12.5','font-weight':'700',fill:'#191F28','font-family':'Pretendard Variable, Pretendard, -apple-system, sans-serif','letter-spacing':'-0.2'},g);
+      tx.textContent=b[2];
+      var w=23+(tx.getComputedTextLength?tx.getComputedTextLength():b[2].length*7)+9;
+      bg.setAttribute('width',w);
+      bg.setAttribute('x',-w/2);el('g',{},g);
+      tx.setAttribute('x',23-w/2);
+      g.querySelector('path').setAttribute('transform','translate('+(-w/2)+' 0)');
+      g.querySelector('circle').setAttribute('cx',13.5-w/2);
     });
     nm.appendChild(gm);
   })();
