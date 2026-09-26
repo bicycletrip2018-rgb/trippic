@@ -172,7 +172,8 @@ h1,h2,h3{margin:0;font-weight:700;text-wrap:balance}
 .split.flip .split-copy{order:2}
 .split.map{grid-template-columns:1.2fr 1fr;gap:clamp(40px,6vw,88px)}
 .split-copy{max-width:500px}
-@media (max-width:980px){.split{grid-template-columns:1fr}.split.flip .split-copy{order:0}.split-copy{max-width:none}}
+@media (max-width:980px){.split,.split.map{grid-template-columns:1fr;gap:32px}.split.flip .split-copy{order:0}.split.map .split-copy{order:-1}.split-copy{max-width:none}}
+@media (max-width:560px){.near .nearmap{min-height:380px}}
 
 .panel{background:var(--white);border-radius:var(--r-lg);box-shadow:var(--shadow),0 0 0 1px rgba(25,31,40,.04)}
 .sec.gray .panel.flat{box-shadow:none}
@@ -549,7 +550,7 @@ window.TRIPPIC_STORE = {
           <div class="nearmap">
             <div class="nm-chips" aria-hidden="true"><span class="on">전체</span><span>관광지</span><span>맛집</span><span>카페</span><span>해변</span><span>자연</span></div>
             <svg id="nearMap" role="img" aria-label="해운대 주변 지도 위의 인기 장소 사진 핀과 내 위치"></svg>
-            <div class="nm-card"><img src="img/p1.jpg" alt=""><div><strong>해운대 해수욕장</strong><small>관광지 · 최근 7일 사진·영상 128개</small><small class="verified">✓ 위치·날짜 확인된 공유 기록</small></div><em>0.4km</em></div>
+            <div class="nm-card"><img src="img/p1.jpg" alt=""><div><strong>해운대 해수욕장</strong><small>관광지 · 사진·영상 128개</small><small class="verified">✓ 위치·날짜 확인됨</small></div><em>0.4km</em></div>
           </div>
           <p class="fine">화면 예시 · 다른 여행자가 공유하기로 한 사진·영상 중 위치와 날짜가 확인된 것만 보여요.</p>
         </article>
