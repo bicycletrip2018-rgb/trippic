@@ -345,7 +345,7 @@ export type BBox = { w: number; s: number; e: number; n: number };
 
 /** 지도는 하나고 무엇을 볼지만 고른다(§13.37). 셋은 **겹친다** — 분류가 아니라 필터다. */
 /* ★ `mine_all` 이 기본이다(043). `all` 은 *"볼 수 있는 전부"* 라 **남의 공개 핀까지**
-   담는다 — 그걸 첫 화면의 `내 모든 기록` 자리에 두면 이름이 거짓말이 되고,
+   담는다 — 그걸 첫 화면의 `나의 모든 여행` 자리에 두면 이름이 거짓말이 되고,
    처음 앱을 연 사람이 자기 기록을 못 찾는다(§13.55). `all` 은 지우지 않는다:
    웹이 쓰고 있고 '탐색'으로서 뜻이 있다. **기본값만 옮겼다.** */
 export type Scope = "mine_all" | "all" | "mine" | "shared" | "public";
@@ -377,10 +377,21 @@ export const pinsByRegion = (
 
 /* ★ 함께 쓰는 스페이스 목록. `personal`(= '내 지도')은 **빼고** 준다 —
    그건 스코프 `나의 여행`이 이미 답하는 것이라, 목록에 또 두면 같은 것을
-   두 자리에서 고르게 된다. RLS(spaces_read)가 내 것만 내준다. */
-export const mySpaces = () =>
-  select<{ id: string; title: string }[]>(
-    "spaces", "select=id,title&type=eq.shared&order=created_at.desc&limit=50");
+   두 자리에서 고르게 된다. RLS(spaces_read)가 내 것만 내준다.
+
+   ★ 표를 직접 읽지 않고 **함수로 받는다**(044). 아무도 이름을 안 지은 방은
+     이름이 **멤버 닉네임에서 만들어지는데**(카카오톡 방과 같다), 그 규칙을
+     클라이언트가 또 쓰면 목록과 칩이 갈라진다. 기록 수도 같이 온다 —
+     빈 방과 쌓인 방은 다른 것이다. */
+export type SpaceRow = {
+  id: string; title: string; auto_title: boolean; members: number; pins: number;
+};
+export const mySpaces = () => rpc<SpaceRow[]>("api_my_spaces", {});
+
+/** 이름 바꾸기 — **멤버 누구나**. 빈 이름을 주면 자동 이름으로 되돌린다(044). */
+export const renameSpace = (id: string, title: string) =>
+  rpc<any>("api_rename_space", { p_space: id, p_title: title })
+    .then((r) => r.data ?? { ok: false, why: r.error ?? "바꾸지 못했습니다" });
 
 /* 뷰포트보다 넉넉히 읽어 두면 조금씩 미는 동안은 공짜다.
    0.4(=화면의 1.8배 넓이)는 "한 화면 밀어도 안 부른다"를 만족하는 가장 작은 값이다. */

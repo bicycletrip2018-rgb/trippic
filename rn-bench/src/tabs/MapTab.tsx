@@ -110,13 +110,13 @@ const STROKE_VIS = "rgba(255,255,255,0.32)";
      볼까"* 인데 `모두의`는 **내 기록을 벗어난다.** 같은 줄에 나란히 두면 넷이
      대등한 필터로 보이므로 **구분선으로 가른다**(§13.55).
 
-   ★ `전부` → `내 모든 기록`. 이름만 바뀐 게 아니라 **담는 것이 달라졌다** —
+   ★ `전부` → `나의 모든 여행`. 이름만 바뀐 게 아니라 **담는 것이 달라졌다** —
      옛 `all` 은 남의 공개 핀까지 담았다(실측: 5곳 중 3곳이 남의 것). */
 type ScopeChip = { v: API.Scope; k: string; sep?: boolean };
 const SCOPES: ScopeChip[] = [
-  { v: "mine_all", k: "내 모든 기록" },
+  { v: "mine_all", k: "나의 모든 여행" },
   { v: "mine", k: "나의 여행" },
-  { v: "shared", k: "스페이스" },
+  { v: "shared", k: "공유 스페이스" },
   { v: "public", k: "모두의 지도", sep: true },
 ];
 
@@ -191,7 +191,7 @@ export function MapTab(
   const [cat, setCat] = useState<string | null>(null);
   /* 고른 스페이스 하나. null 이면 스코프 전체다. */
   const [space, setSpace] = useState<string | null>(null);
-  const [spaces, setSpaces] = useState<{ id: string; title: string }[]>([]);
+  const [spaces, setSpaces] = useState<API.SpaceRow[]>([]);
   const [pickSpace, setPickSpace] = useState(false);
   const [pins, setPins] = useState<Pin[]>([]);
   const [busy, setBusy] = useState(false);
@@ -591,7 +591,7 @@ export function MapTab(
                 "이 동네엔 아무것도 없다"로 읽히는데, 사실은 필터가 걸러낸 것이다. */}
             {cat ? `이 화면에는 ${CAT[cat]?.k ?? cat} 기록이 없습니다`
               : scope === "mine" ? "이 화면에는 내가 올린 기록이 없습니다"
-              : scope === "shared" ? "이 화면에는 함께 보는 기록이 없습니다"
+              : scope === "shared" ? "이 화면에는 공유 스페이스 기록이 없습니다"
               : "이 화면에는 아직 기록이 없습니다"}
           </Text>
         ) : (
@@ -672,7 +672,7 @@ function PinSheet({ pin, onClose }: { pin: Pin; onClose: () => void }) {
      빠져나오지 못한다. */
 function SpacePicker(
   { spaces, current, onPick, onClose }: {
-    spaces: { id: string; title: string }[];
+    spaces: API.SpaceRow[];
     current: string | null;
     onPick: (id: string | null) => void;
     onClose: () => void;
@@ -683,17 +683,28 @@ function SpacePicker(
       <Pressable style={st.spDim} onPress={onClose}>
         <Pressable style={st.spSheet} onPress={() => {}}>
           <View style={st.spGrip} />
-          <Text style={st.spTitle}>어느 스페이스를 볼까요</Text>
+          <Text style={st.spTitle}>어느 공유 스페이스를 볼까요</Text>
           <ScrollView style={{ maxHeight: 320 }}>
             <Pressable style={[st.spRow, !current && st.spRowOn]} onPress={() => onPick(null)}>
               <Text style={[st.spRowT, !current && st.spRowTOn]}>전체</Text>
-              <Text style={st.spRowS}>함께 보는 기록 전부</Text>
+              <Text style={st.spRowS}>공유 스페이스 전부</Text>
             </Pressable>
+            {!spaces.length && (
+              <Text style={st.spEmpty}>
+                아직 공유 스페이스가 없습니다.{"\n"}
+                스페이스 탭에서 만들고 초대 링크를 보내 보십시오.
+              </Text>
+            )}
             {spaces.map((sp) => (
               <Pressable key={sp.id}
                          style={[st.spRow, current === sp.id && st.spRowOn]}
                          onPress={() => onPick(sp.id)}>
                 <Text style={[st.spRowT, current === sp.id && st.spRowTOn]}>{sp.title}</Text>
+                {/* ★ 빈 방과 쌓인 방은 다른 것이다 — 골라 들어갔는데 비어 있으면
+                    고장으로 읽힌다. 고르기 **전에** 말해 준다. */}
+                <Text style={st.spRowS}>
+                  멤버 {sp.members}명 · {sp.pins ? `기록 ${sp.pins}곳` : "아직 기록 없음"}
+                </Text>
               </Pressable>
             ))}
           </ScrollView>
@@ -752,6 +763,8 @@ const st = StyleSheet.create({
   spRowS: { color: C.muted, fontSize: 12, marginTop: 3 },
   spCancel: { alignItems: "center", paddingVertical: 12 },
   spCancelT: { color: C.muted, fontSize: 14 },
+  spEmpty: { color: C.muted, fontSize: 13, lineHeight: 20,
+             textAlign: "center", paddingVertical: 18 },
   fill: { flex: 1 },
   /* ★ 탭바가 `bottom:26` 에 **떠 있다**(높이 ~62). 문서 흐름의 맨 아래에 두면
      그 뒤로 깔려 글자가 잘린다 — 시뮬레이터에서 실제로 잘렸다.
