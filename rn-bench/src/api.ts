@@ -513,6 +513,10 @@ export const candidates = (
      업로드도 fetch(Blob) 대신 `uploadAsync` 로 **파일을 그대로** 올린다 —
      base64 로 만들면 메모리에 1.33배로 올라앉는다. */
 const MAX_EDGE = 1600;      // 긴 변. 폰 화면에서 이보다 크면 보이지도 않는다
+/* ★ 지도 카드·목록용 **작은 판**(047). 카드 96pt → @3x 288px, 목록 120pt → 360px —
+   480 이면 둘 다 덮으면서 webp 로 30~60KB 다. 키우면 여덟 장이 다시 무겁고,
+   줄이면 @3x 에서 흐려진다. */
+const THUMB_EDGE = 480;
 const WEBP_Q = 0.85;        // 원본 기획서 §11 이 적어 둔 값
 
 /* ★ 두 가지를 틀리기 쉽다. 둘 다 실제로 틀렸었다:
@@ -538,8 +542,9 @@ export async function shrink(
 }
 
 export async function uploadPhoto(
-  srcUri: string, opts?: { maxEdge?: number; q?: number; w?: number; h?: number },
-): Promise<{ ok: boolean; why?: string; path?: string; url?: string;
+  srcUri: string,
+  opts?: { maxEdge?: number; q?: number; w?: number; h?: number; thumb?: boolean },
+): Promise<{ ok: boolean; why?: string; path?: string; url?: string; thumbUrl?: string;
              w?: number | null; h?: number | null; bytes?: number; shrunk?: boolean }> {
   if (!isOn()) return { ok: false, why: "서버 연결 없음" };
   if (!SESSION.access_token) return { ok: false, why: "로그인 필요" };
@@ -570,8 +575,31 @@ export async function uploadPhoto(
       return { ok: false, why: STATE.lastError };
     }
     const info = await FileSystem.getInfoAsync(body);
-    return { ok: true, path, w, h, shrunk,
-             url: `${CFG.url}/storage/v1/object/public/photos/${path}`,
+    const url = `${CFG.url}/storage/v1/object/public/photos/${path}`;
+
+    /* ★ 작은 판을 **한 장 더** 올린다(047). Supabase 의 이미지 변환은 유료라
+       URL 로 줄일 수 없다 — 기기에서 만들면 변환 비용이 0 이다(§13.22 와 같은 이유).
+       ★ **실패해도 본판은 살린다.** 작은 판이 없으면 서버가 원본으로 떨어뜨리므로
+         (`coalesce(thumb_url, url)`) 여기서 멈출 이유가 없다.
+       ★ 이미 480 보다 작으면 **안 만든다** — 같은 것을 두 번 올리는 셈이다. */
+    let thumbUrl: string | undefined;
+    if (opts?.thumb !== false && Math.max(w ?? 0, h ?? 0) > THUMB_EDGE) {
+      try {
+        const t = await shrink(srcUri, opts?.w, opts?.h, THUMB_EDGE, 0.8);
+        const tp = `${SESSION.user_id}/${id}_t.webp`;
+        const tr = await FileSystem.uploadAsync(
+          `${CFG.url}/storage/v1/object/photos/${tp}`, t.uri,
+          { httpMethod: "POST",
+            uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+            headers: { apikey: CFG.anonKey, Authorization: `Bearer ${SESSION.access_token}`,
+                       "Content-Type": "image/webp", "x-upsert": "false" } });
+        if (tr.status < 300) thumbUrl = `${CFG.url}/storage/v1/object/public/photos/${tp}`;
+      } catch (e) {
+        console.warn("[api] 작은 판 실패 — 본판만 올린다", e);
+      }
+    }
+
+    return { ok: true, path, w, h, shrunk, url, thumbUrl,
              bytes: (info as any)?.size ?? 0 };
   } catch (e: any) {
     STATE.lastError = String(e?.message ?? e);
@@ -587,6 +615,7 @@ export async function uploadPhoto(
 export const attachMedia = (pinId: string, up: any, extra?: any) =>
   insert<any>("media", { pin_id: pinId, type: up.type ?? "photo", url: up.url,
                          width: up.w, height: up.h,
+                         ...(up.thumbUrl ? { thumb_url: up.thumbUrl } : {}),
                          ...(up.posterUrl ? { poster_url: up.posterUrl } : {}),
                          ...(up.durationSec ? { duration_sec: up.durationSec } : {}),
                          ...(extra || {}) });
@@ -639,7 +668,8 @@ export async function uploadVideo(
   }
   return { ok: true as const, type: "video" as const,
            url: `${CFG.url}/storage/v1/object/public/photos/${path}`,
-           posterUrl: poster.url, durationSec,
+           /* 표지의 작은 판이 곧 동영상의 작은 판이다 — 따로 만들 것이 없다 */
+           posterUrl: poster.url, thumbUrl: poster.thumbUrl, durationSec,
            w: meta?.w ?? poster.w, h: meta?.h ?? poster.h, bytes };
 }
 

@@ -146,6 +146,8 @@ type Pin = {
   source: string | null;
   memo: string | null;
   media_url: string | null;
+  /** 지도 카드·작은 자리용(047). 서버가 없으면 원본으로 떨어뜨려 준다. */
+  media_thumb: string | null;
   media_w: number | null;
   media_h: number | null;
   visited_at: string | null;
@@ -252,7 +254,8 @@ export function MapTab(
     setPins((r.data as any[]).map((row) => ({
       id: row.id, lng: Number(row.lng), lat: Number(row.lat),
       category: row.category, source: row.source, memo: row.memo,
-      media_url: row.media_url, media_w: row.media_w ?? null, media_h: row.media_h ?? null,
+      media_url: row.media_url, media_thumb: row.media_thumb ?? row.media_url,
+      media_w: row.media_w ?? null, media_h: row.media_h ?? null,
       visited_at: row.visited_at ?? null, stay_sec: row.stay_sec ?? null,
       verification: row.verification ?? null, is_public: !!row.is_public,
       comment_count: row.comment_count ?? 0,
