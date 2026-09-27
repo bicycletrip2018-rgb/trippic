@@ -364,6 +364,23 @@ export async function pinsInBBox(
   return { ok: r.ok, via: r.via, data: rows, more: !!rows[0]?.more };
 }
 
+/* ── 화면 안의 상호 (§13.60 · 048·049) ────────────────────────
+   ★ 배경 지도(OSM)에는 한국 상호가 거의 없다. 확대하면 도로만 남아
+     *"여기가 어떤 동네인지"* 가 안 온다. 그런데 **우리가 이미 갖고 있다** —
+     `places` 46만 곳. 배경은 지형·도로를 깔고 **상호는 우리가 그린다.**
+   ★ 다 주지 않는다. 한 화면에 5,249곳이 들어오므로(해운대 실측) 서버가
+     점수순으로 깎아서 준다. */
+export type PlaceRow = {
+  id: string; name: string; category: string | null;
+  lng: number; lat: number; pin_count: number; has_image: boolean;
+};
+export const placesInBBox = (
+  b: BBox, opts?: { limit?: number; cat?: string | null },
+) => rpc<PlaceRow[]>("api_places_in_bbox", {
+  p_w: b.w, p_s: b.s, p_e: b.e, p_n: b.n,
+  p_limit: opts?.limit ?? 60, p_cat: safeCat(opts?.cat),
+});
+
 /* ── 지역 집계 (§13.49 · 042) ─────────────────────────────────
    ★ **뷰포트로 자르지 않는다.** 핀은 화면으로 잘라 읽지만(031) 지역의 숫자는 다르다 —
      "이 지역 12곳"이 화면을 밀 때마다 8곳이 됐다가 12곳이 되면 그건 거짓말이다.

@@ -30,7 +30,6 @@ import {
   Marker,
   type MapRef,
 } from "@maplibre/maplibre-react-native";
-import type { StyleSpecification } from "@maplibre/maplibre-gl-style-spec";
 import * as API from "../api";
 import { dur, ymd } from "../course";
 import { C, CAT } from "../theme";
@@ -46,6 +45,9 @@ const SGG = require("../../assets/korea-regions.json") as GeoJSON.FeatureCollect
    핀 개수만 깎는 것은 같은 질문에 더 작게 답하는 것일 뿐 질문을 바꾸지 못한다. */
 const Z_REGION = 9;    // 이 아래는 시·군·구 집계
 const Z_ALL = 13;      // 이 위는 전부
+/* ★ 상호는 **가까이서만** 켠다(§13.60). 멀리서 켜면 글자가 죽이 되고,
+   그 줌에서 답해야 하는 질문(*어느 지역에 많나*)과도 어긋난다. */
+const Z_PLACES = 14;
 /* ★ **세 단계다.** 웹은 처음부터 셋이었는데(§13.11) 앱은 둘뿐이라, z9 를 넘는 순간
    300개가 한꺼번에 쏟아졌다. 가운데가 빠지면 *"이 근처에 뭐가 있나"* 에 답하는
    줌이 없어진다 — 지역에서 바로 골목으로 떨어진다(§13.54). */
@@ -132,11 +134,34 @@ const VER_LABEL: Record<string, string> = {
 
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
-const EMPTY_STYLE: StyleSpecification = {
-  version: 8,
-  sources: {},
-  layers: [{ id: "bg", type: "background", paint: { "background-color": BG } }],
-};
+/* ★ **탐침 2 — 벡터 타일**(§13.59).
+   탐침 1(래스터)은 *"타일을 깔면 우리 레이어 밑에 들어간다"* 만 확인했다. 그런데
+   래스터는 **이미 그려진 그림**이라 색도 글꼴도 밀도도 우리가 못 바꾼다 —
+   그대로 깔면 "부동산 벽에 붙은 지도"가 된다.
+   벡터는 우리가 **디자인을 정한다.** 그게 네이버처럼 보이게 하는 유일한 길이다.
+
+   ★ OpenFreeMap: 키 없음 · 무료 · **상업 이용 가능** · MIT · OSM 기반.
+     `dark` 스타일이 있다. 브이월드와 달리 *"영리 목적은 동의 필요"* 같은 조항이 없다. */
+const BASEMAP_STYLE = "https://tiles.openfreemap.org/styles/dark";
+
+/* ★ **한글을 앞에 세운다.** 이 스타일은 `name:latin` 을 먼저 쓰고 비라틴을 뒤에
+   붙인다(실측: `name:latin` 12곳, `name:ko` 0곳). 그래서 확대하면 도로가
+   **BANSONG-RO** 로 보인다 — 한국 사용자에게 그건 읽는 것이 아니라 푸는 것이다.
+   ★ 스타일을 **받아서 고쳐 쓴다.** URL 그대로 넘기면 손댈 수가 없다.
+     받아 오지 못하면 URL 을 그대로 쓴다 — 지도가 아예 안 뜨는 것보다 낫다. */
+function koreanFirst(style: any) {
+  for (const l of style?.layers ?? []) {
+    if (l.type !== "symbol") continue;
+    const tf = l.layout?.["text-field"];
+    if (!tf) continue;
+    /* `name` 은 OSM 의 현지 표기라 한국에서는 대개 한글이다.
+       셋 다 없으면 라틴으로 떨어뜨린다 — 빈 라벨보다 낫다. */
+    l.layout["text-field"] = [
+      "coalesce", ["get", "name:ko"], ["get", "name"], ["get", "name:latin"],
+    ];
+  }
+  return style;
+}
 
 type Pin = {
   id: string;
@@ -194,11 +219,15 @@ export function MapTab(
   } = {},
 ) {
   const mapRef = useRef<MapRef>(null);
+  /* 받아서 고친 배경 스타일. null 이면 아직 못 받았다 — 그동안 지도를 안 그린다
+     (`mapStyle` 을 나중에 바꾸면 지도가 통째로 다시 만들어진다). */
+  const [style, setStyle] = useState<any>(null);
   const [scope, setScope] = useState<API.Scope>("mine_all");
   const [cat, setCat] = useState<string | null>(null);
   /* 고른 스페이스 하나. null 이면 스코프 전체다. */
   const [space, setSpace] = useState<string | null>(null);
   const [spaces, setSpaces] = useState<API.SpaceRow[]>([]);
+  const [places, setPlaces] = useState<API.PlaceRow[]>([]);
   const [pickSpace, setPickSpace] = useState(false);
   const [pins, setPins] = useState<Pin[]>([]);
   const [busy, setBusy] = useState(false);
@@ -212,6 +241,15 @@ export function MapTab(
   const size = useRef({ w: 402, h: 700 });
   useEffect(() => { onSheet?.(!!open); }, [open]);
 
+  useEffect(() => {
+    let live = true;
+    fetch(BASEMAP_STYLE)
+      .then((r) => r.json())
+      .then((j) => { if (live) setStyle(koreanFirst(j)); })
+      .catch(() => { if (live) setStyle(BASEMAP_STYLE); });   // 못 고쳐도 깔기는 한다
+    return () => { live = false; };
+  }, []);
+
   /* 이미 읽은 상자와 그때의 스코프. 스코프가 바뀌면 이 상자는 소용없다 —
      서버가 **다른 집합**을 준다(§13.37). */
   const loaded = useRef<{ box: API.BBox | null; scope: API.Scope;
@@ -223,6 +261,13 @@ export function MapTab(
      `onRegionDidChange` 는 그때의 최신 값을 알아야 하므로 ref 로 들고 본다. */
   const catRef = useRef<string | null>(null);
   const spaceRef = useRef<string | null>(null);
+  /* ★ 상호는 **자기 상자를 따로 기억한다.** 핀과 같이 묶어 두면, 핀 쪽이
+     *"이미 덮인 상자다"* 로 일찍 빠져나갈 때 상호도 같이 못 읽는다 —
+     확대만 하는 동안 상호가 **영영 안 뜬다**(실제로 그랬다, §13.60).
+     핀은 줌이 바뀌어도 같은 집합이지만 상호는 **줌으로 켜고 끈다.** 기준이
+     다르면 상자도 따로 가져야 한다. */
+  const placesBox = useRef<{ box: API.BBox | null; cat: string | null }>(
+    { box: null, cat: null });
 
   const load = useCallback(async (force: boolean, sc: API.Scope, z?: number) => {
     const ct = catRef.current, sp = spaceRef.current;
@@ -230,7 +275,8 @@ export function MapTab(
     /* ★ 집계 줌에서는 핀을 **안 읽는다.** 전국 한 화면이 상자가 되면
        "뷰포트로 자른다"가 아무것도 자르지 않는 말이 된다(031). */
     if (isRegionZoom(z ?? zoom)) {
-      setPins([]); loaded.current = { box: null, scope: sc, cat: ct, space: sp }; return;
+      setPins([]);
+      loaded.current = { box: null, scope: sc, cat: ct, space: sp }; return;
     }
     const b = await mapRef.current?.getBounds().catch(() => null);
     if (!b) return;
@@ -261,6 +307,25 @@ export function MapTab(
       comment_count: row.comment_count ?? 0,
       like_count: row.like_count ?? 0, save_count: row.save_count ?? 0,
     })).filter((p) => Number.isFinite(p.lng) && Number.isFinite(p.lat)));
+  }, []);
+
+  /* 화면 안의 상호. 줌이 낮으면 걷어낸다. */
+  const loadPlaces = useCallback(async (z: number) => {
+    if (z < Z_PLACES) {
+      placesBox.current = { box: null, cat: null };
+      setPlaces((prev) => (prev.length ? [] : prev));
+      return;
+    }
+    const b = await mapRef.current?.getBounds().catch(() => null);
+    if (!b) return;
+    const view: API.BBox = { w: b[0], s: b[1], e: b[2], n: b[3] };
+    const ct = catRef.current;
+    if (placesBox.current.cat === ct && inside(view, placesBox.current.box)) return;
+    const box = API.padBox(view);
+    const r = await API.placesInBBox(box, { limit: 60, cat: ct });
+    if (!r.ok) return;
+    placesBox.current = { box, cat: ct };
+    setPlaces(r.data ?? []);
   }, []);
 
   /* ★ 집계는 **스코프가 바뀔 때만** 읽는다. 화면을 밀어도 다시 읽지 않는다 —
@@ -376,6 +441,8 @@ export function MapTab(
     setPins([]);
     setMore(false);
     loaded.current = { box: null, scope, cat: v, space };
+    placesBox.current = { box: null, cat: v };   // 상호도 같은 필터를 탄다
+    void loadPlaces(zoom);
     setAgg([]);
     void load(true, scope);
     void loadAgg(scope, v, space);
@@ -430,6 +497,19 @@ export function MapTab(
     }
     setWhy(r.closed ? `${sp.title} 스페이스를 접었습니다`
                     : `${sp.title}에서 나왔습니다`);
+  };
+
+  /* 상호. ★ 핀보다 **뒤에** 그린다 — 내 기록이 배경에 묻히면 안 된다. */
+  const placeFc: GeoJSON.FeatureCollection = {
+    type: "FeatureCollection",
+    features: places.map((q) => ({
+      type: "Feature" as const,
+      geometry: { type: "Point" as const, coordinates: [q.lng, q.lat] },
+      properties: {
+        name: q.name,
+        color: CAT[q.category ?? "etc"]?.c ?? CAT.etc.c,
+      },
+    })),
   };
 
   const fc: GeoJSON.FeatureCollection = {
@@ -528,7 +608,12 @@ export function MapTab(
         </ScrollView>
       </View>
 
-      <Map ref={mapRef} style={st.fill} mapStyle={EMPTY_STYLE}
+      {!style ? (
+        <View style={[st.fill, st.center]}>
+          <ActivityIndicator color={C.accent} />
+        </View>
+      ) : (
+      <Map ref={mapRef} style={st.fill} mapStyle={style}
            onPress={(e) => { void onMapPress(e); }}
            onLayout={(e) => {
              const { width, height } = e.nativeEvent.layout;
@@ -543,6 +628,7 @@ export function MapTab(
                 (웹에서 겪은 것). `onRegionDidChange` 가 바로 그 시점이다. */
              if (typeof z === "number" && isRegionZoom(z)) setInto(null);
              void load(false, scope, z);
+             if (typeof z === "number") void loadPlaces(z);
            }}>
         {/* ★ 줌 숫자가 아니라 **담을 범위**로 말한다. `zoom: 5.6` 은 벤치마크 화면에서
             물려받은 값인데, 그 숫자가 "전국이 보인다"를 뜻하는지는 기기 크기와
@@ -551,7 +637,22 @@ export function MapTab(
         <Camera ref={camRef} initialViewState={{ bounds: [124.4, 32.9, 132.2, 38.7] }} />
 
         <GeoJSONSource id="sgg" data={SGG as any}>
-          <Layer id="region-base" type="fill" paint={{ "fill-color": LAND }} />
+          {/* ★ **줌이 바뀌면 지도의 성격도 바뀐다**(§13.11 의 확장, §13.59).
+              전국 줌에서 우리가 파는 것은 *"어디를 채웠나"* 라 **지적도**가 맞다 —
+              도로와 건물은 그 질문에 방해만 된다. 그런데 확대하면 질문이
+              *"여기가 어디냐"* 로 바뀌고, 그때는 **실제 지도**여야 한다.
+              → 면을 지웠다 그렸다 하지 않고 **불투명도만** 줌에 맡긴다
+                (레이어를 끼웠다 빼면 앱이 죽는다 — §13.47). */}
+          <Layer id="region-base" type="fill"
+                 paint={{
+                   "fill-color": LAND,
+                   "fill-opacity": [
+                     "interpolate", ["linear"], ["zoom"],
+                     Z_REGION - 1, 1,      // 전국: 지적도
+                     Z_REGION + 2, 0.15,   // 들어가는 중: 옅어진다
+                     Z_ALL, 0,             // 골목: 실제 지도만
+                   ],
+                 } as any} />
           {/* ★ **끼웠다 뺐다 하지 않는다.** 조건부로 렌더하면 줌 단위가 바뀔 때
               형제 위치가 밀려 다음 레이어의 `id` 가 바뀐 것으로 잡히고,
               라이브러리가 `id cannot be changed` 로 **앱을 죽인다**(실제로 죽었다).
@@ -569,6 +670,38 @@ export function MapTab(
             </View>
           </Marker>
         ))}
+
+        {/* ★ 상호 — **글자 충돌을 라이브러리에 맡긴다.** `text-allow-overlap` 을
+            끄면 겹치는 이름을 알아서 버린다. 네이버가 깔끔해 보이는 이유의
+            절반이 이것이다. RN `Marker` 로 그리면 이 기능이 없어 60개가
+            그대로 겹친다(지역 라벨이 40개에서 이미 빡빡했다).
+            ★ 폰트는 배경 스타일이 쓰는 것과 **같은 이름**이어야 한다 —
+              `Noto Sans Regular`. 한글 글리프 확인함(44032 범위 181KB). */}
+        <GeoJSONSource id="places" data={placeFc as any}>
+          <Layer id="place-dot" type="circle"
+                 paint={{
+                   "circle-radius": 2.5,
+                   "circle-color": ["get", "color"] as any,
+                   "circle-opacity": 0.85,
+                 }} />
+          <Layer id="place-label" type="symbol"
+                 layout={{
+                   "text-field": ["get", "name"] as any,
+                   "text-font": ["Noto Sans Regular"],
+                   "text-size": 10.5,
+                   "text-offset": [0, 0.9],
+                   "text-anchor": "top",
+                   "text-max-width": 7,
+                   "text-padding": 3,
+                 } as any}
+                 paint={{
+                   "text-color": "rgba(255,255,255,0.72)",
+                   /* 어두운 배경에서도 읽히게 **테두리**를 준다 — 지도가 어두워도
+                      도로 위에 글자가 올라가면 대비가 무너진다. */
+                   "text-halo-color": "rgba(0,0,0,0.85)",
+                   "text-halo-width": 1.2,
+                 }} />
+        </GeoJSONSource>
 
         <GeoJSONSource id="pins" data={(region ? EMPTY_FC : fc) as any}>
           {/* ★ 밀린 핀을 **지우지 않는다.** 지우면 "이 동네엔 이것뿐"으로 읽히는데
@@ -590,6 +723,7 @@ export function MapTab(
                  }} />
         </GeoJSONSource>
       </Map>
+      )}
 
       {pickSpace && (
         <SpacePicker
@@ -872,6 +1006,7 @@ const st = StyleSheet.create({
   spAskGo: { backgroundColor: "rgba(224,169,74,0.18)" },
   spAskGoT: { color: C.warn, fontWeight: "700" },
   fill: { flex: 1 },
+  center: { alignItems: "center", justifyContent: "center" },
   /* ★ 탭바가 `bottom:26` 에 **떠 있다**(높이 ~62). 문서 흐름의 맨 아래에 두면
      그 뒤로 깔려 글자가 잘린다 — 시뮬레이터에서 실제로 잘렸다.
      그래서 탭바 위(88+여백)에 같은 모양의 알약으로 띄운다. */
