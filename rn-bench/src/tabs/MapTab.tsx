@@ -78,12 +78,28 @@ const CATS: { v: string | null; k: string }[] = [
 const mercY = (lat: number) =>
   Math.log(Math.tan(Math.PI / 4 + (Math.max(-85, Math.min(85, lat)) * Math.PI) / 360)) / Math.PI / 2 + 0.5;
 
-function zoomForBBox(b: number[], wPx: number, hPx: number) {
+function zoomForBBox(b: number[], wPx: number, hPx: number, onPins = false) {
   const lonFrac = Math.max(1e-6, (b[2] - b[0]) / 360);
   const latFrac = Math.max(1e-6, Math.abs(mercY(b[3]) - mercY(b[1])));
   const zx = Math.log2(wPx / (256 * lonFrac));
   const zy = Math.log2(hPx / (256 * latFrac));
-  return Math.min(12.5, Math.max(Z_REGION + 0.3, Math.min(zx, zy)));
+  /* ★ 상한이 **둘**이다. 행정구역 상자로 갈 때는 12.5 에서 멈춘다 —
+     그 큰 상자를 다 담으려다 보면 어차피 멀다. 그런데 **핀 상자**로 갈 때는
+     내용이 있는 곳이니 더 들어가도 된다. 상호가 z14 부터 켜지므로(§13.60)
+     그 위로 가야 *"주변에 뭐가 있나"* 가 같이 보인다. */
+  const hi = onPins ? 16.5 : 12.5;
+  return Math.min(hi, Math.max(Z_REGION + 0.3, Math.min(zx, zy)));
+}
+
+/* 핀 상자에 여백을 준다. ★ 한 곳뿐이면 상자가 **점**이라 그대로 쓰면 줌이
+   무한대로 튄다 — 최소 크기를 준다(약 400m). 여러 곳이면 가장자리 핀이
+   화면 끝에 붙지 않게 한 뼘 넓힌다. */
+function padPinBox(b: number[]) {
+  const MIN = 0.004;                              // 도 단위 ≈ 400m
+  const cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2;
+  const w = Math.max(MIN, (b[2] - b[0]) * 1.6);
+  const h = Math.max(MIN, (b[3] - b[1]) * 1.6);
+  return [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2];
 }
 
 /* 로그로 편다. ★ 선형으로 칠하면 거의 다 0에 붙는다 — 한 지역만 빨갛고 나머지는 검다.
@@ -379,9 +395,20 @@ export function MapTab(
       const r = code ? NAME[code] : null;
       if (!r?.bbox) return;                       // 바다를 눌렀다 — 아무 일도 안 한다
       setInto(r.name);
+
+      /* ★ **기록이 있는 곳으로 간다**(§13.61). 행정구역 한가운데는 대개 산이다 —
+         해운대구를 누르면 장산 산지에 떨어져 아무것도 없는 화면을 봤다.
+         *"지역을 눌렀다"* 는 *"거기 뭐가 있는지 보자"* 는 뜻이다.
+         ★ 집계를 읽을 때 상자를 **같이** 받아 뒀다(050). 탭할 때 또 물으면
+           그만큼 지도가 늦게 움직인다. */
+      const a = agg.find((x) => x.region_code === code);
+      const box = (a && Number.isFinite(a.bw))
+        ? padPinBox([a.bw, a.bs, a.be, a.bn])
+        : r.bbox;                                 // 기록이 없는 지역은 예전처럼
+
       camRef.current?.flyTo({
-        center: [(r.bbox[0] + r.bbox[2]) / 2, (r.bbox[1] + r.bbox[3]) / 2],
-        zoom: zoomForBBox(r.bbox, size.current.w, size.current.h),
+        center: [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2],
+        zoom: zoomForBBox(box, size.current.w, size.current.h, !!a),
         duration: 700,
       });
       return;

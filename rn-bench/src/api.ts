@@ -385,7 +385,12 @@ export const placesInBBox = (
    ★ **뷰포트로 자르지 않는다.** 핀은 화면으로 잘라 읽지만(031) 지역의 숫자는 다르다 —
      "이 지역 12곳"이 화면을 밀 때마다 8곳이 됐다가 12곳이 되면 그건 거짓말이다.
      숫자는 **지역 전체**를 뜻한다. 돌아오는 줄은 지역 수(251) 이하고, 0곳은 안 온다. */
-export type RegionAgg = { region_code: string; n: number; n_mine: number; n_shared: number };
+export type RegionAgg = {
+  region_code: string; n: number; n_mine: number; n_shared: number;
+  /* 이 지역에서 **지금 보이는 핀들**이 차지하는 상자(050). 지역을 눌렀을 때
+     어디로 갈지에 쓴다 — 행정구역 한가운데는 대개 산이다. */
+  bw: number; bs: number; be: number; bn: number;
+};
 
 export const pinsByRegion = (
   scope: Scope = "mine_all", cat?: string | null, space?: string | null,
