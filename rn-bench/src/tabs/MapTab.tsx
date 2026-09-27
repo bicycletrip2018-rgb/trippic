@@ -31,6 +31,7 @@ import {
   type MapRef,
 } from "@maplibre/maplibre-react-native";
 import * as API from "../api";
+import { whereAmI, watchHere, type Here } from "../live";
 import { dur, ymd } from "../course";
 import { C, CAT } from "../theme";
 
@@ -150,6 +151,25 @@ const VER_LABEL: Record<string, string> = {
 
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
+/* ★ 정확도 원을 **미터 그대로** 그린다. `circle-radius` 는 **픽셀**이라 줌을
+   바꾸면 원이 따라 커지지 않는다 — 그러면 "이만큼 오차가 있다"가 아니라
+   그냥 장식이 된다. 폴리곤으로 그리면 땅에 붙어서 줌과 같이 움직인다.
+   ★ 위도에 따라 경도 1도의 길이가 달라지므로 `cos(lat)` 로 나눈다. */
+function accuracyRing(h: Here, steps = 40): GeoJSON.FeatureCollection {
+  const dLat = h.accM / 111_320;
+  const dLng = h.accM / (111_320 * Math.cos((h.lat * Math.PI) / 180));
+  const ring: [number, number][] = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = (i / steps) * 2 * Math.PI;
+    ring.push([h.lng + dLng * Math.cos(t), h.lat + dLat * Math.sin(t)]);
+  }
+  return {
+    type: "FeatureCollection",
+    features: [{ type: "Feature", properties: {},
+                 geometry: { type: "Polygon", coordinates: [ring] } }],
+  };
+}
+
 /* ★ **탐침 2 — 벡터 타일**(§13.59).
    탐침 1(래스터)은 *"타일을 깔면 우리 레이어 밑에 들어간다"* 만 확인했다. 그런데
    래스터는 **이미 그려진 그림**이라 색도 글꼴도 밀도도 우리가 못 바꾼다 —
@@ -244,6 +264,10 @@ export function MapTab(
   const [space, setSpace] = useState<string | null>(null);
   const [spaces, setSpaces] = useState<API.SpaceRow[]>([]);
   const [places, setPlaces] = useState<API.PlaceRow[]>([]);
+  const [here, setHere] = useState<Here | null>(null);
+  const [locating, setLocating] = useState(false);
+  const stopWatch = useRef<null | (() => void)>(null);
+  useEffect(() => () => stopWatch.current?.(), []);
   const [pickSpace, setPickSpace] = useState(false);
   const [pins, setPins] = useState<Pin[]>([]);
   const [busy, setBusy] = useState(false);
@@ -539,6 +563,28 @@ export function MapTab(
     })),
   };
 
+  /* 내 위치로 간다. ★ 누른 그 순간에 권한을 묻는다(§13.62). */
+  const goHere = async () => {
+    setLocating(true);
+    const r = await whereAmI();
+    setLocating(false);
+    if ((r as any).ok === false) { setWhy((r as any).why); return; }
+    const h = r as Here;
+    setHere(h);
+    setWhy(null);
+    camRef.current?.flyTo({
+      center: [h.lng, h.lat],
+      /* ★ 이미 가까이 있으면 **줌을 건드리지 않는다.** 내 위치를 보려고 눌렀는데
+         보고 있던 축척이 바뀌면 방금까지 보던 맥락을 잃는다. */
+      zoom: zoom < Z_PLACES ? 15 : zoom,
+      duration: 600,
+    });
+    /* 한 번 허락을 받았으면 그 뒤로는 따라간다 — 걸으면서 보는 화면이다. */
+    if (!stopWatch.current) {
+      stopWatch.current = await watchHere(setHere).catch(() => null);
+    }
+  };
+
   const fc: GeoJSON.FeatureCollection = {
     type: "FeatureCollection",
     features: pins
@@ -749,7 +795,43 @@ export function MapTab(
                    "circle-stroke-color": "rgba(255,255,255,0.85)",
                  }} />
         </GeoJSONSource>
+
+        {/* ★ 내 위치는 **맨 위**에 그린다. 핀이나 상호에 가리면 "내가 어디냐"에
+            답을 못 한다 — 그게 이 점의 유일한 일이다.
+            ★ 레이어는 **끼웠다 빼지 않는다**(§13.47). 위치가 없으면 빈 것을 먹인다. */}
+        <GeoJSONSource id="here-acc" data={(here ? accuracyRing(here) : EMPTY_FC) as any}>
+          <Layer id="here-acc-fill" type="fill"
+                 paint={{ "fill-color": C.accent, "fill-opacity": 0.12 }} />
+          <Layer id="here-acc-line" type="line"
+                 paint={{ "line-color": C.accent, "line-opacity": 0.35, "line-width": 1 }} />
+        </GeoJSONSource>
+
+        <GeoJSONSource id="here" data={(here ? {
+          type: "FeatureCollection",
+          features: [{ type: "Feature", properties: {},
+                       geometry: { type: "Point", coordinates: [here.lng, here.lat] } }],
+        } : EMPTY_FC) as any}>
+          <Layer id="here-halo" type="circle"
+                 paint={{ "circle-radius": 11, "circle-color": "#000", "circle-opacity": 0.35 }} />
+          <Layer id="here-dot" type="circle"
+                 paint={{
+                   "circle-radius": 6,
+                   "circle-color": C.accent,
+                   "circle-stroke-width": 2.5,
+                   "circle-stroke-color": "#fff",
+                 }} />
+        </GeoJSONSource>
       </Map>
+      )}
+
+      {/* ★ 내 위치 버튼. `(+)` 위에 둔다 — `(+)` 는 App 이 지도 위에 띄우므로
+          자리를 비켜 준다. 시트가 떠 있으면 같이 감춘다. */}
+      {!open && !!style && (
+        <Pressable style={st.locate} onPress={() => { void goHere(); }}>
+          {locating
+            ? <ActivityIndicator size="small" color={C.text} />
+            : <Text style={[st.locateT, here && { color: C.accent }]}>◎</Text>}
+        </Pressable>
       )}
 
       {pickSpace && (
@@ -1034,6 +1116,15 @@ const st = StyleSheet.create({
   spAskGoT: { color: C.warn, fontWeight: "700" },
   fill: { flex: 1 },
   center: { alignItems: "center", justifyContent: "center" },
+  /* (+) 는 right:20/bottom:96 에 있다(App). 그 **위로** 올린다. */
+  locate: {
+    position: "absolute", right: 22, bottom: 168,
+    width: 44, height: 44, borderRadius: 22,
+    alignItems: "center", justifyContent: "center",
+    backgroundColor: "rgba(22,24,31,0.92)",
+    borderWidth: 1, borderColor: C.line,
+  },
+  locateT: { color: C.text, fontSize: 20, lineHeight: 24 },
   /* ★ 탭바가 `bottom:26` 에 **떠 있다**(높이 ~62). 문서 흐름의 맨 아래에 두면
      그 뒤로 깔려 글자가 잘린다 — 시뮬레이터에서 실제로 잘렸다.
      그래서 탭바 위(88+여백)에 같은 모양의 알약으로 띄운다. */

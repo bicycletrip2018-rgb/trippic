@@ -132,3 +132,39 @@ export async function capture(kind: "photo" | "video"): Promise<Shot | ShotFail>
 }
 
 export const isFail = (r: Shot | ShotFail): r is ShotFail => (r as any).ok === false;
+
+/* ── 내 위치 (§13.62) ─────────────────────────────────────────────
+   ★ **열자마자 묻지 않는다.** 지도를 보려고 앱을 연 사람에게 첫 화면이
+     권한 팝업이면, 무엇에 쓰는지 모른 채 거절한다 — 그리고 거절은 되돌리기가
+     훨씬 어렵다(설정으로 들어가야 한다). 버튼을 누른 그 순간이 맥락이다.
+     §13.53 에서 카메라에 쓴 것과 같은 규칙이다. */
+export type Here = { lat: number; lng: number; accM: number };
+
+export async function whereAmI(): Promise<Here | ShotFail> {
+  const perm = await Location.requestForegroundPermissionsAsync();
+  if (!perm.granted) {
+    return { ok: false, needsSettings: !perm.canAskAgain,
+             why: perm.canAskAgain
+               ? "위치를 허용하셔야 내가 어디인지 보여 드릴 수 있습니다."
+               : "설정 > 트립픽에서 위치를 켜 주십시오." };
+  }
+  try {
+    const p = await Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.Balanced,
+    });
+    return { lat: p.coords.latitude, lng: p.coords.longitude,
+             accM: p.coords.accuracy ?? 0 };
+  } catch (e: any) {
+    return { ok: false, why: `위치를 받지 못했습니다 — ${String(e?.message ?? e)}` };
+  }
+}
+
+/** 움직이는 동안 따라간다. 반환값을 부르면 멈춘다. */
+export async function watchHere(onMove: (h: Here) => void) {
+  const sub = await Location.watchPositionAsync(
+    { accuracy: Location.Accuracy.Balanced, distanceInterval: 10 },
+    (p) => onMove({ lat: p.coords.latitude, lng: p.coords.longitude,
+                    accM: p.coords.accuracy ?? 0 }),
+  );
+  return () => sub.remove();
+}
