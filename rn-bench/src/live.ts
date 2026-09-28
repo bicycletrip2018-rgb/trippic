@@ -159,6 +159,24 @@ export async function whereAmI(): Promise<Here | ShotFail> {
   }
 }
 
+/* ── 바라보는 방향 (§13.64) ───────────────────────────────────────
+   ★ **자력계가 필요하다.** 시뮬레이터에는 없다 — 그래서 이 경로는
+     §13.53(카메라 셔터), §13.46(콜드 스타트)과 같은 **실기기 미검증** 칸에 들어간다.
+     돌려 보지 않은 것을 됐다고 적지 않는다.
+   ★ `trueHeading` 은 **위치 권한이 있어야** 준다(없으면 -1). 그래서 위치를 이미
+     받은 뒤에만 부른다. -1 이면 자북(`magHeading`)으로 떨어뜨린다 — 몇 도 어긋나도
+     *"어느 쪽을 보고 있나"* 에는 답이 된다.
+   ★ `accuracy` 가 나쁘면(3 이상 = 부정확) **화살표를 안 그린다.** 엉뚱한 쪽을
+     가리키는 화살표는 없느니만 못하다 — 사용자가 그걸 믿고 몸을 돌린다. */
+export async function watchHeading(onTurn: (deg: number | null) => void) {
+  const sub = await Location.watchHeadingAsync((h) => {
+    if (h.accuracy != null && h.accuracy >= 3) { onTurn(null); return; }
+    const deg = h.trueHeading >= 0 ? h.trueHeading : h.magHeading;
+    onTurn(Number.isFinite(deg) && deg >= 0 ? deg : null);
+  });
+  return () => sub.remove();
+}
+
 /** 움직이는 동안 따라간다. 반환값을 부르면 멈춘다. */
 export async function watchHere(onMove: (h: Here) => void) {
   const sub = await Location.watchPositionAsync(

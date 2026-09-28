@@ -31,7 +31,7 @@ import {
   type MapRef,
 } from "@maplibre/maplibre-react-native";
 import * as API from "../api";
-import { whereAmI, watchHere, type Here } from "../live";
+import { whereAmI, watchHere, watchHeading, type Here } from "../live";
 import { dur, ymd } from "../course";
 import { C, CAT } from "../theme";
 
@@ -49,6 +49,12 @@ const Z_ALL = 13;      // 이 위는 전부
 /* ★ 상호는 **가까이서만** 켠다(§13.60). 멀리서 켜면 글자가 죽이 되고,
    그 줌에서 답해야 하는 질문(*어느 지역에 많나*)과도 어긋난다. */
 const Z_PLACES = 14;
+/* ★ 표지 카드(사진 + 이름)를 켜는 줌. 상호 이름보다 **한 칸 더 가까이** 간다 —
+   카드는 무겁고(이미지) 자리를 많이 차지해서, 이름이 먼저 나오고 그다음이 사진이다. */
+const Z_CARDS = 15;
+/* ★ 몇 장이나. 네이버도 전부 안 띄운다. 8장이면 @3x 로 썸네일 8장이라
+   `thumb_url`(480px, §13.58)이 있어야 감당된다. */
+const MAX_CARDS = 8;
 /* ★ **세 단계다.** 웹은 처음부터 셋이었는데(§13.11) 앱은 둘뿐이라, z9 를 넘는 순간
    300개가 한꺼번에 쏟아졌다. 가운데가 빠지면 *"이 근처에 뭐가 있나"* 에 답하는
    줌이 없어진다 — 지역에서 바로 골목으로 떨어진다(§13.54). */
@@ -266,8 +272,14 @@ export function MapTab(
   const [places, setPlaces] = useState<API.PlaceRow[]>([]);
   const [here, setHere] = useState<Here | null>(null);
   const [locating, setLocating] = useState(false);
+  const [facing, setFacing] = useState<number | null>(null);
   const stopWatch = useRef<null | (() => void)>(null);
-  useEffect(() => () => stopWatch.current?.(), []);
+  const stopHeading = useRef<null | (() => void)>(null);
+  /* ★ 카드를 누르면 `Marker` 가 먼저 열고, **지도의 press 가 곧바로 닫는다** —
+     카드 자리에는 핀 점이 없어서(카드로 뽑힌 핀은 점을 끈다) 빈 곳을 누른 것으로
+     읽히기 때문이다. 방금 카드를 눌렀으면 지도 쪽은 **아무것도 하지 않는다.** */
+  const cardTapAt = useRef(0);
+  useEffect(() => () => { stopWatch.current?.(); stopHeading.current?.(); }, []);
   const [pickSpace, setPickSpace] = useState(false);
   const [pins, setPins] = useState<Pin[]>([]);
   const [busy, setBusy] = useState(false);
@@ -406,6 +418,7 @@ export function MapTab(
   /* 핀을 누르면 시트가 열린다. ★ 빈 곳을 누르면 **닫는다** — 닫는 길이 X 하나뿐이면
      지도를 보려고 매번 작은 버튼을 겨눠야 한다. */
   const onMapPress = async (e: any) => {
+    if (Date.now() - cardTapAt.current < 400) return;   // 카드가 방금 열었다
     const pt = e?.nativeEvent?.point;
     if (!pt) { setOpen(null); return; }
 
@@ -550,6 +563,31 @@ export function MapTab(
                     : `${sp.title}에서 나왔습니다`);
   };
 
+  /* ── 표지 카드 (§13.63) ────────────────────────────────────────
+     ★ **겹치면 안 고른다.** 상호 이름은 MapLibre 가 충돌을 처리해 주지만
+       (§13.60) 카드는 RN 뷰라 그 기능이 없다 — 그대로 두면 8장이 한 덩어리로
+       뭉친다. 화면에서 카드 폭만큼 떨어진 것만 남긴다.
+     ★ 거리 기준을 **도(degree)가 아니라 화면 비율**로 잡는다. 같은 0.001도라도
+       줌에 따라 화면에서는 전혀 다른 거리다. */
+  const cards = (() => {
+    if (zoom < Z_CARDS) return [];
+    const withPhoto = pins.filter((p) => p.media_thumb);
+    if (!withPhoto.length) return [];
+    /* 화면 가로가 몇 도인지 — 카드 하나가 화면의 몇 분의 일인지로 최소 간격을 낸다 */
+    const box = loaded.current.box;
+    const degPerPx = box ? (box.e - box.w) / (size.current.w * (1 + API.PAD * 2)) : 0;
+    const minSep = degPerPx * 110;                 // 카드 폭 ≈ 96pt + 여백
+    const out: Pin[] = [];
+    for (const p of [...withPhoto].sort((a, b) => b.like_count - a.like_count)) {
+      if (out.length >= MAX_CARDS) break;
+      if (out.some((q) => Math.abs(q.lng - p.lng) < minSep
+                       && Math.abs(q.lat - p.lat) < minSep * 0.8)) continue;
+      out.push(p);
+    }
+    return out;
+  })();
+  const cardIds = new Set(cards.map((c) => c.id));
+
   /* 상호. ★ 핀보다 **뒤에** 그린다 — 내 기록이 배경에 묻히면 안 된다. */
   const placeFc: GeoJSON.FeatureCollection = {
     type: "FeatureCollection",
@@ -583,11 +621,19 @@ export function MapTab(
     if (!stopWatch.current) {
       stopWatch.current = await watchHere(setHere).catch(() => null);
     }
+    /* ★ 방향은 **자력계**가 있어야 한다. 시뮬레이터에는 없으므로 조용히 실패하고,
+       화살표 없이 점만 남는다 — 그게 맞는 모습이다(§13.64). */
+    if (!stopHeading.current) {
+      stopHeading.current = await watchHeading(setFacing).catch(() => null);
+    }
   };
 
   const fc: GeoJSON.FeatureCollection = {
     type: "FeatureCollection",
     features: pins
+      /* ★ 카드로 뽑힌 핀은 점을 **끈다.** 같은 기록을 카드와 점으로 두 번
+         그리면 카드 밑에 점이 삐져나와 지저분하다. */
+      .filter((p) => !cardIds.has(p.id))
       .map((p) => toFeature({ ...p, __top: !picked || picked.has(p.id) }))
       .filter(Boolean) as GeoJSON.Feature[],
   };
@@ -750,6 +796,31 @@ export function MapTab(
             그대로 겹친다(지역 라벨이 40개에서 이미 빡빡했다).
             ★ 폰트는 배경 스타일이 쓰는 것과 **같은 이름**이어야 한다 —
               `Noto Sans Regular`. 한글 글리프 확인함(44032 범위 181KB). */}
+        {/* ★ 표지 카드. **사진이 곧 그 자리의 얼굴**이다(§13.8) — 이름만으로는
+            *"어떤 느낌의 장소인지"* 가 안 온다.
+            ★ `media_thumb` 을 쓴다. 없으면 서버가 원본으로 떨어뜨려 주므로
+              옛 사진도 그냥 보인다(§13.58). */}
+        {cards.map((c) => (
+          /* ★ `anchor="bottom"` — 카드는 좌표 **위에** 선다. 기본값(center)이면
+             사진 한가운데가 좌표에 놓여, 아래 꼭지가 가리키는 곳과 실제 지점이
+             **한 뼘 어긋난다.** 가리키는 시늉만 하는 꼭지는 없느니만 못하다.
+             ★ 누르는 것은 `Marker` 자신의 `onPress` 로 받는다. 안쪽 `Pressable`
+               로 받으면 **지도의 press 가 가로채** 시트가 열렸다 바로 닫힌다
+               (실제로 그랬다 — §13.63). */
+          <Marker key={`card-${c.id}`} lngLat={[c.lng, c.lat]}
+                  anchor="bottom"
+                  onPress={() => { cardTapAt.current = Date.now(); setOpen(c); }}>
+            <View style={st.card}>
+              <Image source={{ uri: c.media_thumb! }} style={st.cardImg} />
+              {!!c.memo && (
+                <Text style={st.cardT} numberOfLines={1}>{c.memo}</Text>
+              )}
+              {/* 카드가 가리키는 지점 — 없으면 사진이 공중에 뜬 것처럼 보인다 */}
+              <View style={st.cardPin} />
+            </View>
+          </Marker>
+        ))}
+
         <GeoJSONSource id="places" data={placeFc as any}>
           <Layer id="place-dot" type="circle"
                  paint={{
@@ -805,6 +876,18 @@ export function MapTab(
           <Layer id="here-acc-line" type="line"
                  paint={{ "line-color": C.accent, "line-opacity": 0.35, "line-width": 1 }} />
         </GeoJSONSource>
+
+        {/* ★ 바라보는 방향. **회전이 필요해서** circle 레이어로는 못 그린다 —
+            RN 뷰를 돌린다. 하나뿐이라 겹침 걱정도 없다.
+            ★ 방향을 **모르면 안 그린다.** 엉뚱한 쪽을 가리키는 화살표는 없느니만
+              못하다 — 사용자가 그걸 믿고 몸을 돌린다. */}
+        {here && facing != null && (
+          <Marker lngLat={[here.lng, here.lat]}>
+            <View style={{ transform: [{ rotate: `${facing}deg` }] }}>
+              <View style={st.facing} />
+            </View>
+          </Marker>
+        )}
 
         <GeoJSONSource id="here" data={(here ? {
           type: "FeatureCollection",
@@ -1125,6 +1208,30 @@ const st = StyleSheet.create({
     borderWidth: 1, borderColor: C.line,
   },
   locateT: { color: C.text, fontSize: 20, lineHeight: 24 },
+  /* 표지 카드 — 사진이 주인공이라 테두리는 얇게, 배경은 거의 안 보이게 */
+  card: { alignItems: "center", width: 96 },
+  cardImg: {
+    width: 84, height: 84, borderRadius: 12,
+    borderWidth: 2, borderColor: "rgba(255,255,255,0.92)",
+    backgroundColor: "#222",
+  },
+  cardT: {
+    marginTop: 4, maxWidth: 96, color: "rgba(255,255,255,0.92)",
+    fontSize: 10.5, fontWeight: "600", textAlign: "center",
+    textShadowColor: "rgba(0,0,0,0.9)", textShadowRadius: 3,
+  },
+  /* 부채꼴 대신 **삼각형 하나.** 점 위에 얹히므로 아래쪽을 비워 둔다
+     (marginBottom 으로 점 중심에서 위로 밀어낸다). */
+  facing: {
+    width: 0, height: 0, marginBottom: 26,
+    borderLeftWidth: 7, borderRightWidth: 7, borderBottomWidth: 11,
+    borderLeftColor: "transparent", borderRightColor: "transparent",
+    borderBottomColor: C.accent,
+  },
+  cardPin: {
+    width: 7, height: 7, borderRadius: 4, marginTop: 3,
+    backgroundColor: "rgba(255,255,255,0.92)",
+  },
   /* ★ 탭바가 `bottom:26` 에 **떠 있다**(높이 ~62). 문서 흐름의 맨 아래에 두면
      그 뒤로 깔려 글자가 잘린다 — 시뮬레이터에서 실제로 잘렸다.
      그래서 탭바 위(88+여백)에 같은 모양의 알약으로 띄운다. */
