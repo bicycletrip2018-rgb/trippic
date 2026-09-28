@@ -364,6 +364,15 @@ export async function pinsInBBox(
   return { ok: r.ok, via: r.via, data: rows, more: !!rows[0]?.more };
 }
 
+/* ── 정복률 (§13.68 · 005) ────────────────────────────────────
+   ★ 원본 기획 §1 의 한 줄 정의가 *"지적도 기반의 **공간 정복 쾌감**"* 인데,
+     서버(`api_coverage`)는 처음부터 있었고 **화면이 한 번도 안 불렀다.**
+   ★ `unlocked / total / pct` 를 서버가 이미 계산해 준다 — 여기서 다시 세지 않는다. */
+export type Coverage = { unlocked: number; total: number; pct: number };
+export const coverage = (scope: "user" | "space" = "user", scopeId?: string | null) =>
+  rpc<Coverage[]>("api_coverage", { p_scope: scope, p_scope_id: scopeId ?? null })
+    .then((r) => (r.ok ? (r.data?.[0] ?? null) : null));
+
 /* ── 화면 안의 상호 (§13.60 · 048·049) ────────────────────────
    ★ 배경 지도(OSM)에는 한국 상호가 거의 없다. 확대하면 도로만 남아
      *"여기가 어떤 동네인지"* 가 안 온다. 그런데 **우리가 이미 갖고 있다** —

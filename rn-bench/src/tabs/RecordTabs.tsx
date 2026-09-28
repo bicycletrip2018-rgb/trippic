@@ -191,6 +191,7 @@ export function MyTab({ authTick = 0 }: { authTick?: number }) {
   const [signing, setSigning] = useState(false);
   const [uid, setUid] = useState<string | null>(API.SESSION.user_id);
   const [course, setCourse] = useState(false);
+  const [cov, setCov] = useState<API.Coverage | null>(null);
   /* ★ 켜져 있는 것만 보여 준다 — 꺼져 있는데 버튼을 두면 누른 사람이
      `Unsupported provider` 를 본다 (§13.41). */
   const [socials, setSocials] = useState<API.Social[]>([]);
@@ -227,6 +228,8 @@ export function MyTab({ authTick = 0 }: { authTick?: number }) {
     });
 
   useEffect(() => { void API.myTrips().then((r) => setTrips(r.data ?? [])); }, [rows.length]);
+  /* ★ 기록이 늘면 정복률도 바뀐다 — `rows.length` 를 같이 본다. */
+  useEffect(() => { void API.coverage().then(setCov); }, [rows.length, uid]);
 
   async function start() {
     setSigning(true);
@@ -241,6 +244,39 @@ export function MyTab({ authTick = 0 }: { authTick?: number }) {
     <ScrollView style={s.wrap} contentContainerStyle={{ paddingBottom: 110 }}
       refreshControl={<RefreshControl refreshing={busy} onRefresh={load} tintColor={C.muted} />}>
       <Text style={s.h1}>마이</Text>
+
+      {/* ★ 정복률 (§13.68). 원본 기획 §1 의 한 줄 정의가 *"공간 정복 쾌감"* 인데
+          서버(`api_coverage`)만 있고 **화면이 한 번도 안 불렀다.**
+          ★ 맨 위에 둔다 — '마이' 가 답하는 질문이 *"나는?"* 이고(§12.28),
+            그 답의 첫 줄이 이 숫자다.
+          ★ 0%를 **감추지 않는다.** 아직 안 채운 것도 사실이고, 그 빈칸이
+            채우고 싶게 만드는 것이다. 다만 **다음 한 걸음**을 같이 적는다 —
+            숫자만 있고 할 일이 없으면 그냥 통보다. */}
+      {!!uid && (
+        <View style={s.box}>
+          <Text style={s.boxT}>국토 정복률</Text>
+          {cov ? (
+            <>
+              <View style={s.covRow}>
+                <Text style={s.covPct}>{cov.pct}%</Text>
+                <Text style={s.covOf}>{cov.unlocked} / {cov.total}개 시·군·구</Text>
+              </View>
+              {/* 막대 하나. ★ 0.4% 도 **보이게** 최소 너비를 준다 —
+                  안 보이면 "아직 시작도 안 했다"가 아니라 "고장났다"로 읽힌다. */}
+              <View style={s.covBar}>
+                <View style={[s.covFill, { width: `${Math.max(1.5, cov.pct)}%` }]} />
+              </View>
+              <Text style={s.boxV}>
+                {cov.unlocked === 0
+                  ? "사진을 올리면 그 지역이 채워집니다."
+                  : `${cov.total - cov.unlocked}곳이 남았습니다.`}
+              </Text>
+            </>
+          ) : (
+            <Text style={s.boxV}>불러오는 중…</Text>
+          )}
+        </View>
+      )}
 
       {/* ★ 하루 코스는 **내 기록에서 복원**된다 — 그래서 '갈 곳'이 아니라 '마이'에 있다.
           추천이면 탭2 가 맞지만, 이건 있었던 일이다. */}
@@ -383,6 +419,14 @@ const s = StyleSheet.create({
   badgeLive: { color: C.visited, borderColor: C.visited },
   memo: { color: C.text, fontSize: 13, lineHeight: 21, paddingHorizontal: 18, paddingTop: 6 },
   card: { marginHorizontal: 18, marginTop: 8, padding: 13, borderRadius: 14, borderWidth: 1, borderColor: C.line },
+  covRow: { flexDirection: "row", alignItems: "baseline", gap: 8, marginTop: 2 },
+  covPct: { color: C.visited, fontSize: 30, fontWeight: "800" },
+  covOf: { color: C.muted, fontSize: 13 },
+  covBar: {
+    height: 6, borderRadius: 3, marginTop: 10, marginBottom: 8,
+    backgroundColor: "rgba(255,255,255,0.08)", overflow: "hidden",
+  },
+  covFill: { height: "100%", borderRadius: 3, backgroundColor: C.visited },
   spaceRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   spaceGo: { color: C.accent, fontSize: 13, fontWeight: "600" },
   /* 부차 동작은 **아래 줄로 내린다** — 카드를 누르는 것(지도로 가기)이
