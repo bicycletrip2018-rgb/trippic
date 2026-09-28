@@ -24,8 +24,14 @@ import { listenForAuth } from "./src/oauth";
 import * as API from "./src/api";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./src/config";
 import { C } from "./src/theme";
+import { QualityCalib } from "./src/dev/QualityCalib";
+
+/* ★ 화질 기준 재측정 도구(§13.77). **평소에는 꺼 둔다** — 출시 경로에 없다.
+   기준은 반드시 또 바뀌므로 도구는 남긴다(010 이 image_quality.py 를 남긴 것과 같다). */
+const CALIB = false;
 
 export default function App() {
+  if (CALIB) return <QualityCalib />;
   const [tab, setTab] = useState<Tab>("map");
   const [ready, setReady] = useState(false);
   const [reg, setReg] = useState(false);
