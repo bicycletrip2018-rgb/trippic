@@ -257,7 +257,8 @@ const inside = (inner: API.BBox, outer: API.BBox | null) =>
 /** ★ 시트가 열린 것을 App 에 알린다. `(+)` 는 App 이 지도 **위에** 띄우므로
     MapTab 안에서는 가릴 수 없다 — 그대로 두면 닫기(✕)를 덮는다. */
 export function MapTab(
-  { ready, onSheet, onAdd, onSheetHeight, jumpSpace, onJumped }: {
+  { ready, onSheet, onAdd, onSheetHeight, jumpSpace, onJumped,
+    onCenter, jumpTo, onJumpedTo }: {
     ready?: boolean;
     onSheet?: (open: boolean) => void;
     /** 빈 화면의 CTA — (+) 와 **같은 문**으로 보낸다(두 벌로 만들지 않는다) */
@@ -267,6 +268,11 @@ export function MapTab(
     /** 스페이스 탭에서 *"지도 ›"* 를 눌렀다 — 그 방으로 맞춘다(§13.67) */
     jumpSpace?: string | null;
     onJumped?: () => void;
+    /** ★ 지금 보고 있는 자리. `갈 곳` 의 *"여기서 가까운"* 이 이 값을 쓴다(§13.74) */
+    onCenter?: (c: { lng: number; lat: number }) => void;
+    /** `갈 곳` 에서 카드를 눌렀다 — 그 장소로 날아간다 */
+    jumpTo?: { lng: number; lat: number; name: string } | null;
+    onJumpedTo?: () => void;
   } = {},
 ) {
   const mapRef = useRef<MapRef>(null);
@@ -698,6 +704,19 @@ export function MapTab(
     onJumped?.();
   }, [jumpSpace, ready]);
 
+  /* `갈 곳` 카드 → 그 장소로. ★ `jumpSpace` 와 **같은 모양**으로 둔다 —
+     한 번 처리하면 지운다. 안 지우면 지도로 돌아올 때마다 다시 날아가
+     사용자가 보던 자리를 빼앗는다(위에서 겪은 것과 같은 함정이다). */
+  useEffect(() => {
+    if (!jumpTo || !ready) return;
+    camRef.current?.flyTo({
+      center: [jumpTo.lng, jumpTo.lat],
+      zoom: Z_CARDS,          // 표지 카드가 보이는 줌 — 가서 볼 것이 있어야 한다
+      duration: 700,
+    });
+    onJumpedTo?.();
+  }, [jumpTo, ready]);
+
   const fc: GeoJSON.FeatureCollection = {
     type: "FeatureCollection",
     features: pins
@@ -847,6 +866,12 @@ export function MapTab(
              if (typeof z === "number" && isRegionZoom(z)) setInto(null);
              void load(false, scope, z);
              if (typeof z === "number") void loadPlaces(z);
+             /* ★ 보고 있는 자리를 알린다 — `갈 곳` 이 *"여기서 가까운"* 을
+                이 값으로 잰다(§13.74). 예전에는 그 탭이 **전국 중심 상수**를
+                쓰면서 화면에는 *"지도에서 보던 자리 기준"* 이라고 적고 있었다. */
+             void mapRef.current?.getBounds().then((b) => {
+               if (b) onCenter?.({ lng: (b[0] + b[2]) / 2, lat: (b[1] + b[3]) / 2 });
+             }).catch(() => {});
            }}>
         {/* ★ 줌 숫자가 아니라 **담을 범위**로 말한다. `zoom: 5.6` 은 벤치마크 화면에서
             물려받은 값인데, 그 숫자가 "전국이 보인다"를 뜻하는지는 기기 크기와

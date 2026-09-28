@@ -76,7 +76,12 @@ export default function App() {
   }), []);
 
   /* 지도 중심 — 탭2 가 이걸 물려받는다. §12.14: 탭마다 지역을 다시 묻지 않는다. */
-  const center = { lat: 36.3, lng: 127.8 };
+  /* ★ 첫 값만 전국 중심이다. 지도가 한 번이라도 움직이면 **그 자리**로 바뀐다 —
+     `갈 곳` 의 *"여기서 가까운"* 이 이 값을 쓴다(§13.74). 예전에는 이 상수가
+     그대로 쓰여, 화면은 *"지도에서 보던 자리 기준"* 이라 적어 놓고 실제로는
+     늘 국토 한가운데에서 거리를 재고 있었다. */
+  const [center, setCenter] = useState({ lat: 36.3, lng: 127.8 });
+  const [jumpTo, setJumpTo] = useState<{ lng: number; lat: number; name: string } | null>(null);
 
   return (
     <View style={s.root}>
@@ -85,9 +90,14 @@ export default function App() {
       <View style={[s.page, tab !== "map" && s.hidden]} pointerEvents={tab === "map" ? "auto" : "none"}>
         <MapTab ready={ready} onSheet={setSheet} onAdd={() => setAdd(true)}
                 onSheetHeight={setSheetH}
-                jumpSpace={jumpSpace} onJumped={() => setJumpSpace(null)} />
+                jumpSpace={jumpSpace} onJumped={() => setJumpSpace(null)}
+                onCenter={setCenter}
+                jumpTo={jumpTo} onJumpedTo={() => setJumpTo(null)} />
       </View>
-      {ready && tab === "feed" && <FeedTab center={center} />}
+      {ready && tab === "feed" && (
+        <FeedTab center={center}
+                 onOpenMap={(p) => { setJumpTo(p); setTab("map"); }} />
+      )}
       {ready && tab === "news" && <NewsTab />}
       {ready && tab === "space" && (
         <SpaceTab onOpenMap={(id) => { setJumpSpace(id); setTab("map"); }} />

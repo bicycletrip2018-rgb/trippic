@@ -9,6 +9,7 @@
  *   `{ok, data, via}` 를 돌려주고 화면이 출처를 안다.
  */
 import * as FileSystem from "expo-file-system/legacy";
+import { measurePhoto } from "./photoQuality";
 
 export const CFG = {
   url: "",        // app.json extra 또는 아래 setConfig 로 주입
@@ -521,6 +522,20 @@ export type MonthPlace = {
   dist_m: number; parties: number; photos: number;
 };
 
+/* ── 장소의 표지 (§12.25-A · §13.74) ─────────────────────────────────
+   ★ **표지를 여기서 고르지 않는다.** 029 가 `place_stats.top_media_id` 에
+     골라 둔 것을 읽어 올 뿐이다. 고르는 곳이 둘이 되는 순간 두 화면이 같은
+     장소에 다른 얼굴을 붙인다.
+   ★ `author` 가 null 이면 **기관 사진이 이겼거나 표지가 없는 것**이다 —
+     화면이 그때 관광공사라고 적는다. */
+export type PlaceCover = {
+  place_id: string; url: string; thumb_url: string;
+  author: string | null; pin_count: number;
+};
+
+export const placeCovers = (ids: string[]) =>
+  rpc<PlaceCover[]>("api_place_covers", { p_ids: ids.slice(0, 80) });
+
 export const placesByMonth = (
   lat: number, lng: number, month: number, opts?: { radiusM?: number; limit?: number },
 ) => rpc<MonthPlace[]>("api_places_by_month", {
@@ -621,7 +636,8 @@ export async function uploadPhoto(
   srcUri: string,
   opts?: { maxEdge?: number; q?: number; w?: number; h?: number; thumb?: boolean },
 ): Promise<{ ok: boolean; why?: string; path?: string; url?: string; thumbUrl?: string;
-             w?: number | null; h?: number | null; bytes?: number; shrunk?: boolean }> {
+             w?: number | null; h?: number | null; bytes?: number; shrunk?: boolean;
+             focus?: number | null; contrast?: number | null }> {
   if (!isOn()) return { ok: false, why: "서버 연결 없음" };
   if (!SESSION.access_token) return { ok: false, why: "로그인 필요" };
   const id =
@@ -642,6 +658,15 @@ export async function uploadPhoto(
     shrinkErr = String(e?.message ?? e).slice(0, 120);
     console.warn("[api] 축소 실패 — 원본으로 올린다", e);
   }
+  /* ★ **여기서 잰다**(§13.76). 사진이 올라가는 길은 셋(소급 등록·현장 촬영·뒤 올리기)
+     인데 전부 이 함수를 지난다. 재는 곳을 셋으로 나누면 그중 하나가 빠진 채로
+     남고, 그 경로로 올린 사진만 조용히 공개 자격을 잃는다.
+     ★ **원본**을 잰다 — 참조 구현(`image_quality.py`)이 원본을 320px 로 줄여
+       재기 때문이다. 우리가 이미 줄인 webp 를 재면 같은 사진에 다른 점수가 나온다.
+     ★ 못 재면 **안 보낸다.** 0 으로 적으면 '흔들린 사진'으로 판정돼 영영 공개되지
+       않는다 — 모르는 것을 숫자로 적는 순간 그 숫자가 판정에 참여한다. */
+  const q = await measurePhoto(srcUri, opts?.w, opts?.h);
+
   const path = `${SESSION.user_id}/${id}.${ext}`;   // 경로 첫 칸이 주인이다(030)
   try {
     const r = await FileSystem.uploadAsync(
@@ -672,6 +697,7 @@ export async function uploadPhoto(
     }
 
     return { ok: true, path, w, h, shrunk, url, thumbUrl,
+             focus: q?.focus ?? null, contrast: q?.contrast ?? null,
              bytes: (info as any)?.size ?? 0 };
   } catch (e: any) {
     /* 축소가 먼저 깨졌으면 **그것부터** 말한다 — 이 실패는 그 결과다. */
@@ -690,6 +716,11 @@ export async function uploadPhoto(
 export const attachMedia = (pinId: string, up: any, extra?: any) =>
   insert<any>("media", { pin_id: pinId, type: up.type ?? "photo", url: up.url,
                          width: up.w, height: up.h,
+                         /* 측정값(§13.76). 없으면 **칸을 아예 안 보낸다** —
+                            null 을 보내면 011 트리거가 그걸 재판정에 써서
+                            quality_ok 를 false 로 못 박는다. */
+                         ...(up.focus != null ? { focus_score: up.focus } : {}),
+                         ...(up.contrast != null ? { contrast_score: up.contrast } : {}),
                          ...(up.thumbUrl ? { thumb_url: up.thumbUrl } : {}),
                          ...(up.posterUrl ? { poster_url: up.posterUrl } : {}),
                          ...(up.durationSec ? { duration_sec: up.durationSec } : {}),
@@ -878,6 +909,16 @@ export async function pushTrip(trip: any, stops: any[], o: PushOpts) {
     const place = o.placeOf?.[st.id];
     const first = st.items.find((v: any) => v.id === picked[0]) || st.items[0];
 
+    /* ★ 판정을 **한 번만** 한다(§13.75). 아래 `is_public` 과 `verification` 이
+       각자 `first.gps` 를 보고 있었는데, 서버에는 둘을 묶는 제약이 있다:
+         pins_public_needs_verified_geo
+           CHECK (not is_public or verification in ('live','exif'))
+       즉 **손으로 지정한 위치는 모두의 지도에 못 올린다.** 당연한 규칙이다 —
+       모두의 지도는 *"사람이 실제로 있었던 자리"* 인데 수동 지정에는 근거가 없다.
+       그런데 화면은 '모두의 지도에 올립니다'를 켜 둔 채 등록을 받아 놓고
+       서버에서 400 을 맞았다. **화면이 서버가 금지한 것을 약속하고 있었다.** */
+    const verification = first.gps ? "exif" : "manual";
+
     const pin = await insert<any>("pins", {
       user_id: SESSION.user_id,
       trip_id: out.trip,
@@ -891,9 +932,11 @@ export async function pushTrip(trip: any, stops: any[], o: PushOpts) {
       stay_sec: staySecOf(st),
       memo: o.memos?.[st.id] || null,
       /* ★ 장소를 안 고르면 공개하지 않는다 — 좌표만 있는 점은 지도에서
-         무엇인지 말할 수 없고, place_stats 에도 붙지 못한다(009·011). */
-      is_public: !!o.isPublic && !!place?.placeId,
-      verification: first.gps ? "exif" : "manual",
+         무엇인지 말할 수 없고, place_stats 에도 붙지 못한다(009·011).
+         ★ 그리고 **수동 지정은 공개하지 않는다** — 위 제약과 같은 규칙이다.
+           여기서 거르지 않으면 서버가 거르고, 그때는 등록이 통째로 실패한다. */
+      is_public: !!o.isPublic && !!place?.placeId && verification !== "manual",
+      verification,
     });
     if (!pin.ok) { out.failed.push({ what: st.id, why: pin.error }); continue; }
     const pinId = pin.data?.[0]?.id ?? pin.data?.id;

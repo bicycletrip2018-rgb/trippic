@@ -5,11 +5,14 @@
  *   그래서 첫날에도 화면이 찬다.
  * ★ 무한 피드가 아니라 **이유가 붙은 묶음**이다. 묶음마다 왜 떴는지 한 줄을 적는다.
  */
-import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View,
+} from "react-native";
 import { C, CAT } from "../theme";
 import { driveText as courseDriveText } from "../course";
 import * as API from "../api";
+import { sawCover, openedCover, flushCovers } from "../coverLog";
 
 const HOST = "http://localhost:5173";     // 씨앗은 개발 서버에서 받는다 (번들 3.4MB 절약)
 
@@ -35,10 +38,21 @@ const driveText = (km: number) => courseDriveText(km * 1000);
 /* ★ 시간 예산 (§12.25-C) — 사람이 실제로 묻는 것은 "근처 어디"가 아니라
    **"지금 3시간 비는데 어디 갈까"** 다. 왕복 이동과 머무는 시간을 빼야 답이 된다.
    ★ 체류 시간은 §13.32 에서 서버에 남겼다 — 남들은 이 값을 모른다. */
+/* ★ 카드 치수를 상수로 올린다 — 아래 `Rail` 이 **무엇이 보이는지** 계산하는 데
+   쓴다. 스타일에만 적어 두면 둘이 조용히 어긋난다. */
+const CARD_W = 158, CARD_GAP = 10, RAIL_PAD = 18;
+const STRIDE = CARD_W + CARD_GAP;
+
 const BUDGETS: [number, string][] = [[120, "2시간"], [240, "반나절"], [480, "하루"]];
 const THIS_MONTH = new Date().getMonth() + 1;
 
-export function FeedTab({ center }: { center: { lat: number; lng: number } }) {
+export function FeedTab(
+  { center, onOpenMap }: {
+    center: { lat: number; lng: number };
+    /** 카드를 누르면 **지도로 보낸다**(§13.74). 여는 곳이 없으면 누를 이유도 없다 */
+    onOpenMap?: (p: { lng: number; lat: number; name: string }) => void;
+  },
+) {
   const [seed, setSeed] = useState<Seed[]>([]);
   const [cpt, setCpt] = useState<string | null>(null);
   const [budget, setBudget] = useState<number | null>(null);
@@ -97,6 +111,35 @@ export function FeedTab({ center }: { center: { lat: number; lng: number } }) {
     return () => { live = false; };
   }, [season, center.lat, center.lng]);
 
+  /* ── 표지 (§12.25-A) ─────────────────────────────────────────────
+     ★ §12.25-B 가 예측한 **F2** 가 여기 있었다: *"첫인상이 관공서 포스터로
+       결정된다."* 카드가 전부 한국관광공사 홍보 사진이라, 이 앱의 정체성인
+       *"사람이 고른 한 장"* 과 화면이 정면으로 어긋났다.
+     ★ 고치는 법은 표지를 새로 고르는 것이 **아니다** — 029 가 이미 골라 뒀다.
+       탭2 가 그걸 **안 읽고 있었을 뿐**이다.
+     ★ 지금 보이는 묶음의 id 만 묻는다. 씨앗은 9,696곳이라 전부 물으면
+       화면에 없는 것까지 실어 나른다. */
+  const shownIds = useMemo(
+    () => [...new Set(rails.flatMap((r) => r.items.map((x) => x.id)))], [rails]);
+
+  const [covers, setCovers] = useState<Record<string, API.PlaceCover>>({});
+  useEffect(() => {
+    if (!shownIds.length) return;
+    let live = true;
+    void API.placeCovers(shownIds).then((r) => {
+      if (!live || !r.ok) return;
+      setCovers((m) => {
+        const next = { ...m };
+        for (const c of r.data ?? []) next[c.place_id] = c;
+        return next;
+      });
+    });
+    return () => { live = false; };
+  }, [shownIds.join(",")]);
+
+  /* 쌓인 노출을 내보낸다. 화면을 떠날 때 한 번 — §13.69 와 같은 장치다. */
+  useEffect(() => () => { void flushCovers(); }, []);
+
   const concepts = useMemo(
     () => [...new Set(seed.map((x) => x.cpt).filter(Boolean))] as string[], [seed]);
 
@@ -127,28 +170,114 @@ export function FeedTab({ center }: { center: { lat: number; lng: number } }) {
       {season && <SeasonRail rows={seasonRows} />}
 
       {rails.map((r) => (
-        <View key={r.k} style={s.rail}>
-          <Text style={s.railT}>{r.t}</Text>
-          <Text style={s.railWhy}>{r.why}</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.row}>
-            {r.items.map((x) => (
-              <View key={x.id} style={s.card}>
-                <Image source={{ uri: x.thumb || x.img }} style={s.img} />
-                <Text style={s.name} numberOfLines={1}>{x.n}</Text>
-                <Text style={s.meta} numberOfLines={1}>
-                  {(CAT[x.c] ?? CAT.etc).k} · {(x.rg ?? "").split(" ").pop()}
-                </Text>
-                <Text style={s.dist}>{driveText(distKm(center, { lat: x.lat, lng: x.lng }))}</Text>
-                {/* ★ 이 한 줄이 계절 축의 값어치다 — 기관 사진에는 촬영 시각이 없다.
-                    안 적으면 11월에 벚꽃 사진을 보고 가서 실망하는 사람이 생긴다. */}
-                <Text style={s.unknownWhen}>촬영 시기 미상 · 한국관광공사</Text>
-              </View>
-            ))}
-          </ScrollView>
-        </View>
+        <Rail key={r.k} title={r.t} why={r.why} items={r.items}
+              center={center} covers={covers} onOpenMap={onOpenMap} />
       ))}
       <Text style={s.credit}>장소·사진 출처 한국관광공사 · 경계 © OpenStreetMap contributors</Text>
     </ScrollView>
+  );
+}
+
+/* ── 묶음 하나 ────────────────────────────────────────────────────
+   ★ **노출은 '그려졌다'가 아니라 '보였다'다**(§13.9). 가로 묶음은 화면 밖
+     카드까지 전부 그린다. 그걸 다 세면 분모가 부풀어 **모든 점수가 0으로
+     수렴하고 순위가 뒤집힌다.** 웹에서 실측한 값이 그대로 남아 있다:
+     그린 카드 60장 → 실제로 센 노출 12장, **분모가 5배**였다.
+   ★ 지도(§13.69)에서는 이 계산이 필요 없었다. 거기서는 이미 화면 안의 카드만
+     추려 그리기 때문이다. 같은 `coverLog` 를 쓰되 **무엇이 보이는가는 화면마다
+     다르게** 판정해야 한다 — 이 차이를 놓치면 한쪽 분모만 조용히 틀린다.
+   ★ 머문 시간도 본다. 스쳐 지나간 카드는 본 것이 아니다. */
+const DWELL_MS = 500;
+
+function Rail(
+  { title, why, items, center, covers, onOpenMap }: {
+    title: string; why: string; items: Seed[];
+    center: { lat: number; lng: number };
+    covers: Record<string, API.PlaceCover>;
+    onOpenMap?: (p: { lng: number; lat: number; name: string }) => void;
+  },
+) {
+  const x = useRef(0);
+  const w = useRef(0);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /* 지금 화면에 걸쳐 있는 칸을 그대로 센다. 반 이상 보이는 것만 —
+     가장자리에 살짝 걸친 카드는 본 것이 아니다. */
+  function markSeen() {
+    if (!w.current) return;
+    const left = x.current, right = left + w.current;
+    for (let i = 0; i < items.length; i++) {
+      const a = RAIL_PAD + i * STRIDE, b = a + CARD_W;
+      const vis = Math.min(b, right) - Math.max(a, left);
+      if (vis >= CARD_W / 2) sawCover(items[i].id);
+    }
+  }
+  const settle = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(markSeen, DWELL_MS);
+  };
+  /* 처음 그려졌을 때도 한 번 — 스크롤하지 않아도 앞의 두세 장은 보인다 */
+  useEffect(() => { settle(); return () => { if (timer.current) clearTimeout(timer.current); };
+  }, [items.map((i) => i.id).join(",")]);
+
+  return (
+    <View style={s.rail}>
+      <Text style={s.railT}>{title}</Text>
+      <Text style={s.railWhy}>{why}</Text>
+      <ScrollView
+        horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.row}
+        scrollEventThrottle={64}
+        onLayout={(e) => { w.current = e.nativeEvent.layout.width; settle(); }}
+        onScroll={(e) => { x.current = e.nativeEvent.contentOffset.x; settle(); }}>
+        {items.map((it) => (
+          <Card key={it.id} x={it} center={center} cover={covers[it.id]}
+                onOpenMap={onOpenMap} />
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
+function Card(
+  { x, center, cover, onOpenMap }: {
+    x: Seed; center: { lat: number; lng: number };
+    cover?: API.PlaceCover;
+    onOpenMap?: (p: { lng: number; lat: number; name: string }) => void;
+  },
+) {
+  /* ★ 기관 사진 URL 중 일부는 **404** 다(§13.8 곁가지). 깨진 표지는 회색 칸으로
+     남는데, 그게 카드 하나를 통째로 못 쓰게 만든다. 못 받으면 사진 없이 그린다 —
+     이름과 거리만으로도 카드는 제 일을 한다. */
+  const [broken, setBroken] = useState(false);
+  const uri = cover?.thumb_url || x.thumb || x.img;
+  const mine = !!cover?.author;
+
+  return (
+    <Pressable
+      style={s.card}
+      onPress={() => {
+        /* **열었다**는 것은 노출의 부분집합이다(§13.9 규칙 2). `sawCover` 가
+           먼저 불렸든 아니든 `coverLog` 가 두 값을 따로 센다. */
+        openedCover(x.id);
+        onOpenMap?.({ lng: x.lng, lat: x.lat, name: x.n });
+      }}>
+      {broken
+        ? <View style={[s.img, s.imgBroken]}><Text style={s.dim}>사진 없음</Text></View>
+        : <Image source={{ uri }} style={s.img} onError={() => setBroken(true)} />}
+      <Text style={s.name} numberOfLines={1}>{x.n}</Text>
+      <Text style={s.meta} numberOfLines={1}>
+        {(CAT[x.c] ?? CAT.etc).k} · {(x.rg ?? "").split(" ").pop()}
+      </Text>
+      <Text style={s.dist}>{driveText(distKm(center, { lat: x.lat, lng: x.lng }))}</Text>
+      {/* ★ 출처를 적는 것이 이 기능의 **절반**이다(§12.25-A).
+          `@민지의 사진` 과 `한국관광공사` 는 보는 마음이 다르고, 적어 주지 않으면
+          *"내 사진이 그 장소의 얼굴이 된다"* 는 동기가 생기지 않는다.
+          ★ 기관 사진에는 촬영 시각이 없다 — 그것도 같이 말한다. 안 적으면
+            11월에 벚꽃 사진을 보고 가서 실망하는 사람이 생긴다. */}
+      {mine
+        ? <Text style={s.byUser}>@{cover!.author}의 사진</Text>
+        : <Text style={s.unknownWhen}>촬영 시기 미상 · 한국관광공사</Text>}
+    </Pressable>
   );
 }
 
@@ -242,7 +371,9 @@ const s = StyleSheet.create({
   railWhy: { color: C.muted, fontSize: 11, paddingHorizontal: 18, marginTop: 3, marginBottom: 9 },
   row: { paddingHorizontal: 18, gap: 10 },
   cardFlat: { justifyContent: "flex-start", gap: 3, paddingTop: 10 },
-  unknownWhen: { color: C.muted, fontSize: 9.5, marginTop: 1 },
+  unknownWhen: { color: C.muted, fontSize: 9.5, marginTop: 1, paddingHorizontal: 10, paddingBottom: 8 },
+  byUser: { color: C.accent, fontSize: 9.5, marginTop: 1, paddingHorizontal: 10, paddingBottom: 8 },
+  imgBroken: { alignItems: "center", justifyContent: "center" },
   stayOn: { color: C.accent, fontSize: 10.5, fontWeight: "600" },
   stayOff: { color: C.muted, fontSize: 10.5 },
   card: { width: 158, borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: C.line,

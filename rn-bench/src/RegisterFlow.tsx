@@ -324,9 +324,15 @@ function StopList(p: {
                       : st.c ? "고르기 ›" : "장소를 골라 지정 ›"}
                 </Text>
               </Pressable>
-              {!st.c && !pl && (
+              {!st.c && (
                 <Text style={s.hint}>
-                  위치 정보가 없는 사진입니다. 장소를 고르셔야 지도에 올라갑니다.
+                  {pl
+                    /* ★ 서버 제약(pins_public_needs_verified_geo)을 **말로 옮긴다.**
+                       손으로 정한 자리는 '거기 있었다'는 근거가 없어 모두의 지도에
+                       올라가지 않는다. 안 적으면 등록해 놓고 *"왜 안 뜨지"* 를 겪는다
+                       — 실제로는 등록 자체가 400 으로 실패했다(§13.75). */
+                    ? "손으로 정한 위치라 내 지도에만 남습니다 — 모두의 지도에는 올라가지 않습니다."
+                    : "위치 정보가 없는 사진입니다. 장소를 고르셔야 지도에 올라갑니다."}
                 </Text>
               )}
               <TextInput
@@ -344,7 +350,9 @@ function StopList(p: {
           <View style={{ flex: 1 }}>
             <Text style={s.rowK}>모두의 지도에 올립니다</Text>
             {/* ★ 판정만 하고 말하지 않으면 "왜 안 뜨지"를 겪는다 — 올리기 전에 말한다 */}
-            <Text style={s.hint}>장소를 고른 정거장만 지도에 뜹니다</Text>
+            <Text style={s.hint}>
+              장소를 고른 정거장만 지도에 뜹니다 · 손으로 정한 위치는 제외됩니다
+            </Text>
           </View>
         </Pressable>
         <Pressable
