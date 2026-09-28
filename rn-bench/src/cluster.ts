@@ -22,7 +22,11 @@ export type Photo = {
 export type Stop = {
   id: string;
   items: Photo[];
-  c: Gps;
+  /* ★ **null 일 수 있다**(§13.72). 사진에 GPS 가 하나도 없는 여행이 있고,
+     예전에는 그런 사진이 붙을 정거장이 없어 **통째로 사라졌다.**
+     이제는 좌표 없는 정거장으로 남기고, 사용자가 장소를 골라 좌표를 준다
+     (기획 §8: *"수동 위치 지정은 가능하나 PoV 뱃지는 부여하지 않는다"*). */
+  c: Gps | null;
   start: number; end: number;
   worstAcc: number;
   noGpsCount: number;
@@ -96,6 +100,7 @@ export function clusterStops(items: Photo[], R: number | null = null, T = STOP_T
     out.push(cur);
   }
   // 시간이 가장 가까운 정거장에 붙인다 (§6.5 4단계). 공개 자격은 없다.
+  const orphan: Photo[] = [];
   for (const it of noGps) {
     let best: any = null, bd = Infinity;
     for (const st of out) {
@@ -103,6 +108,22 @@ export function clusterStops(items: Photo[], R: number | null = null, T = STOP_T
       if (d < bd) { bd = d; best = st; }
     }
     if (best) best.items.push(it);
+    else orphan.push(it);          // ★ 붙을 곳이 없다 — 예전에는 여기서 버렸다
+  }
+
+  /* ★ **GPS 사진이 하나도 없는 여행**(§13.72). `out` 이 비어 있으면 위에서
+     `best` 가 null 이라 사진이 전부 버려졌다 — 여행이 통째로 사라졌다.
+     실내에서 찍었거나 위치 권한을 끈 동안 찍은 사진은 흔하다.
+     → **시간으로만 묶어** 좌표 없는 정거장을 만든다. 좌표는 사용자가 장소를
+       골라 채운다. 묶는 기준은 위와 같은 시간 간격(T)이다 — 규칙이 둘이 되면 갈라진다. */
+  if (orphan.length) {
+    orphan.sort((a, b) => a.ts - b.ts);
+    let g: any = null;
+    for (const it of orphan) {
+      if (g && it.ts - g.end <= T) { g.items.push(it); g.end = it.ts; continue; }
+      g = { items: [it], c: null, start: it.ts, end: it.ts, worstAcc: 0 };
+      out.push(g);
+    }
   }
   return out.map((s, i) => ({
     ...s, id: "s" + i,
@@ -232,6 +253,33 @@ export function findOrphans(album: Photo[], trips: Trip[], dayRule: DayRule = {}
     start: rest.length ? rest[0].ts : Date.now(),
     end: rest.length ? rest[rest.length - 1].ts : Date.now(),
   };
+}
+
+/* ── 위치 정보가 없는 사진 (§13.72) ─────────────────────────────
+   ★ `findOrphans` 는 `x.gps &&` 로 좌표 없는 사진을 **걸러낸다.** 이유가 있었다 —
+     `routine.usual()` 은 좌표가 없으면 *"늘 가던 곳"* 으로 친다. 어디인지 모르니
+     여행이라 우길 수 없었다. 그래서 그 사진들은 **어느 화면에도 없었다.**
+
+   ★ 이제는 사용자가 장소를 골라 좌표를 줄 수 있다. 그런데 그렇다고 이 사진들을
+     `findOrphans` 에 **섞으면 안 된다** — 앨범에서 좌표 없는 사진의 대부분은
+     스크린샷·저장한 이미지다. 섞는 순간 '여행에 묶이지 않은 사진' 이 **쓰레기통**이
+     되고, 정작 쓸 만한 낱개 기록이 그 속에 묻힌다.
+
+   → **따로 낸다.** 목록에 별도 줄로 두고, 들어간 사람만 본다.
+     기본 선택도 하지 않는다(장소를 고르기 전에는 등록 수에 안 세므로 자동으로 그렇다).
+
+   ★ 최근 것이 위로. 여기엔 여정이 없다 — 시간순으로 쌓인 **더미**라,
+     방금 찍은 것부터 보이는 편이 찾기 쉽다. */
+export function findNoGps(album: Photo[], trips: Trip[]): Trip {
+  const used = new Set(trips.flatMap((t) => t.items.map((x) => x.id)));
+  const rest = album.filter((a) => !used.has(a.id) && !a.gps);
+  const stops = clusterStops(rest).reverse();
+  return {
+    id: "nogps", isOrphan: true, title: "위치 정보가 없는 사진",
+    region: "직접 지정", items: rest, stops, placeCount: 0,
+    start: rest.length ? Math.min(...rest.map((x) => x.ts)) : Date.now(),
+    end: rest.length ? Math.max(...rest.map((x) => x.ts)) : Date.now(),
+  } as Trip;
 }
 
 export const fmtRange = (a: number, b: number) => {

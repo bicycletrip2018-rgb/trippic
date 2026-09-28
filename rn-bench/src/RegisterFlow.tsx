@@ -23,7 +23,7 @@ import { ensurePermission, scanAlbum, SCAN_MAX, UNKNOWN_ACC_M } from "./album";
    틀린 장소가 조용히 들어가는 것은 **안 붙이는 것보다 나쁘다.** */
 const AUTO_MATCH_M = 80;
 import {
-  clusterTrips, findOrphans, splitStop, fmtRange,
+  clusterTrips, findOrphans, findNoGps, splitStop, fmtRange,
   type Photo, type Trip, type Stop,
 } from "./cluster";
 
@@ -57,8 +57,13 @@ export function RegisterFlow({ onClose }: { onClose: () => void }) {
     const a = await scanAlbum((d, t) => setBusy(`사진 ${d} / ${t}`));
     const ts = clusterTrips(a);
     const orph = findOrphans(a, ts);
+    /* ★ 좌표 없는 사진은 **따로** 낸다(§13.72). 섞으면 스크린샷이 낱개 기록을
+       덮는다. 없으면 줄도 만들지 않는다 — 빈 줄은 길을 늘리기만 한다. */
+    const ng = findNoGps(a, ts);
     setAlbum(a);
-    setTrips(orph.stops.length ? [...ts, orph] : ts);
+    setTrips([...ts,
+      ...(orph.stops.length ? [orph] : []),
+      ...(ng.stops.length ? [ng] : [])]);
     setBusy(null);
     setStep("trips");
   }
@@ -115,8 +120,13 @@ export function RegisterFlow({ onClose }: { onClose: () => void }) {
     void Q.start();
   }
 
+  /* ★ 셈은 **올라갈 것만** 센다. 좌표도 없고 장소도 안 고른 정거장은 서버에 못
+     넣는다 — 세어 놓고 실패시키면 *"3곳 등록"* 을 누른 사람이 완료 화면에서
+     2곳을 받는다. 숫자가 틀리는 것이 버튼이 굼뜬 것보다 나쁘다(§13.72). */
   const chosen = useMemo(
-    () => stops.filter((st) => (picks[st.id] || []).length), [stops, picks]);
+    () => stops.filter((st) =>
+      (picks[st.id] || []).length && (st.c || placeOf[st.id]?.lat != null)),
+    [stops, picks, placeOf]);
   /* 대표를 뺀 장수 — 이만큼이 뒤에서 올라간다 */
   const extra = useMemo(
     () => chosen.reduce((n, st) => n + Math.max(0, (picks[st.id] || []).length - 1), 0),
@@ -230,7 +240,9 @@ function TripList({ trips, onOpen }: { trips: Trip[]; onOpen: (t: Trip) => void 
           <View style={{ flex: 1 }}>
             <Text style={s.cardT}>{t.title}</Text>
             <Text style={s.cardS}>
-              {fmtRange(t.start, t.end)} · 정거장 {t.stops.length}곳 · 사진 {t.items.length}장
+              {t.id === "nogps"
+                ? `사진 ${t.items.length}장 · 위치를 직접 지정하면 등록됩니다`
+                : `${fmtRange(t.start, t.end)} · 정거장 ${t.stops.length}곳 · 사진 ${t.items.length}장`}
             </Text>
           </View>
           <Text style={s.entryArrow}>›</Text>
@@ -303,11 +315,20 @@ function StopList(p: {
               </ScrollView>
 
               <Pressable style={s.row} onPress={() => p.onPickPlace(st)}>
-                <Text style={s.rowK}>장소</Text>
+                {/* ★ 좌표가 없는 정거장에서 '장소'는 **선택이 아니라 위치 지정**이다.
+                    같은 칸이 상황에 따라 다른 무게를 가지므로 말도 달라야 한다 —
+                    그냥 "고르기" 라고만 두면 건너뛰어도 되는 줄로 읽힌다. */}
+                <Text style={s.rowK}>{st.c ? "장소" : "위치"}</Text>
                 <Text style={[s.rowV, !pl && { color: C.warn }]}>
-                  {pl ? `${pl.name}${pl.auto ? " (자동) ›" : " ›"}` : "고르기 ›"}
+                  {pl ? `${pl.name}${pl.auto ? " (자동) ›" : " ›"}`
+                      : st.c ? "고르기 ›" : "장소를 골라 지정 ›"}
                 </Text>
               </Pressable>
+              {!st.c && !pl && (
+                <Text style={s.hint}>
+                  위치 정보가 없는 사진입니다. 장소를 고르셔야 지도에 올라갑니다.
+                </Text>
+              )}
               <TextInput
                 style={s.memo} placeholder="한 줄 메모 (선택)" placeholderTextColor={C.muted}
                 value={p.memos[st.id] || ""} onChangeText={(v) => p.onMemo(st.id, v)}
@@ -345,11 +366,17 @@ function PlacePicker(
   const [q, setQ] = useState("");
   const [err, setErr] = useState<string | null>(null);
 
+  /* ★ **좌표가 없는 정거장**(§13.72)에는 후보를 물어볼 수 없다 — `api_place_candidates`
+     는 *"이 좌표 근처"* 를 묻는 함수라 좌표가 입력이다. 그래서 여기서는
+     **검색이 유일한 길**이고, 고른 장소의 좌표가 곧 이 정거장의 좌표가 된다. */
+  const noGeo = !stop.c;
+
   useMemo(() => {
+    if (noGeo) { setList([]); return; }      // 빈 목록 + 아래 안내문
     (async () => {
       /* ★ `stop.worstAcc` 가 아니라 UNKNOWN_ACC_M 이다 — 앨범 사진은 정확도를
          안 들고 온다(album.ts 의 실측 주석). 정거장 반경과는 다른 숫자다. */
-      const r = await API.candidates(stop.c.lat, stop.c.lng, UNKNOWN_ACC_M, null, 0, 12);
+      const r = await API.candidates(stop.c!.lat, stop.c!.lng, UNKNOWN_ACC_M, null, 0, 12);
       if (r.ok) setList(r.data || []);
       else { setList([]); setErr(r.error || "서버에 닿지 못했습니다"); }
     })();
@@ -392,18 +419,35 @@ function PlacePicker(
         ) : (
           <ScrollView contentContainerStyle={s.body}>
             {err && <Text style={s.err}>{err}</Text>}
-            {!list.length && <Text style={s.empty}>후보가 없습니다</Text>}
-            {list.map((c: any) => (
+            {noGeo && !list.length && !q && (
+              <Text style={s.empty}>
+                이 사진들에는 위치 정보가 없습니다.{"\n"}
+                장소를 찾아서 고르시면 그 자리로 기록됩니다.
+              </Text>
+            )}
+            {!!(list.length === 0 && (q || !noGeo)) && (
+              <Text style={s.empty}>후보가 없습니다</Text>
+            )}
+            {/* ★ 검색 결과에는 **지역**(`kind:'region'`)이 섞여 있다(053). 지역에는
+                `place_id` 가 없어 `c.id` 인 지역코드가 대신 들어가는데, 그건 uuid 가
+                아니라 `pins.place_id` 에 넣는 순간 **등록이 통째로 실패한다.**
+                지금까지는 좌표가 있는 정거장에서 후보 목록이 먼저 떠 있어 잘 안 눌렸지만,
+                좌표 없는 정거장에서는 **검색이 유일한 길**이라 반드시 마주친다. */}
+            {list.filter((c: any) => c.kind !== "region").map((c: any) => (
               <Pressable
                 key={c.place_id ?? c.id}
                 style={s.card}
                 onPress={() => onPick({
                   placeId: c.place_id ?? c.id, name: c.name, category: c.category,
+                  /* ★ 검색은 좌표를 준다(053). 좌표 없는 정거장은 **이 값으로** 자리를
+                     얻는다 — 서버가 이미 보내 주는 것을 버려서 기능이 막히는 일이
+                     이번이 네 번째다(§13.52·§13.60·§13.69). */
+                  lng: c.lng ?? null, lat: c.lat ?? null,
                 })}>
                 <View style={{ flex: 1 }}>
                   <Text style={s.cardT}>{c.name}</Text>
                   <Text style={s.cardS}>
-                    {(CAT[c.category]?.k) || c.category || "기타"}
+                    {(CAT[c.category]?.k) || c.category || c.sub || "기타"}
                     {c.dist_m != null ? ` · ${Math.round(c.dist_m)}m` : ""}
                     {c.region_name ? ` · ${c.region_name}` : ""}
                   </Text>

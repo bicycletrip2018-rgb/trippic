@@ -597,12 +597,18 @@ export async function uploadPhoto(
     `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   let body = srcUri, w: number | null = null, h: number | null = null;
   let ext = "jpg", mime = "image/jpeg", shrunk = false;
+  let shrinkErr: string | null = null;
   try {
     const sm = await shrink(srcUri, opts?.w, opts?.h, opts?.maxEdge, opts?.q);
     body = sm.uri; w = sm.w; h = sm.h; ext = "webp"; mime = "image/webp"; shrunk = true;
-  } catch (e) {
+  } catch (e: any) {
     /* ★ 축소가 실패해도 **올리기는 막지 않는다.** 원본이라도 올라가는 것이
-       한 장도 안 올라가는 것보다 낫다. 대신 그 사실을 돌려준다. */
+       한 장도 안 올라가는 것보다 낫다. 대신 그 사실을 돌려준다.
+       ★ 그런데 **말하지 않으면 못 고친다.** 축소가 실패하면 원본 `ph://` 를 그대로
+         올리게 되고, 그건 `uploadAsync` 가 못 읽어 결국 실패한다. 그때 화면에는
+         *"ERR_FILESYSTEM_CANNOT_UPLOAD"* 만 남아 **진짜 원인이 지워진다.**
+         실측에서 이것 때문에 원인을 한참 찾았다 — 두 번째 실패는 첫 번째의 결과다. */
+    shrinkErr = String(e?.message ?? e).slice(0, 120);
     console.warn("[api] 축소 실패 — 원본으로 올린다", e);
   }
   const path = `${SESSION.user_id}/${id}.${ext}`;   // 경로 첫 칸이 주인이다(030)
@@ -647,7 +653,10 @@ export async function uploadPhoto(
     return { ok: true, path, w, h, shrunk, url, thumbUrl,
              bytes: (info as any)?.size ?? 0 };
   } catch (e: any) {
-    STATE.lastError = String(e?.message ?? e);
+    /* 축소가 먼저 깨졌으면 **그것부터** 말한다 — 이 실패는 그 결과다. */
+    STATE.lastError = shrinkErr
+      ? `축소 실패(${shrinkErr}) → ${String(e?.message ?? e)}`
+      : String(e?.message ?? e);
     return { ok: false, why: STATE.lastError };
   }
 }
@@ -776,7 +785,10 @@ export async function pushLive(shot: {
      못 올린 것을 **목록으로 돌려준다.** 숨기지 않는다. */
 export type PushOpts = {
   picks: Record<string, string[]>;               // 정거장 → 고른 사진 id
-  placeOf?: Record<string, { placeId?: string; category?: string } | undefined>;
+  /* `lng`/`lat` 는 **검색으로 고른 장소**만 갖는다(053 이 준다). 좌표 없는
+     정거장은 이걸로 자리를 얻는다(§13.72). */
+  placeOf?: Record<string, { placeId?: string; category?: string;
+                             lng?: number | null; lat?: number | null } | undefined>;
   memos?: Record<string, string>;
   uriOf: (photoId: string) => string | undefined;
   isPublic?: boolean;
@@ -811,15 +823,43 @@ export async function pushTrip(trip: any, stops: any[], o: PushOpts) {
     else out.failed.push({ what: "여행", why: t.error });
   }
 
-  const todo = stops.filter((st) => (o.picks[st.id] || []).length);
+  /* ★ 자리를 얻는 **세 갈래**(§13.72):
+       1. 대표 사진의 EXIF 좌표
+       2. 정거장 좌표(GPS 있는 사진들의 중심)
+       3. **고른 장소의 좌표** — 위 둘이 다 없을 때. 실내에서 찍었거나 위치
+          권한을 껐던 사진은 흔한데, 예전에는 여기서 조용히 버려졌다.
+
+     ★ 이 판정을 **돌기 전에** 한다. 루프 안에서 걸러 내면 진행 표시의 분모가
+       실제로 올라갈 개수보다 커진다 — 버튼은 *"1곳 등록"*, 진행은 *"0 / 2"* 가
+       되어 두 숫자가 서로를 부정한다. 실제로 그렇게 보였다.
+     ★ 못 넣는 것은 **어느 정거장인지 사람 말로** 적는다 — 예전에는 uuid 를 적어서,
+       완료 화면을 봐도 무엇이 빠졌는지 알 수 없었다. */
+  const todo: { st: any; g: { lng: number; lat: number } }[] = [];
+  for (const st of stops) {
+    const picked = o.picks[st.id] || [];
+    if (!picked.length) continue;
+    const place = o.placeOf?.[st.id];
+    const first = st.items.find((v: any) => v.id === picked[0]) || st.items[0];
+    const g = first.gps || st.c
+      || (place?.lng != null && place?.lat != null
+            ? { lng: place.lng, lat: place.lat } : null);
+    if (!g) {
+      out.failed.push({
+        what: new Date(st.start || first.ts).toLocaleString("ko-KR", {
+          month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" }),
+        why: "위치를 정하지 않았습니다 (장소를 고르시면 등록됩니다)",
+      });
+      continue;
+    }
+    todo.push({ st, g });
+  }
+
   let n = 0;
-  for (const st of todo) {
+  for (const { st, g } of todo) {
     o.onStep?.(n++, todo.length);
     const picked = o.picks[st.id];
     const place = o.placeOf?.[st.id];
     const first = st.items.find((v: any) => v.id === picked[0]) || st.items[0];
-    const g = first.gps || st.c;
-    if (!g) { out.failed.push({ what: st.id, why: "좌표 없음" }); continue; }
 
     const pin = await insert<any>("pins", {
       user_id: SESSION.user_id,
