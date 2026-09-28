@@ -77,6 +77,37 @@ select category, count(*) as 장소수,
        round(100.0*count(*)/sum(count(*)) over (), 1) as 비중
 from public.places group by category order by 2 desc;
 
+-- ── 4) 문 닫은 곳 (§13.65 · 051) ────────────────────────────────────
+-- ★ 여기까지가 **갱신의 절반**이었다. upsert 는 새로 생긴 곳과 바뀐 곳만 본다 —
+--   **사라진 곳**은 아무도 안 봤고, 그래서 한 번 들어온 상호는 문을 닫아도
+--   지도에 영원히 남았다.
+--
+-- ★ 판정 규칙을 여기에 **다시 적지 않는다.** `api_mark_closed` 하나가 정의다
+--   (§13.37: 두 벌이 되면 갈라진다). 스테이징에서 본 `source_ref` 를 모아 넘긴다 —
+--   400k 개라도 서버 안에서 도는 배열이라 셸로 나갔다 오지 않는다.
+--
+-- ★ **출처마다 따로** 부른다. 상가업소만 다시 받은 날 TourAPI 장소가 통째로
+--   문을 닫으면 안 된다 — 안 본 것과 없어진 것은 다르다.
+\echo ''
+\echo '▶ 문 닫은 곳 판정'
+select jsonb_pretty(public.api_mark_closed(
+         'tour_api',
+         (select array_agg(source_ref) from stg_places
+           where source = 'tour_api' and source_ref is not null)))
+  as tour_api
+where exists (select 1 from stg_places where source = 'tour_api');
+
+select jsonb_pretty(public.api_mark_closed(
+         'public_data',
+         (select array_agg(source_ref) from stg_places
+           where source = 'public_data' and source_ref is not null)))
+  as public_data
+where exists (select 1 from stg_places where source = 'public_data');
+
+-- ★ `ok:false` 가 나오면 **스냅샷이 너무 작다는 뜻이다.** 내려받기가 끊겼는지
+--   먼저 보고, 정말 그만큼 줄어든 것이 맞으면 p_min_ratio 를 낮춰 다시 부른다.
+--   그냥 넘기지 말 것 — 다음에 또 같은 일이 생긴다.
+
 \echo ''
 \echo '▶ 죽은 튜플 회수 (용량 절반)'
 \echo '  vacuum full public.places'
