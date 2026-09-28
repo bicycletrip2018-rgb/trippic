@@ -321,8 +321,19 @@ const PIN_COLS =
   "id,trip_id,place_id,region_code,geom,category,visited_at,stay_sec,memo,verification,is_public,comment_count," +
   "media(url,width,height,is_main,sort_order)";
 
-export const search = (q: string, limit = 14) =>
-  rpc<any[]>("api_search", { p_q: q, p_limit: limit });
+/* ★ 좌표를 주면 **그 근처만** 본다(054). 실측: 반경 1.5km 100~200ms,
+   반경 30km 는 396ms 였고 그 전(점수 정렬)에는 아예 타임아웃이었다.
+   ★ 결과도 더 맞는다 — 부산 사진을 고치는데 전국의 동명 가게가 뜨면 그게 더 나쁘다. */
+export const search = (
+  q: string, limit = 14, at?: { lat: number; lng: number } | null,
+) => rpc<any[]>("api_search", {
+  p_q: q, p_limit: limit,
+  p_lng: at?.lng ?? null, p_lat: at?.lat ?? null,
+});
+
+/** 검색을 시작하는 최소 길이. ★ 1글자는 느리고(4초) 결과도 쓸모없다
+    (`카` → 이카·카세·퀸카). 2글자부터가 사람이 기대하는 것이기도 하다. */
+export const SEARCH_MIN = 2;
 
 export const publicRecords = (limit = 200) =>
   select<any[]>("pins",

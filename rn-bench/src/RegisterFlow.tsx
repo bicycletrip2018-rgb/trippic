@@ -8,7 +8,7 @@
  * ★ 화면 수를 웹의 절반으로 줄였다. 웹은 마우스라 한 화면에 많이 놓을 수 있지만,
  *   폰에서는 목록 하나에 한 가지만 물어야 한다.
  */
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text,
   TextInput, View,
@@ -355,12 +355,25 @@ function PlacePicker(
     })();
   }, [stop.id]);
 
-  async function doSearch(text: string) {
+  /* ★ **한 글자마다 보내지 않는다.** 한글은 조합 중에도 `onChangeText` 가 계속
+     오므로 "해운대"를 치면 열 번 가까이 불린다. 마지막 입력만 보낸다(220ms).
+     ★ 좌표를 **같이 보낸다** — 그 사진을 찍은 자리 근처만 찾으면 빠르고(§13.71)
+       결과도 더 맞는다. */
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const seq = useRef(0);
+  function doSearch(text: string) {
     setQ(text);
-    if (text.trim().length < 2) return;
-    const r = await API.search(text.trim(), 14);
-    if (r.ok) setList(r.data || []);
+    if (timer.current) clearTimeout(timer.current);
+    const t = text.trim();
+    if (t.length < API.SEARCH_MIN) return;      // 1글자는 느리고 결과도 쓸모없다
+    timer.current = setTimeout(async () => {
+      const mine = ++seq.current;
+      const r = await API.search(t, 14, stop.c);
+      /* 늦게 온 답이 새 답을 덮지 않게 — §13.55 에서 겪은 것과 같은 형태다 */
+      if (r.ok && mine === seq.current) setList(r.data || []);
+    }, 220);
   }
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
@@ -372,7 +385,8 @@ function PlacePicker(
         </View>
         <TextInput
           style={s.search} value={q} onChangeText={doSearch}
-          placeholder="이름으로 찾기" placeholderTextColor={C.muted} />
+          placeholder={`이름으로 찾기 (${API.SEARCH_MIN}자 이상)`}
+          placeholderTextColor={C.muted} />
         {list === null ? (
           <View style={s.center}><ActivityIndicator color={C.accent} /></View>
         ) : (
