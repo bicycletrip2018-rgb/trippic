@@ -33,6 +33,7 @@ import {
 import * as API from "../api";
 import { whereAmI, watchHere, watchHeading, type Here } from "../live";
 import { MapSheet, SHEET_PEEK, SHEET_BOTTOM, SHEET_HALF, type Snap } from "../MapSheet";
+import { sawCover, openedCover, flushCovers } from "../coverLog";
 import { dur, ymd } from "../course";
 import { C, CAT } from "../theme";
 
@@ -213,6 +214,8 @@ type Pin = {
   category: string | null;
   source: string | null;
   memo: string | null;
+  /** ★ 서버는 처음부터 줬는데 앱이 버리고 있었다(§13.69). 표지 로그의 키다. */
+  place_id: string | null;
   media_url: string | null;
   /** 지도 카드·작은 자리용(047). 서버가 없으면 원본으로 떨어뜨려 준다. */
   media_thumb: string | null;
@@ -300,6 +303,16 @@ export function MapTab(
   const camRef = useRef<CameraRef>(null);
   const size = useRef({ w: 402, h: 700 });
   useEffect(() => { onSheet?.(!!open); }, [open]);
+  /* 열었다 = 관심이다. **누를 때마다** 센다(노출과 달리 한 번만이 아니다). */
+  useEffect(() => { if (open) openedCover(open.place_id); }, [open?.id]);
+
+  /* ★ 모아 둔 것을 **주기적으로** 보낸다. 누를 때마다 보내면 통신이 잦고,
+     화면을 떠날 때만 보내면 앱이 그대로 죽는 경우를 놓친다.
+     ★ 보내지 못하면 **버리지 않고 남긴다** — 그 노출은 다시 만들 수 없다. */
+  useEffect(() => {
+    const t = setInterval(() => { void flushCovers(); }, 60_000);
+    return () => { clearInterval(t); void flushCovers(); };
+  }, []);
 
   useEffect(() => {
     let live = true;
@@ -360,6 +373,7 @@ export function MapTab(
     setPins((r.data as any[]).map((row) => ({
       id: row.id, lng: Number(row.lng), lat: Number(row.lat),
       category: row.category, source: row.source, memo: row.memo,
+      place_id: row.place_id ?? null,
       media_url: row.media_url, media_thumb: row.media_thumb ?? row.media_url,
       media_w: row.media_w ?? null, media_h: row.media_h ?? null,
       visited_at: row.visited_at ?? null, stay_sec: row.stay_sec ?? null,
@@ -617,6 +631,13 @@ export function MapTab(
     return out;
   })();
   const cardIds = new Set(cards.map((c) => c.id));
+
+  /* ★ **보인 것을 센다**(§13.69). 표지 카드가 곧 *"그 장소의 얼굴"* 이라
+     여기가 노출의 자리다. 같은 묶음에서 두 번 세지 않는 것은 `coverLog` 가 막는다 —
+     지도를 조금 밀 때마다 같은 카드가 다시 그려지기 때문이다. */
+  useEffect(() => {
+    for (const c of cards) sawCover(c.place_id);
+  }, [cards.map((c) => c.id).join(",")]);
 
   /* 상호. ★ 핀보다 **뒤에** 그린다 — 내 기록이 배경에 묻히면 안 된다. */
   const placeFc: GeoJSON.FeatureCollection = {
