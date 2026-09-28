@@ -406,7 +406,10 @@ export const pinsByRegion = (
      클라이언트가 또 쓰면 목록과 칩이 갈라진다. 기록 수도 같이 온다 —
      빈 방과 쌓인 방은 다른 것이다. */
 export type SpaceRow = {
-  id: string; title: string; auto_title: boolean; members: number; pins: number;
+  id: string; title: string; auto_title: boolean;
+  members: number; pins: number;
+  /** 함께 닿은 지역 수(052). 목록을 **성적표**로 만드는 숫자다(§12.13). */
+  regions: number;
 };
 export const mySpaces = () => rpc<SpaceRow[]>("api_my_spaces", {});
 

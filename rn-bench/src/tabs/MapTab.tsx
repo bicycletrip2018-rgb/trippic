@@ -254,13 +254,16 @@ const inside = (inner: API.BBox, outer: API.BBox | null) =>
 /** ★ 시트가 열린 것을 App 에 알린다. `(+)` 는 App 이 지도 **위에** 띄우므로
     MapTab 안에서는 가릴 수 없다 — 그대로 두면 닫기(✕)를 덮는다. */
 export function MapTab(
-  { ready, onSheet, onAdd, onSheetHeight }: {
+  { ready, onSheet, onAdd, onSheetHeight, jumpSpace, onJumped }: {
     ready?: boolean;
     onSheet?: (open: boolean) => void;
     /** 빈 화면의 CTA — (+) 와 **같은 문**으로 보낸다(두 벌로 만들지 않는다) */
     onAdd?: () => void;
     /** 바텀시트가 지금 몇 pt 인가 — (+) 가 그 위에 앉는다(§13.66 A안) */
     onSheetHeight?: (h: number) => void;
+    /** 스페이스 탭에서 *"지도 ›"* 를 눌렀다 — 그 방으로 맞춘다(§13.67) */
+    jumpSpace?: string | null;
+    onJumped?: () => void;
   } = {},
 ) {
   const mapRef = useRef<MapRef>(null);
@@ -395,15 +398,36 @@ export function MapTab(
        우연히 막아 주지만 집계에는 그런 것이 없었다. */
   const aggSeq = useRef(0);
 
+  /* ★ 집계가 가진 **상자들을 합쳐** 그 위로 날아간다(§13.67). 스페이스 탭에서
+     *"지도 ›"* 를 눌렀을 때 전국 화면에 떨어지면 *"함께 채운 지도"* 가 아니라
+     그냥 지도다 — 무엇을 채웠는지 보여 주려고 온 길이다. */
+  const flyToAgg = (rows: API.RegionAgg[]) => {
+    const ok = rows.filter((r) => Number.isFinite(r.bw));
+    if (!ok.length) return;
+    const box = [
+      Math.min(...ok.map((r) => r.bw)), Math.min(...ok.map((r) => r.bs)),
+      Math.max(...ok.map((r) => r.be)), Math.max(...ok.map((r) => r.bn)),
+    ];
+    const pad = padPinBox(box);
+    camRef.current?.flyTo({
+      center: [(pad[0] + pad[2]) / 2, (pad[1] + pad[3]) / 2],
+      zoom: zoomForBBox(pad, size.current.w, size.current.h, true),
+      duration: 700,
+    });
+  };
+
   const loadAgg = useCallback(async (sc: API.Scope, ct: string | null,
-                                    sp: string | null = null) => {
+                                    sp: string | null = null,
+                                    onRows?: (rows: API.RegionAgg[]) => void) => {
     const seq = ++aggSeq.current;
     /* ★ 집계도 **같은 필터로** 센다. 필터를 무시하고 전체를 세면 '맛집'을 켜고
        전국으로 나가도 지도가 안 변한다 — 그러면 *"맛집이 많은 지역"* 을 볼 수가
        없다. §13.11 이 신뢰 필터에서 정한 것과 같은 규칙이다. */
     const r = await API.pinsByRegion(sc, ct, sp);
     if (seq !== aggSeq.current) return;      // 그 사이 더 새 요청이 나갔다
-    setAgg(r.ok ? (r.data ?? []) : []);
+    const rows = r.ok ? (r.data ?? []) : [];
+    setAgg(rows);
+    onRows?.(rows);
   }, []);
 
   /* ★ **세션이 선 뒤에 읽는다.** 앱이 뜨자마자 읽으면 토큰이 아직 없어 RLS 가
@@ -488,8 +512,9 @@ export function MapTab(
   /* 스페이스 하나로 좁힌다(또는 푼다). 스코프 바꾸기와 **같은 절차다.** */
   const changeSpace = (id: string) => {
     setPickSpace(false);
-    if (id === space) return;
+    if (id === space && scope === "shared") return;
     setOpen(null);
+    setScope("shared");          // 스페이스 탭에서 바로 올 수도 있다(§13.67)
     setSpace(id);
     spaceRef.current = id;
     setPins([]);
@@ -632,6 +657,25 @@ export function MapTab(
       stopHeading.current = await watchHeading(setFacing).catch(() => null);
     }
   };
+
+  /* ★ 스페이스 탭에서 온 요청. 스코프를 `공유 스페이스` 로 바꾸고 그 방만 남긴 뒤,
+     **기록이 있는 곳으로 날아간다**(§13.61 의 상자를 그대로 쓴다).
+     ★ 한 번 처리하면 **지운다.** 안 지우면 지도 탭으로 돌아올 때마다 다시 날아가
+       사용자가 보던 자리를 빼앗는다. */
+  useEffect(() => {
+    if (!jumpSpace || !ready) return;
+    setPickSpace(false);
+    setOpen(null);
+    setScope("shared");
+    setSpace(jumpSpace);
+    spaceRef.current = jumpSpace;
+    setPins([]); setMore(false); setAgg([]);
+    loaded.current = { box: null, scope: "shared", cat, space: jumpSpace };
+    void load(true, "shared");
+    /* ★ 집계가 온 **뒤에** 날아간다 — 상자를 모르면 어디로 갈지 알 수 없다 */
+    void loadAgg("shared", cat, jumpSpace, flyToAgg);
+    onJumped?.();
+  }, [jumpSpace, ready]);
 
   const fc: GeoJSON.FeatureCollection = {
     type: "FeatureCollection",

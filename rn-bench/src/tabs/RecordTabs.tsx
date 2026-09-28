@@ -6,7 +6,8 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import {
-  ActivityIndicator, Image, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, View,
+  ActivityIndicator, Image, Pressable, RefreshControl, ScrollView, Share,
+  StyleSheet, Text, TextInput, View,
 } from "react-native";
 import * as API from "../api";
 import { C, CAT } from "../theme";
@@ -92,41 +93,88 @@ export async function shareInvite(spaceId: string) {
   }
 }
 
-export function SpaceTab() {
-  const [rows, setRows] = useState<any[]>([]);
+export function SpaceTab({ onOpenMap }: { onOpenMap?: (spaceId: string) => void } = {}) {
+  const [rows, setRows] = useState<API.SpaceRow[]>([]);
   const [busy, setBusy] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
+  /* 이름을 고치는 중인 방. 한 번에 하나만 열린다. */
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+
   const load = useCallback(async () => {
     setBusy(true);
-    const r = await API.select<any[]>("spaces", "select=id,title,type&limit=50");
-    setRows(r.data ?? []);
+    const r = await API.mySpaces();
+    setRows(r.ok ? (r.data ?? []) : []);
     setBusy(false);
   }, []);
   useEffect(() => { void load(); }, [load]);
+
+  const rename = async (sp: API.SpaceRow) => {
+    const next = draft.trim();
+    setEditing(null);
+    if (next === sp.title) return;
+    const r: any = await API.renameSpace(sp.id, next);
+    if (!r?.ok) { setMsg(r?.why ?? "바꾸지 못했습니다"); return; }
+    setRows((prev) => prev.map((x) =>
+      x.id === sp.id ? { ...x, title: r.title, auto_title: !!r.auto } : x));
+  };
+
   return (
     <ScrollView style={s.wrap} contentContainerStyle={{ paddingBottom: 110 }}
       refreshControl={<RefreshControl refreshing={busy} onRefresh={load} tintColor={C.muted} />}>
       <Text style={s.h1}>스페이스</Text>
       <Text style={s.sub}>스페이스는 <Text style={s.b}>사람</Text>입니다 — 여행마다 새로 만들지 않습니다.</Text>
+
       {!rows.length && !busy &&
         <Empty text={"아직 만든 스페이스가 없습니다.\n같이 간 사람과 지도를 함께 채워 보세요."} />}
-      {/* ★ `card` 는 다른 탭도 쓴다 — 거기에 flexDirection 을 넣으면 남의 화면이
-          같이 바뀐다. 줄 배치는 `spaceRow` 로 **여기서만** 한다. */}
+
+      {/* ★ **목록이 아니라 성적표다**(§12.13). 제목과 초대 버튼만 있으면
+          파일 탐색기지 *"함께 채운 지도"* 가 아니다. 그래서 줄마다
+          **함께 채운 기록 수와 지역 수**를 적고, 누르면 지도로 데려간다.
+          ★ 지도를 여기 한 벌 더 그리지 않는다 — 지도는 탭1 하나뿐이고,
+            §13.55 의 `공유 스페이스` 스코프가 이미 그 방만 보여 준다.
+            같은 것을 두 곳에서 그리면 언젠가 둘이 갈라진다(§13.37). */}
       {rows.map((sp) => (
-        <View key={sp.id} style={[s.card, s.spaceRow]}>
-          <View style={{ flex: 1 }}>
-            <Text style={s.cardT}>{sp.title}</Text>
-            <Text style={s.cardS}>{sp.type === "shared" ? "함께 쓰는 방" : "나만 보는 기록"}</Text>
-          </View>
-          {/* ★ 개인 공간에는 초대가 없다 — 부를 사람이 없는 방이다 */}
-          {sp.type === "shared" && (
-            <Pressable style={s.invite} onPress={async () => {
+        <View key={sp.id} style={s.card}>
+          {editing === sp.id ? (
+            <View style={s.renameRow}>
+              <TextInput
+                style={s.renameIn} value={draft} onChangeText={setDraft}
+                autoFocus maxLength={40} returnKeyType="done"
+                onSubmitEditing={() => { void rename(sp); }}
+                placeholder="비우면 멤버 이름으로 돌아갑니다"
+                placeholderTextColor={C.muted} />
+              <Pressable onPress={() => { void rename(sp); }} style={s.renameOk}>
+                <Text style={s.renameOkT}>확인</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <Pressable style={s.spaceRow} onPress={() => onOpenMap?.(sp.id)}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.cardT}>{sp.title}</Text>
+                <Text style={s.cardS}>
+                  멤버 {sp.members}명
+                  {sp.pins ? ` · 함께 채운 ${sp.pins}곳` : " · 아직 기록 없음"}
+                  {sp.regions ? ` · ${sp.regions}개 지역` : ""}
+                </Text>
+              </View>
+              <Text style={s.spaceGo}>지도 ›</Text>
+            </Pressable>
+          )}
+
+          <View style={s.spaceActs}>
+            {/* ★ 이름 바꾸기는 **멤버 누구나**(§13.56). 서버에 문은 있었는데
+                여기 손잡이가 없어서 아무도 못 썼다. */}
+            <Pressable onPress={() => { setEditing(sp.id); setDraft(sp.auto_title ? "" : sp.title); }}>
+              <Text style={s.spaceAct}>이름 바꾸기</Text>
+            </Pressable>
+            <Pressable onPress={async () => {
               const r = await shareInvite(sp.id);
               if (!r.ok) setMsg(r.why ?? "보내지 못했습니다");
             }}>
-              <Text style={s.inviteT}>초대</Text>
+              <Text style={s.spaceAct}>초대</Text>
             </Pressable>
-          )}
+          </View>
         </View>
       ))}
       {!!msg && <Text style={s.warn}>{msg}</Text>}
@@ -336,6 +384,19 @@ const s = StyleSheet.create({
   memo: { color: C.text, fontSize: 13, lineHeight: 21, paddingHorizontal: 18, paddingTop: 6 },
   card: { marginHorizontal: 18, marginTop: 8, padding: 13, borderRadius: 14, borderWidth: 1, borderColor: C.line },
   spaceRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  spaceGo: { color: C.accent, fontSize: 13, fontWeight: "600" },
+  /* 부차 동작은 **아래 줄로 내린다** — 카드를 누르는 것(지도로 가기)이
+     주 동작이라, 같은 줄에 두면 어느 것이 본론인지 흐려진다. */
+  spaceActs: { flexDirection: "row", gap: 16, marginTop: 10,
+               borderTopWidth: 1, borderTopColor: C.line, paddingTop: 10 },
+  spaceAct: { color: C.muted, fontSize: 12.5 },
+  renameRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  renameIn: {
+    flex: 1, backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 10, color: C.text, fontSize: 15,
+  },
+  renameOk: { paddingHorizontal: 12, paddingVertical: 10 },
+  renameOkT: { color: C.accent, fontSize: 14, fontWeight: "700" },
   invite: { paddingHorizontal: 13, paddingVertical: 8, borderRadius: 10,
            backgroundColor: "rgba(255,255,255,0.10)" },
   inviteT: { color: C.text, fontSize: 12.5, fontWeight: "700" },
