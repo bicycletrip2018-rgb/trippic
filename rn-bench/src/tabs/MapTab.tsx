@@ -290,6 +290,10 @@ export function MapTab(
   const [snap, setSnap] = useState<Snap>("peek");
   const [sheetH, setSheetH] = useState(SHEET_PEEK);
   const [facing, setFacing] = useState<number | null>(null);
+  /* ★ 지도는 두 손가락으로 **돌아간다**(touchRotate 기본값). 화살표는 화면 기준으로
+     도는 RN 뷰라, 지도를 돌리면 북쪽이 옮겨간 만큼 **그대로 틀어진다**(§13.78).
+     나침반 각도에서 지도 방위를 빼야 화면에서 맞는 쪽을 가리킨다. */
+  const [bearing, setBearing] = useState(0);
   const stopWatch = useRef<null | (() => void)>(null);
   const stopHeading = useRef<null | (() => void)>(null);
   /* ★ 카드를 누르면 `Marker` 가 먼저 열고, **지도의 press 가 곧바로 닫는다** —
@@ -851,12 +855,29 @@ export function MapTab(
         </View>
       ) : (
       <Map ref={mapRef} style={st.fill} mapStyle={style}
+           /* ★ 돌린 지도를 **되돌릴 길을 준다**(§13.78). 두 손가락으로 쉽게 돌아가는데
+              (실제로 90도 돌려 봤다) 나침반이 없으면 북쪽으로 돌아올 방법이 없다 —
+              기울어진 지도에 갇힌다. 기본 나침반은 눌러서 북쪽으로 돌아온다.
+              ★ 북쪽일 때는 **안 보인다**(compassHiddenFacingNorth). 늘 떠 있으면
+                평소 화면에 쓸모없는 장식이 하나 는다. */
+           compass compassHiddenFacingNorth
+           /* ★ **왼쪽**에 둔다. 오른쪽에는 내 위치와 (+) 가 이미 있고,
+              개발 빌드에서는 Expo 개발 메뉴 버튼까지 같은 자리에 뜬다. */
+           compassPosition={{ top: 8, left: 8 }}
            onPress={(e) => { void onMapPress(e); }}
            onLayout={(e) => {
              const { width, height } = e.nativeEvent.layout;
              if (width > 0 && height > 0) size.current = { w: width, h: height };
            }}
+           onRegionIsChanging={(e) => {
+             /* 돌리는 **도중에도** 따라간다. DidChange 만 보면 손을 뗄 때까지
+                화살표가 옛 방위에 붙어 있다가 툭 튄다. */
+             const b = (e as any)?.nativeEvent?.bearing;
+             if (typeof b === "number") setBearing(b);
+           }}
            onRegionDidChange={(e) => {
+             const b = (e as any)?.nativeEvent?.bearing;
+             if (typeof b === "number") setBearing(b);
              const z = (e as any)?.nativeEvent?.zoom;
              if (typeof z === "number") setZoom(z);
              /* ★ 전국 줌으로 **나가면** 지역 표시를 푼다. 안 풀면 전국을 보는데
@@ -1007,7 +1028,7 @@ export function MapTab(
               못하다 — 사용자가 그걸 믿고 몸을 돌린다. */}
         {here && facing != null && (
           <Marker lngLat={[here.lng, here.lat]}>
-            <View style={{ transform: [{ rotate: `${facing}deg` }] }}>
+            <View style={{ transform: [{ rotate: `${facing - bearing}deg` }] }}>
               <View style={st.facing} />
             </View>
           </Marker>

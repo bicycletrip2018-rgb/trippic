@@ -168,9 +168,23 @@ export async function whereAmI(): Promise<Here | ShotFail> {
      *"어느 쪽을 보고 있나"* 에는 답이 된다.
    ★ `accuracy` 가 나쁘면(3 이상 = 부정확) **화살표를 안 그린다.** 엉뚱한 쪽을
      가리키는 화살표는 없느니만 못하다 — 사용자가 그걸 믿고 몸을 돌린다. */
+/* ★ `accuracy` 는 **오차 각도가 아니라 보정 수준**이다 (§13.78).
+   expo-location 의 정의 — 클수록 **좋다**:
+     3: 오차 20도 미만 · 2: 35도 미만 · 1: 50도 미만 · 0: 50도 초과
+
+   예전 코드는 `accuracy >= 3` 이면 **버렸다.** 뜻이 정반대라, 나침반이 잘 맞을 때만
+   화살표를 지우고 **엉망일 때만 그렸다** — §13.64 가 *"엉뚱한 쪽을 가리키는 화살표는
+   없느니만 못하다"* 고 적어 놓고 정확히 그 반대로 돌고 있었다.
+   실기기에서는 *"화살표가 안 뜬다"* 로만 보였을 것이다.
+
+   ★ 기준을 **2(35도 미만)** 로 둔다. 3(20도)만 받으면 8자 보정을 하기 전까지
+     화살표가 거의 안 뜬다. 35도는 팔을 뻗은 손 한 뼘쯤이라 *"어느 쪽을 보는가"*
+     에는 답이 되고, 50도를 넘으면 엉뚱한 건물을 가리키기 시작한다. */
+export const HEADING_MIN_LEVEL = 2;
+
 export async function watchHeading(onTurn: (deg: number | null) => void) {
   const sub = await Location.watchHeadingAsync((h) => {
-    if (h.accuracy != null && h.accuracy >= 3) { onTurn(null); return; }
+    if (h.accuracy == null || h.accuracy < HEADING_MIN_LEVEL) { onTurn(null); return; }
     const deg = h.trueHeading >= 0 ? h.trueHeading : h.magHeading;
     onTurn(Number.isFinite(deg) && deg >= 0 ? deg : null);
   });
