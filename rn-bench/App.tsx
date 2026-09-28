@@ -16,6 +16,7 @@ import { FeedTab } from "./src/tabs/FeedTab";
 import { NewsTab, SpaceTab, MyTab } from "./src/tabs/RecordTabs";
 import { RegisterFlow } from "./src/RegisterFlow";
 import { LiveCapture } from "./src/LiveCapture";
+import { SHEET_BOTTOM, SHEET_HALF } from "./src/MapSheet";
 import { AddSheet } from "./src/AddSheet";
 import { UploadPill } from "./src/UploadPill";
 import * as Q from "./src/uploadQueue";
@@ -37,6 +38,9 @@ export default function App() {
   const [sheet, setSheet] = useState(false);
   /* 소셜에서 돌아왔다는 신호 — 마이 탭이 이걸 보고 계정 상태를 다시 읽는다 */
   const [authTick, setAuthTick] = useState(0);
+  /* ★ (+) 는 시트 **위에** 앉는다(§13.66 A안). 숨기지 않는다 — (+) 는 지도를
+     보는 내내 닿아야 하는 버튼이고, 시트를 올렸다고 등록을 못 하면 안 된다. */
+  const [sheetH, setSheetH] = useState(104);
 
   useEffect(() => {
     API.setConfig(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -75,7 +79,8 @@ export default function App() {
       <StatusBar style="light" />
       {/* 탭을 갈아 끼우지 않고 **감춘다** — 지도를 다시 만들면 아틀라스를 다시 굽는다 */}
       <View style={[s.page, tab !== "map" && s.hidden]} pointerEvents={tab === "map" ? "auto" : "none"}>
-        <MapTab ready={ready} onSheet={setSheet} onAdd={() => setAdd(true)} />
+        <MapTab ready={ready} onSheet={setSheet} onAdd={() => setAdd(true)}
+                onSheetHeight={setSheetH} />
       </View>
       {ready && tab === "feed" && <FeedTab center={center} />}
       {ready && tab === "news" && <NewsTab />}
@@ -83,8 +88,11 @@ export default function App() {
       {ready && tab === "my" && <MyTab authTick={authTick} />}
       {/* ★ (+) 는 지도 위에 둔다 — §12.27: 등록은 별도 탭이 아니라
           "보고 있는 지도에 한 점을 더하는 일"이다. 탭을 새로 만들면 탭1과 겹친다. */}
-      {tab === "map" && !sheet && (
-        <Pressable style={s.fab} onPress={() => setAdd(true)}>
+      {/* ★ 시트를 끝까지 올리면 (+) 를 **감춘다.** 그 상태는 지도를 덮은 몰입형
+          목록이라 등록할 지도가 없고, 따라 올라간 버튼은 상단 칩과 겹친다
+          (실제로 겹쳤다 — §13.66). */}
+      {tab === "map" && !sheet && sheetH < SHEET_HALF + 40 && (
+        <Pressable style={[s.fab, { bottom: SHEET_BOTTOM + Math.min(sheetH, SHEET_HALF) + 12 }]} onPress={() => setAdd(true)}>
           <Text style={s.fabT}>＋</Text>
         </Pressable>
       )}
@@ -107,7 +115,8 @@ const s = StyleSheet.create({
   page: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
   hidden: { opacity: 0, zIndex: -1 },
   fab: {
-    position: "absolute", right: 18, bottom: 104, width: 54, height: 54,
+    position: "absolute", right: 18, width: 54, height: 54,
+    /* bottom 은 시트 높이를 따라간다 — 위 주석 참고 */
     borderRadius: 27, alignItems: "center", justifyContent: "center",
     backgroundColor: C.accent, shadowColor: "#000", shadowOpacity: 0.4,
     shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6,

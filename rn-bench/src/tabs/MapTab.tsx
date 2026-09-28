@@ -32,6 +32,7 @@ import {
 } from "@maplibre/maplibre-react-native";
 import * as API from "../api";
 import { whereAmI, watchHere, watchHeading, type Here } from "../live";
+import { MapSheet, SHEET_PEEK, SHEET_BOTTOM, SHEET_HALF, type Snap } from "../MapSheet";
 import { dur, ymd } from "../course";
 import { C, CAT } from "../theme";
 
@@ -253,11 +254,13 @@ const inside = (inner: API.BBox, outer: API.BBox | null) =>
 /** ★ 시트가 열린 것을 App 에 알린다. `(+)` 는 App 이 지도 **위에** 띄우므로
     MapTab 안에서는 가릴 수 없다 — 그대로 두면 닫기(✕)를 덮는다. */
 export function MapTab(
-  { ready, onSheet, onAdd }: {
+  { ready, onSheet, onAdd, onSheetHeight }: {
     ready?: boolean;
     onSheet?: (open: boolean) => void;
     /** 빈 화면의 CTA — (+) 와 **같은 문**으로 보낸다(두 벌로 만들지 않는다) */
     onAdd?: () => void;
+    /** 바텀시트가 지금 몇 pt 인가 — (+) 가 그 위에 앉는다(§13.66 A안) */
+    onSheetHeight?: (h: number) => void;
   } = {},
 ) {
   const mapRef = useRef<MapRef>(null);
@@ -272,6 +275,8 @@ export function MapTab(
   const [places, setPlaces] = useState<API.PlaceRow[]>([]);
   const [here, setHere] = useState<Here | null>(null);
   const [locating, setLocating] = useState(false);
+  const [snap, setSnap] = useState<Snap>("peek");
+  const [sheetH, setSheetH] = useState(SHEET_PEEK);
   const [facing, setFacing] = useState<number | null>(null);
   const stopWatch = useRef<null | (() => void)>(null);
   const stopHeading = useRef<null | (() => void)>(null);
@@ -680,9 +685,38 @@ export function MapTab(
 
   const catLabel = cat ? `${CAT[cat]?.k ?? cat} · ` : "";
 
+
   /* 시트가 나눠 센다(§13.37) — 셋은 겹치므로 합이 전체와 같지 않을 수 있다. */
   const n = { mine: 0, shared: 0, other: 0 } as Record<string, number>;
   for (const p of pins) n[p.source ?? "other"] = (n[p.source ?? "other"] ?? 0) + 1;
+
+  /* ★ 요약 한 줄을 **여기서 한 번** 만든다. 시트가 접혀 있을 때 보이는 것이고,
+     예전 알약이 하던 말 그대로다 — 자리만 옮겼지 뜻이 바뀌면 안 된다. */
+  const summary = why ? why
+    : busy ? "불러오는 중"
+    : region
+      ? (agg.length
+          ? `${catLabel}${agg.length}개 지역 · ${agg.reduce((k, a) => k + a.n, 0)}곳 — 확대하면 기록이 보입니다`
+          : cat ? `${CAT[cat]?.k ?? cat} 기록이 아직 없습니다` : "아직 기록이 없습니다")
+    : pins.length === 0
+      ? `${into ? `${into} — ` : ""}` + (
+          cat ? `이 화면에는 ${CAT[cat]?.k ?? cat} 기록이 없습니다`
+          : scope === "mine" ? "이 화면에는 내가 올린 기록이 없습니다"
+          : scope === "shared" ? "이 화면에는 공유 스페이스 기록이 없습니다"
+          : "이 화면에는 아직 기록이 없습니다")
+      : `${into ? `${into}  ` : ""}`
+        + [n.mine ? `내 것 ${n.mine}곳` : null,
+           n.shared ? `함께 ${n.shared}곳` : null,
+           n.other ? `남 ${n.other}곳` : null].filter(Boolean).join(" · ")
+        + (picked ? `  · 눈에 띄는 ${picked.size}곳` : "")
+        + (more ? "  더 있습니다 — 확대하면 더 보입니다" : "");
+
+  /* 시트 목록. ★ **지도에 보이는 것과 같은 집합**이다 — 목록과 지도가 다른 것을
+     보여 주면 사용자는 둘 중 무엇을 믿어야 할지 모른다. */
+  const sheetItems = pins.map((p) => ({
+    id: p.id, thumb: p.media_thumb, memo: p.memo,
+    category: p.category, visited_at: p.visited_at, source: p.source,
+  }));
 
   return (
     <View style={st.root}>
@@ -909,8 +943,9 @@ export function MapTab(
 
       {/* ★ 내 위치 버튼. `(+)` 위에 둔다 — `(+)` 는 App 이 지도 위에 띄우므로
           자리를 비켜 준다. 시트가 떠 있으면 같이 감춘다. */}
-      {!open && !!style && (
-        <Pressable style={st.locate} onPress={() => { void goHere(); }}>
+      {!open && !!style && sheetH < SHEET_HALF + 40 && (
+        <Pressable style={[st.locate, { bottom: SHEET_BOTTOM + Math.min(sheetH, SHEET_HALF) + 64 }]}
+                   onPress={() => { void goHere(); }}>
           {locating
             ? <ActivityIndicator size="small" color={C.text} />
             : <Text style={[st.locateT, here && { color: C.accent }]}>◎</Text>}
@@ -928,46 +963,20 @@ export function MapTab(
 
       {open && <PinSheet pin={open} onClose={() => setOpen(null)} />}
 
-      {/* 시트가 떠 있으면 집계 알약은 감춘다 — 같은 자리를 두 개가 다툰다 */}
-      <View style={[st.foot, open && st.hidden]} pointerEvents={open ? "none" : "auto"}>
-        {why ? (
-          <Text style={st.warn}>{why}</Text>
-        ) : busy ? (
-          <View style={st.busyRow}>
-            <ActivityIndicator size="small" color={C.muted} />
-            <Text style={st.count}>불러오는 중</Text>
-          </View>
-        ) : region ? (
-          <Text style={st.count}>
-            {agg.length
-              ? `${catLabel}${agg.length}개 지역 · ${agg.reduce((n, a) => n + a.n, 0)}곳 — 확대하면 기록이 보입니다`
-              : cat ? `${CAT[cat]?.k ?? cat} 기록이 아직 없습니다` : "아직 기록이 없습니다"}
-          </Text>
-        ) : pins.length === 0 ? (
-          <Text style={st.count}>
-            {into ? `${into} — ` : ""}
-            {/* ★ 카테고리를 켜 둔 채 비면 **그 사실을 말한다.** 안 그러면
-                "이 동네엔 아무것도 없다"로 읽히는데, 사실은 필터가 걸러낸 것이다. */}
-            {cat ? `이 화면에는 ${CAT[cat]?.k ?? cat} 기록이 없습니다`
-              : scope === "mine" ? "이 화면에는 내가 올린 기록이 없습니다"
-              : scope === "shared" ? "이 화면에는 공유 스페이스 기록이 없습니다"
-              : "이 화면에는 아직 기록이 없습니다"}
-          </Text>
-        ) : (
-          <Text style={st.count}>
-            {into ? <Text style={st.into}>{into}  </Text> : null}
-            {[
-              n.mine ? `내 것 ${n.mine}곳` : null,
-              n.shared ? `함께 ${n.shared}곳` : null,
-              n.other ? `남 ${n.other}곳` : null,
-            ].filter(Boolean).join(" · ")}
-            {/* ★ 가운데 단계에서는 **골랐다는 것을 말한다.** 안 말하면 흐린 점이
-                버그로 보이고, 사용자는 왜 어떤 것만 진한지 알 수 없다. */}
-            {picked ? `  · 눈에 띄는 ${picked.size}곳` : ""}
-            {more ? "  더 있습니다 — 확대하면 더 보입니다" : ""}
-          </Text>
-        )}
-      </View>
+      {/* ★ 요약은 이제 **바텀시트의 접힌 상태**다(§13.66). 알약과 시트가 같은
+          자리를 다투면 둘 다 반쯤 보인다 — 하나로 합쳤다.
+          ★ 핀 상세가 떠 있으면 감춘다. 둘 다 바닥에서 올라오므로 겹친다. */}
+      {!open && !!style && (
+        <MapSheet
+          snap={snap} onSnap={setSnap}
+          onHeight={(h) => { setSheetH(h); onSheetHeight?.(h); }}
+          summary={summary}
+          items={sheetItems}
+          onPick={(id) => {
+            const p = pins.find((x) => x.id === id);
+            if (p) setOpen(p);
+          }} />
+      )}
     </View>
   );
 }
@@ -1201,7 +1210,7 @@ const st = StyleSheet.create({
   center: { alignItems: "center", justifyContent: "center" },
   /* (+) 는 right:20/bottom:96 에 있다(App). 그 **위로** 올린다. */
   locate: {
-    position: "absolute", right: 22, bottom: 168,
+    position: "absolute", right: 22,   /* bottom 은 시트 높이를 따라간다 */
     width: 44, height: 44, borderRadius: 22,
     alignItems: "center", justifyContent: "center",
     backgroundColor: "rgba(22,24,31,0.92)",
