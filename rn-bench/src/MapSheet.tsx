@@ -107,6 +107,13 @@ export function MapSheet(
   ).current;
 
   const open = live > SNAP.peek + 24;
+  /* ★ `full` 에서는 **칸을 키운다**(3열 → 2열). 안 그러면 `full` 이
+     *"격자가 더 많이 보이는 것"* 뿐이라 3단을 둘 이유가 약하다.
+     명세의 *"몰입형"* 은 **사진을 크게** 보자는 뜻인데, 인스타처럼 1열로 가면
+     한 번에 하나밖에 못 봐 *"이 화면에 뭐가 있나"* 에 답을 못 한다 —
+     그 질문이 **지도에 붙은 시트의 일**이다. 하나씩 음미하는 것은 핀 상세가 한다.
+     → 2열이 둘을 다 지키는 자리다. */
+  const wide = live > (SNAP.half + SNAP.full) / 2;
 
   return (
     <Animated.View style={[st.sheet, { height: h }]}>
@@ -129,9 +136,11 @@ export function MapSheet(
             <Text style={st.empty}>이 화면에는 아직 기록이 없습니다</Text>
           )}
           {items.map((it) => (
-            <Pressable key={it.id} style={st.cell} onPress={() => onPick(it.id)}>
+            <Pressable key={it.id} style={[st.cell, wide && st.cellWide]}
+                       onPress={() => onPick(it.id)}>
               {it.thumb
-                ? <Image source={{ uri: it.thumb }} style={st.cellImg} />
+                ? <Image source={{ uri: it.thumb }}
+                         style={[st.cellImg, wide && st.cellImgWide]} />
                 : <View style={[st.cellImg, st.cellBlank]}>
                     <View style={[st.dot, { backgroundColor: CAT[it.category ?? "etc"]?.c }]} />
                   </View>}
@@ -189,9 +198,12 @@ const st = StyleSheet.create({
   },
   empty: { color: C.muted, fontSize: 13, textAlign: "center", width: "100%", paddingVertical: 24 },
   cell: { width: "31%" },
+  cellWide: { width: "48%" },
+  /* 넓을 때는 **세로로 조금 긴** 비율 — 풍경도 인물도 덜 잘린다 */
+  cellImgWide: { aspectRatio: 0.86 },
   cellImg: { width: "100%", aspectRatio: 1, borderRadius: 10, backgroundColor: "#1c1f27" },
   cellBlank: { alignItems: "center", justifyContent: "center" },
   dot: { width: 10, height: 10, borderRadius: 5 },
-  cellT: { color: C.text, fontSize: 11.5, marginTop: 4 },
+  cellT: { color: C.text, fontSize: 12.5, marginTop: 5 },
   cellS: { color: C.muted, fontSize: 10.5, marginTop: 1 },
 });
