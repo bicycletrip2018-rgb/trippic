@@ -569,6 +569,37 @@ const WEBP_Q = 0.85;        // 원본 기획서 §11 이 적어 둔 값
    ② 원본이 이미 작아도 1600으로 **늘린다.** 320×240 짜리가 1600×1200 으로 올라갔다.
       늘린 사진은 더 무겁고 더 흐리다 — 없는 화소를 만들어 붙인 것이다.
    그래서 배율을 원본 크기에서 직접 계산하고, 1보다 크면 아예 건드리지 않는다. */
+/**
+ * 스토리지에 올릴 때의 **한 벌 설정** (§13.73)
+ *
+ * ★ `sessionType` 을 **명시한다.** expo-file-system 의 기본값은 `BACKGROUND` 인데,
+ *   그건 `nsurlsessiond` 라는 시스템 데몬에 XPC 로 붙어서 올린다는 뜻이다.
+ *   **시뮬레이터에는 그 데몬이 없다.** 그래서 사진이 한 장도 안 올라갔다:
+ *     BackgroundSession … failed to create a background NSURLSessionUploadTask,
+ *     as remote session is unavailable
+ *     Task … finished with error [-1] NSURLErrorDomain
+ *   이름이 `ERR_FILESYSTEM_CANNOT_UPLOAD` 라 **파일 문제로 보였지만** 아니었다 —
+ *   같은 요청을 맥에서 curl 로 보내면 200 이다. 파일이 아니라 **연결**이었다.
+ *
+ * ★ 그런데 시뮬레이터 때문만은 아니다. 배경 세션은 문서가 이렇게 말한다 —
+ *   *"서버나 연결이 죽어도 **실패하지 않는다.** 성공하거나 직접 취소할 때까지
+ *     계속 재시도한다."* 우리는 이미 `uploadQueue` 가 **우리 방식으로** 나중에
+ *   이어 올린다(§6). 재시도를 두 군데서 하면 실패가 화면에 영영 안 뜨고
+ *   *"올리는 중"* 이 끝나지 않는다. **버티는 일은 우리 큐가 맡는다.**
+ */
+const UP_SESSION = FileSystem.FileSystemSessionType.FOREGROUND;
+const uploadOpts = (mime: string) => ({
+  httpMethod: "POST" as const,
+  uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+  sessionType: UP_SESSION,
+  headers: {
+    apikey: CFG.anonKey,
+    Authorization: `Bearer ${SESSION.access_token}`,
+    "Content-Type": mime,
+    "x-upsert": "false",
+  },
+});
+
 export async function shrink(
   uri: string, srcW?: number, srcH?: number, maxEdge = MAX_EDGE, quality = WEBP_Q,
 ) {
@@ -614,13 +645,7 @@ export async function uploadPhoto(
   const path = `${SESSION.user_id}/${id}.${ext}`;   // 경로 첫 칸이 주인이다(030)
   try {
     const r = await FileSystem.uploadAsync(
-      `${CFG.url}/storage/v1/object/photos/${path}`, body,
-      {
-        httpMethod: "POST",
-        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-        headers: { apikey: CFG.anonKey, Authorization: `Bearer ${SESSION.access_token}`,
-                   "Content-Type": mime, "x-upsert": "false" },
-      });
+      `${CFG.url}/storage/v1/object/photos/${path}`, body, uploadOpts(mime));
     if (r.status >= 300) {
       STATE.lastError = `upload ${r.status} ${String(r.body).slice(0, 140)}`;
       return { ok: false, why: STATE.lastError };
@@ -639,11 +664,7 @@ export async function uploadPhoto(
         const t = await shrink(srcUri, opts?.w, opts?.h, THUMB_EDGE, 0.8);
         const tp = `${SESSION.user_id}/${id}_t.webp`;
         const tr = await FileSystem.uploadAsync(
-          `${CFG.url}/storage/v1/object/photos/${tp}`, t.uri,
-          { httpMethod: "POST",
-            uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-            headers: { apikey: CFG.anonKey, Authorization: `Bearer ${SESSION.access_token}`,
-                       "Content-Type": "image/webp", "x-upsert": "false" } });
+          `${CFG.url}/storage/v1/object/photos/${tp}`, t.uri, uploadOpts("image/webp"));
         if (tr.status < 300) thumbUrl = `${CFG.url}/storage/v1/object/public/photos/${tp}`;
       } catch (e) {
         console.warn("[api] 작은 판 실패 — 본판만 올린다", e);
@@ -707,11 +728,7 @@ export async function uploadVideo(
   const path = `${SESSION.user_id}/${id}.mp4`;      // 경로 첫 칸이 주인이다(030)
   try {
     const r = await FileSystem.uploadAsync(
-      `${CFG.url}/storage/v1/object/photos/${path}`, srcUri,
-      { httpMethod: "POST",
-        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-        headers: { apikey: CFG.anonKey, Authorization: `Bearer ${SESSION.access_token}`,
-                   "Content-Type": "video/mp4", "x-upsert": "false" } });
+      `${CFG.url}/storage/v1/object/photos/${path}`, srcUri, uploadOpts("video/mp4"));
     if (r.status >= 300) {
       STATE.lastError = `upload ${r.status} ${String(r.body).slice(0, 140)}`;
       return { ok: false as const, why: STATE.lastError };
