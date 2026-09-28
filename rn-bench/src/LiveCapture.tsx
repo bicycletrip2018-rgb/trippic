@@ -42,7 +42,19 @@ export function LiveCapture({ onClose }: { onClose: (saved?: boolean) => void })
     /* 장소 후보는 **찍은 좌표의 정확도로** 묻는다 — 소급 등록과 다른 점이다.
        기기가 15m 라고 하면 15m 짜리 후보를, 120m 라고 하면 그만큼 넓게 본다. */
     const c = await API.candidates(r.lat, r.lng, r.accuracyM, null, 0, 12);
-    setCands(c.ok ? (c.data || []) : []);
+    const list = c.ok ? (c.data || []) : [];
+    setCands(list);
+    /* ★ **가장 가까운 곳을 미리 골라 둔다**(§13.70). 기획 §4-B 는 자동 매칭이
+       기본이라고 적었는데 우리는 매번 사람이 고르게 만들어 놨고, 그래서
+       `place_id` 가 빈 핀이 쌓였다.
+       ★ 현장 촬영은 **기기 GPS 정확도를 안다.** 그러니 문턱을 그 정확도에
+         맞춘다 — 정확도가 20m 면 20m 안의 후보만 믿을 만하고, 120m 면
+         무엇을 골라도 찍은 그 집이라는 보장이 없다.
+       ★ 그래도 **사람이 바꿀 수 있다.** 미리 고른 것은 제안이지 결정이 아니다. */
+    const top = list[0];
+    if (top && (top.dist_m ?? 9999) <= Math.max(30, Math.min(r.accuracyM, 80))) {
+      setPlace(top);
+    }
   }
 
   async function save() {
@@ -145,7 +157,9 @@ export function LiveCapture({ onClose }: { onClose: (saved?: boolean) => void })
               </Text>
             </View>
 
-            <Text style={s.rowK}>장소</Text>
+            <Text style={s.rowK}>
+              장소{place ? "" : cands?.length ? " — 골라 주십시오" : ""}
+            </Text>
             {cands === null ? (
               <ActivityIndicator color={C.accent} />
             ) : !cands.length ? (

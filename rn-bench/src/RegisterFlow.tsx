@@ -17,6 +17,11 @@ import { C, CAT } from "./theme";
 import * as API from "./api";
 import * as Q from "./uploadQueue";
 import { ensurePermission, scanAlbum, SCAN_MAX, UNKNOWN_ACC_M } from "./album";
+
+/* ★ 이보다 멀면 **자동으로 안 붙인다**(§13.70). 기획 §8 이 말한 50m 를 기준으로
+   삼되, 앨범 사진은 EXIF 정확도를 들고 오지 않아 조금 넉넉히 본다.
+   틀린 장소가 조용히 들어가는 것은 **안 붙이는 것보다 나쁘다.** */
+const AUTO_MATCH_M = 80;
 import {
   clusterTrips, findOrphans, splitStop, fmtRange,
   type Photo, type Trip, type Stop,
@@ -67,6 +72,33 @@ export function RegisterFlow({ onClose }: { onClose: () => void }) {
     t.stops.forEach((st) => { if (st.items[0]) p[st.id] = [st.items[0].id]; });
     setPicks(p); setMemos({}); setPlaceOf({});
     setStep("stops");
+    void autoMatch(t.stops);          // ★ 아래 — 기획은 **자동이 기본**이다
+  }
+
+  /* ── 자동 매칭 (§13.70) ───────────────────────────────────────────
+     ★ 원본 기획 §4-B: *"앱이 EXIF 위치값으로 … **자동 매칭한다**"*
+       §8: *"자동 매칭되지 않을 경우 … 수동 검색 팝업을 **제공**한다"*
+     → **자동이 기본이고 수동이 대비책**인데, 우리는 수동만 만들어 놨다.
+       그래서 사람들이 장소를 안 골랐고, `place_id` 가 null 인 핀이 쌓였다.
+       그 하나가 `place_stats`·표지 로그·`모두의 지도` 공개를 **동시에** 막고 있었다.
+
+     ★ **가까운 것만** 고른다. 기획이 말한 50m 를 기준으로 삼되, 앨범 사진은
+       정확도를 모르므로(UNKNOWN_ACC_M) 조금 넉넉히 본다. 멀리 있는 후보를
+       자동으로 붙이면 **틀린 장소가 조용히 들어간다** — 그건 안 붙이는 것보다 나쁘다.
+     ★ 자동으로 고른 것은 **표시한다.** 사용자가 *"내가 고른 것"* 과 구별할 수
+       있어야 고칠 마음이 생긴다. */
+  async function autoMatch(list: Stop[]) {
+    for (const st of list) {
+      if (!st.c) continue;
+      const r = await API.candidates(st.c.lat, st.c.lng, UNKNOWN_ACC_M, null, 0, 3);
+      const top = r.ok ? (r.data ?? [])[0] : null;
+      if (!top || (top.dist_m ?? 9999) > AUTO_MATCH_M) continue;
+      setPlaceOf((m) => (m[st.id] ? m : {
+        ...m,
+        [st.id]: { placeId: top.place_id, name: top.name,
+                   category: top.category, auto: true },
+      }));
+    }
   }
 
   async function commit() {
@@ -146,7 +178,8 @@ export function RegisterFlow({ onClose }: { onClose: () => void }) {
             stop={pickFor}
             onClose={() => setPickFor(null)}
             onPick={(pl) => {
-              setPlaceOf((m) => ({ ...m, [pickFor.id]: pl }));
+              /* 사람이 고른 것은 **자동 표시를 뗀다** — 그게 확정이다 */
+              setPlaceOf((m) => ({ ...m, [pickFor.id]: { ...pl, auto: false } }));
               setPickFor(null);
             }}
           />
@@ -228,7 +261,9 @@ function StopList(p: {
               <View style={s.stopHead}>
                 <Text style={s.stopN}>{i + 1}</Text>
                 <View style={{ flex: 1 }}>
-                  <Text style={s.cardT}>{pl ? pl.name : "장소를 고르지 않았습니다"}</Text>
+                  <Text style={s.cardT}>
+                    {pl ? pl.name : "장소를 고르지 않았습니다"}
+                  </Text>
                   <Text style={s.cardS}>
                     {new Date(st.start).toLocaleString("ko-KR", {
                       month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" })}
@@ -270,7 +305,7 @@ function StopList(p: {
               <Pressable style={s.row} onPress={() => p.onPickPlace(st)}>
                 <Text style={s.rowK}>장소</Text>
                 <Text style={[s.rowV, !pl && { color: C.warn }]}>
-                  {pl ? pl.name : "고르기 ›"}
+                  {pl ? `${pl.name}${pl.auto ? " (자동) ›" : " ›"}` : "고르기 ›"}
                 </Text>
               </Pressable>
               <TextInput
