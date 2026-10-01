@@ -814,7 +814,20 @@
     return { ok: r.ok, via: r.via, note: r.ok ? "서버 연결됨" : (r.error || "연결 실패") };
   }
 
-  window.API = Object.assign(API, { rpc, search, candidates, flushCoverEvents, ping,
+  /* ── 탭2 `갈 곳` 의 묶음 (056 · §13.82) ────────────────────────────
+     ★ 예전에는 `feed-seed.json`(9,696곳)이 전부였다. 서버에는 **465,914곳**이
+       있고 행사 기간도 더 많다. 같은 함수를 RN 앱도 쓴다 —
+       **묶음을 정하는 규칙이 한 군데여야** 두 화면이 다른 말을 하지 않는다. */
+  async function feedRails(lat, lng, opts) {
+    opts = opts || {};
+    const r = await rpc("api_feed_rails", {
+      p_lng: lng, p_lat: lat,
+      p_limit: opts.limit || 12, p_radius_m: opts.radiusM || 30000,
+    });
+    return r.ok ? (r.data || []) : null;      // null = 서버가 못 줬다(씨앗으로 떨어진다)
+  }
+
+  window.API = Object.assign(API, { rpc, search, candidates, feedRails, flushCoverEvents, ping,
     safeCat, PIN_CATEGORY, signInAnonymously, refresh, clearSession, session: SESSION,
     insert, select, addComment, listComments, links: LINKS,
     shrink, uploadPhoto, attachMedia, ensurePin, ensureSpace, pushTrip,

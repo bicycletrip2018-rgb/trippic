@@ -19,7 +19,9 @@
 
   const CAT = { heritage: "문화재", nature: "자연", beach: "해변", activity: "액티비티",
                 event: "행사", food: "맛집", cafe: "카페", stay: "숙소" };
-  const FD = { seed: [], cpt: null, ready: false };
+  /* `rails`: 서버(056)가 정한 묶음. 못 받으면 null 이고, 그때만 아래 로컬 로직이 돈다.
+     `src`: 지금 무엇으로 그리고 있는지 — 화면에 적는다(§13.82). */
+  const FD = { seed: [], rails: null, src: "seed", cpt: null, ready: false };
 
   /* ── 표지는 **주어지지 않는다. 이긴다.** (§12.25-A 수정) ─────────
      처음엔 *"사용자 사진이 있으면 무조건 표지"* 로 만들었다. 그건 경쟁이 아니라
@@ -186,8 +188,50 @@
 
   const ymd = (d) => `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
 
+  /* ── 서버 행을 **씨앗과 같은 모양**으로 (§13.82) ─────────────────
+     ★ 아래 `coverOf`·`card`·`uismoke` 가 전부 씨앗 모양을 보고 있다.
+       모양을 바꾸면 그 셋을 다 고쳐야 하고, 그중 하나를 빠뜨리면 조용히 깨진다.
+       **들어오는 자리에서 한 번 바꾼다** — 경계에서 바꾸면 안쪽은 그대로다
+       (§13.x 의 `absorbUser` 와 같은 수법이다). */
+  function fromServer(r) {
+    return { id: r.place_id, n: r.name, c: r.category, cpt: null,
+             img: r.image_url || "", thumb: r.thumb_url || r.image_url || "",
+             evs: r.event_start || null, eve: r.event_end || null,
+             lng: r.lng, lat: r.lat, rg: r.region_name || "", rc: null,
+             _dist: r.dist_m, _rail: r.rail };
+  }
+
+  /* ④ 다시 가보기 — 내 앨범에서 **오늘과 같은 월·일**. 남의 콘텐츠가 0이어도 작동한다.
+     ★ 이것만은 **서버가 못 준다** — 내 앨범은 기기에만 있다. 그래서 두 갈래가 같이 쓴다. */
+  function againRail() {
+    const now = new Date();
+    const md = (d) => `${d.getMonth()}-${d.getDate()}`;
+    /* ★ 한 장소에서 다섯 장을 찍었다고 카드 다섯 장이 되면 안 된다 — 장소당 한 장이다. */
+    const seenPlace = new Set();
+    return (window.UP ? UP.album : []).filter((x) => x.gps && x.poi)
+      .filter((x) => md(new Date(x.ts)) === md(now) || now - x.ts > 300 * 864e5)
+      .sort((a, b) => a.ts - b.ts)
+      .filter((x) => !seenPlace.has(x.poi.properties.n) && seenPlace.add(x.poi.properties.n))
+      .slice(0, 12);
+  }
+
   /* ── 묶음 ─────────────────────────────────────────────────── */
   function rails() {
+    /* ★ 서버가 묶음을 정했으면 **다시 정하지 않는다**(§13.82).
+       여기에 같은 규칙을 한 벌 더 두면 두 화면이 언젠가 다른 말을 한다 —
+       `아직 안 가본 곳` 이 특히 그렇다: 서버는 내 핀을 보고 빼지만
+       여기 로직은 앨범의 지역 이름을 추측해서 뺀다. 둘이 같을 리 없다. */
+    if (FD.rails) {
+      const by = (k) => FD.rails.filter((x) => x._rail === k);
+      const mine = againRail();
+      return [
+        by("live").length && { k: "live", t: "지금 하는 행사", why: `오늘 열려 있는 곳 ${by("live").length}곳`, items: by("live") },
+        by("soon").length && { k: "soon", t: "곧 시작합니다", why: "날짜가 잡힌 행사", items: by("soon") },
+        by("near").length && { k: "near", t: "여기서 가까운", why: (hereRegion() ? `지도에서 보던 ${hereRegion()} 기준` : "지도에서 보던 자리 기준") + " · 가까운 순", items: by("near") },
+        by("unseen").length && { k: "unseen", t: "아직 안 가본 곳", why: "내 기록이 없는 곳 — 지역마다 하나씩", items: by("unseen") },
+        mine.length && { k: "again", t: "다시 가보기", why: "예전에 갔던 자리 — 내 기록입니다", mine },
+      ].filter(Boolean);
+    }
     const seed = FD.cpt ? FD.seed.filter((x) => x.cpt === FD.cpt) : FD.seed;
     const now = new Date(), today = now.toISOString().slice(0, 10);
     const c = here();
@@ -213,14 +257,7 @@
     const perRegion = new Set();
     const unseen = notVisited.filter((x) => !perRegion.has(x.rg) && perRegion.add(x.rg));
 
-    // ④ 다시 가보기 — 내 앨범에서 **오늘과 같은 월·일**. 남의 콘텐츠가 0이어도 작동한다.
-    const md = (d) => `${d.getMonth()}-${d.getDate()}`;
-    //    ★ 한 장소에서 다섯 장을 찍었다고 카드 다섯 장이 되면 안 된다 — 장소당 한 장이다.
-    const seenPlace = new Set();
-    const mine = (window.UP ? UP.album : []).filter((x) => x.gps && x.poi)
-      .filter((x) => md(new Date(x.ts)) === md(now) || now - x.ts > 300 * 864e5)
-      .sort((a, b) => a.ts - b.ts)
-      .filter((x) => !seenPlace.has(x.poi.properties.n) && seenPlace.add(x.poi.properties.n));
+    const mine = againRail();
 
     return [
       live.length && { k: "live", t: "지금 하는 행사", why: `오늘 열려 있는 곳 ${live.length}곳`, items: live.slice(0, 12) },
@@ -338,11 +375,48 @@
         `${card.dataset.name}\n\n실제 앱에서는 장소 상세가 열립니다.\n` +
         `· 이 장소의 기록(뷰어)\n· 지도에서 보기\n· 저장`);
     });
+    await loadFeed();
+  };
+  /* ── 무엇으로 그릴지 (§13.82) ───────────────────────────────────
+     ★ **서버를 먼저 본다.** 465,914곳 · 실제 행사 기간 · 내 핀을 뺀 `안 가본 곳` —
+       씨앗(9,696곳 · 2026-09 스냅샷)으로는 못 하는 것들이다.
+     ★ 그래도 **씨앗을 지우지 않는다.** `config.js` 가 적어 둔 원칙이다:
+         *"서버가 없다고 화면이 죽으면 안 된다 — 프로토타입의 값어치는 항상 도는 것이다."*
+       비행기 안에서도, 키를 안 넣은 사람 손에서도 돌아야 한다.
+       ★ RN 앱에서는 **반대로** 씨앗을 걷어냈다(§13.81). 거기서는 로컬 폴백이
+         *"출시하면 안 도는 화면"* 을 가려 주는 가면이었기 때문이다.
+         **같은 파일이 한쪽에서는 안전망이고 다른 쪽에서는 가면이다.**
+     ★ `coverOf`·`uismoke` 는 씨앗 모양만 보므로 **어느 쪽이든 그대로 돈다.** */
+  async function loadFeed(opts) {
+    opts = opts || {};
+    const c = here();
+    try {
+      /* ★ `seedOnly` — **uismoke 가 쓴다.** 표지 경쟁(§13.8)의 검증은 씨앗이
+         흉내 낸 반응 위에서만 할 수 있다: 사용자 후보는 데모 POI 의 **이름**으로
+         이어지는데 서버 장소는 이름이 다르다. 그래서 서버 데이터에서는
+         `__userCoverCount()` 가 0 이 되고, 그건 **버그가 아니라 다른 질문**이다.
+         (실제 경쟁은 029 가 서버에서 한다. 아직 로그가 없을 뿐이다.)
+         검증 대상과 데이터가 어긋나면 통과해도 아무것도 증명하지 못한다. */
+      const rows = (!opts.seedOnly && window.API && API.feedRails)
+        ? await API.feedRails(c.lat, c.lng, { limit: 12 }) : null;
+      if (rows && rows.length) {
+        FD.rails = rows.map(fromServer);
+        /* 같은 곳이 두 묶음에 들어갈 수 있다(행사는 '지금'과 '가까운'에 함께 든다).
+           `seed` 는 **장소 목록**이므로 중복을 없앤다 — coverOf 가 장소 단위다. */
+        const seen = new Set();
+        FD.seed = FD.rails.filter((x) => !seen.has(x.id) && seen.add(x.id));
+        FD.src = "server"; FD.ready = true;
+        console.log("[feed] 서버", FD.rails.length, "행 ·", FD.seed.length, "곳");
+        return;
+      }
+    } catch (e) { console.warn("[feed] 서버 실패 → 씨앗", e); }
     try {
       FD.seed = await (await fetch("feed-seed.json")).json();
-      FD.ready = true;
+      FD.rails = null; FD.src = "seed"; FD.ready = true;
       console.log("[feed] 씨앗", FD.seed.length.toLocaleString(), "곳");
     } catch (e) { console.warn("[feed] feed-seed.json 없음", e); }
-  };
+  }
+  window.__loadFeed = loadFeed;
+
   window.__feed = FD;
 })();

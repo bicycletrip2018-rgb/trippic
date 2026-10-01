@@ -895,7 +895,15 @@
     R.lines.push("── 9. 탭2 갈 곳 ──");
     await closeSheet();
     const FD = window.__feed;
+    /* ★ **씨앗으로 고정한다**(§13.82). 아래 표지 경쟁 검증(§13.8)은 씨앗이 흉내 낸
+       반응 위에서만 성립한다 — 사용자 후보는 데모 POI 의 **이름**으로 이어지는데
+       서버 장소는 이름이 다르다. 서버 데이터로 돌리면 `__userCoverCount()` 가
+       0 이 되고, 그건 **버그가 아니라 다른 질문**이다.
+       **검증 대상과 데이터가 어긋나면 통과해도 아무것도 증명하지 못한다**
+       (§13.53 에서 빈 토큰으로 "거절됨"을 넷 찍었던 것과 같은 함정이다). */
+    if (window.__loadFeed) await window.__loadFeed({ seedOnly: true });
     ok(await waitFor(() => FD.ready), `씨앗 ${FD.seed.length.toLocaleString()}곳을 읽었다`);
+    ok(FD.src === "seed", "표지 경쟁 검증은 **씨앗으로** 돌린다 — 서버 데이터로는 그 질문에 답할 수 없다");
 
     const fdBtn = $('#tabbar button[data-tab="feed"]');
     ok(!!fdBtn, "탭바에 '갈 곳'이 있다");
