@@ -13,10 +13,16 @@
 import json, os, re, subprocess, sys, time, urllib.parse, urllib.request
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
-for l in open(os.path.join(ROOT, ".env"), encoding="utf-8"):
-    if "=" in l and not l.startswith("#"):
-        k, v = l.split("=", 1)
-        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+# ★ `.env` 는 **있으면 읽는다**(§13.88). 저장소에 커밋하지 않으므로 CI 에는 없고,
+#   거기서는 비밀을 환경변수로 받는다. 필수로 읽으면 자동 갱신이 첫 줄에서 죽는다
+#   (`verify.sh` 등 셸 스크립트는 처음부터 `[ -f .env ] &&` 로 선택이었다 — 여기만 달랐다).
+try:
+    for l in open(os.path.join(ROOT, ".env"), encoding="utf-8"):
+        if "=" in l and not l.startswith("#"):
+            k, v = l.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+except FileNotFoundError:
+    pass
 KEY = os.environ["TOURAPI_KEY"]
 END = os.environ.get("TOURAPI_ENDPOINT", "https://apis.data.go.kr/B551011/KorService2")
 OUT = os.path.join(ROOT, "data", "out", "festivals_raw.jsonl")
@@ -50,6 +56,9 @@ def main():
         if len(items) >= total or not got: break
         page += 1; time.sleep(1)
 
+    # ★ 원본 캐시 자리를 **만들고** 쓴다(§13.88). `data/` 는 커밋하지 않으므로
+    #   새 클론(CI)에는 그 폴더가 없다 — 예전 판은 여기서 죽었다.
+    os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w", encoding="utf-8") as f:
         for it in items: f.write(json.dumps(it, ensure_ascii=False) + "\n")
     print(f"원본 캐시 → {OUT}")
@@ -62,6 +71,14 @@ def main():
         if ref and len(s) == 8:
             rows.append((ref, s, e if len(e) == 8 else r"\N"))
     print(f"기간이 있는 행사 {len(rows):,}건")
+    # ★ **반쪽짜리 스냅샷을 막는 빗장**(§13.65 와 같은 이유). API 가 빈손으로 답하거나
+    #   키가 만료되면 예전에는 조용히 0건을 쓰고 **성공으로 끝났다** — 자동으로 돌기
+    #   시작하면 그 침묵이 몇 주를 간다. 평소 700~800건이 오므로 바닥을 둔다.
+    floor = int(sys.argv[sys.argv.index("--min") + 1]) if "--min" in sys.argv else 300
+    if len(rows) < floor:
+        print(f"! 너무 적다({len(rows)} < {floor}) — 쓰지 않고 멈춘다. "
+              f"API 나 키를 확인하라.", file=sys.stderr)
+        sys.exit(2)
     if not rows: return
 
     sql = ["set statement_timeout='20min';", "begin;",
