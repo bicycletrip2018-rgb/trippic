@@ -542,6 +542,21 @@ export const feedRails = (
   p_limit: opts?.limit ?? 12, p_radius_m: opts?.radiusM ?? 30000,
 });
 
+/* ── 다시 가보기 (§12.25 · §13.86) ───────────────────────────────────
+   ★ 다른 묶음은 전부 **남의 데이터**를 쓴다. 이것만 **내 발자국**을 쓴다 —
+     그래서 사용자가 아무도 없어도 이 줄은 선다. */
+export type RevisitRow = {
+  place_id: string | null; name: string; category: string;
+  lng: number; lat: number; dist_m: number;
+  visited_at: string; anniversary: boolean;
+  image_url: string | null; thumb_url: string | null; region_name: string | null;
+};
+
+export const myRevisit = (lat: number, lng: number, limit = 12) =>
+  rpc<RevisitRow[]>("api_my_revisit", {
+    p_lng: lng, p_lat: lat, p_limit: limit, p_old_days: 300,
+  });
+
 /* ── 장소의 표지 (§12.25-A · §13.74) ─────────────────────────────────
    ★ **표지를 여기서 고르지 않는다.** 029 가 `place_stats.top_media_id` 에
      골라 둔 것을 읽어 올 뿐이다. 고르는 곳이 둘이 되는 순간 두 화면이 같은

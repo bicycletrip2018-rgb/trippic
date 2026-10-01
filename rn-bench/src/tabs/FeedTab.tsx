@@ -30,6 +30,17 @@ const STRIDE = CARD_W + CARD_GAP;
 const BUDGETS: [number, string][] = [[120, "2시간"], [240, "반나절"], [480, "하루"]];
 const THIS_MONTH = new Date().getMonth() + 1;
 
+/* 서버 행에 **화면에서만 쓰는 한 줄**을 더한 모양. 서버 타입을 더럽히지 않는다. */
+type FeedItem = Omit<API.FeedRow, "rail"> & {
+  rail: API.FeedRow["rail"] | "again"; note?: string;
+};
+
+/** `2025-10-01` → `작년` / `3년 전` */
+function yearsAgo(iso: string) {
+  const n = new Date().getFullYear() - new Date(iso).getFullYear();
+  return n <= 0 ? "오늘" : n === 1 ? "작년" : `${n}년 전`;
+}
+
 const RAILS: { k: API.FeedRow["rail"]; t: string; why: string }[] = [
   { k: "live",   t: "지금 하는 행사", why: "오늘 열려 있는 곳 · 가까운 순" },
   { k: "soon",   t: "곧 시작합니다", why: "날짜가 잡힌 행사" },
@@ -52,6 +63,9 @@ export function FeedTab(
   const [budgetRows, setBudgetRows] = useState<API.BudgetPlace[] | null>(null);
   const [season, setSeason] = useState(false);
   const [seasonRows, setSeasonRows] = useState<API.MonthPlace[] | null>(null);
+  /* ★ 내 발자국. 서버 묶음과 **따로** 부른다 — 이건 남의 데이터가 아니라
+     내 핀이고, 로그인 상태에 따라 비기도 한다(§13.86). */
+  const [revisit, setRevisit] = useState<API.RevisitRow[]>([]);
 
   /* ★ 보던 자리가 바뀌면 다시 묻는다. `center` 는 지도의 실제 중심이다(§13.74). */
   useEffect(() => {
@@ -61,6 +75,14 @@ export function FeedTab(
       if (!live) return;
       if (r.ok) setRows(r.data ?? []);
       else setErr(r.error ?? "불러오지 못했습니다");
+    });
+    return () => { live = false; };
+  }, [center.lat, center.lng]);
+
+  useEffect(() => {
+    let live = true;
+    void API.myRevisit(center.lat, center.lng).then((r) => {
+      if (live && r.ok) setRevisit(r.data ?? []);
     });
     return () => { live = false; };
   }, [center.lat, center.lng]);
@@ -147,6 +169,30 @@ export function FeedTab(
         <Rail key={r.k} title={r.t} why={r.why} items={r.items}
               covers={covers} onOpenMap={onOpenMap} />
       ))}
+
+      {/* ★ **맨 아래에 둔다.** 위 넷은 *"어디 갈까"* 에 답하고, 이건 *"거기 또 갈까"* 다.
+          묻는 것이 달라서 섞으면 둘 다 흐려진다. */}
+      {!!revisit.length && (
+        <Rail
+          title="다시 가보기" why="예전에 갔던 자리 — 내 기록입니다"
+          items={revisit.map((x) => ({
+            rail: "again" as const,
+            place_id: x.place_id ?? `pin-${x.name}-${x.visited_at}`,
+            name: x.name, category: x.category,
+            lng: x.lng, lat: x.lat, dist_m: x.dist_m,
+            image_url: x.image_url, thumb_url: x.thumb_url,
+            event_start: null, event_end: null, region_name: x.region_name,
+            note: x.anniversary
+              ? `${yearsAgo(x.visited_at)} 오늘 이 자리에`
+              : `${x.visited_at.slice(0, 10).replace(/-/g, ".")} 방문`,
+          }))}
+          covers={{}}
+          /* ★ 노출을 **세지 않는다**(§13.86). 표지 경쟁의 분모는 *"남들이 보고
+             고르는 것"* 인데, 내가 내 기록을 들여다본 것을 거기 섞으면 내 사진의
+             분모만 조용히 부푼다 — 경쟁이 아니라 자기 표를 던지는 것이다. */
+          countSeen={false}
+          onOpenMap={onOpenMap} />
+      )}
       <Text style={s.credit}>장소·사진 출처 한국관광공사 · 경계 © OpenStreetMap contributors</Text>
     </ScrollView>
   );
@@ -162,10 +208,12 @@ export function FeedTab(
 const DWELL_MS = 500;
 
 function Rail(
-  { title, why, items, covers, onOpenMap }: {
-    title: string; why: string; items: API.FeedRow[];
+  { title, why, items, covers, onOpenMap, countSeen = true }: {
+    title: string; why: string; items: FeedItem[];
     covers: Record<string, API.PlaceCover>;
     onOpenMap?: (p: { lng: number; lat: number; name: string }) => void;
+    /** 이 묶음의 노출을 표지 경쟁에 셀 것인가(§13.86) */
+    countSeen?: boolean;
   },
 ) {
   const x = useRef(0);
@@ -180,7 +228,7 @@ function Rail(
     for (let i = 0; i < items.length; i++) {
       const a = RAIL_PAD + i * STRIDE, b = a + CARD_W;
       const vis = Math.min(b, right) - Math.max(a, left);
-      if (vis >= CARD_W / 2) sawCover(items[i].place_id);
+      if (vis >= CARD_W / 2 && countSeen) sawCover(items[i].place_id);
     }
   }
   const settle = () => {
@@ -212,7 +260,7 @@ const ymd = (d: string) => d.slice(5).replace("-", ".");
 
 function Card(
   { x, cover, onOpenMap }: {
-    x: API.FeedRow;
+    x: FeedItem;
     cover?: API.PlaceCover;
     onOpenMap?: (p: { lng: number; lat: number; name: string }) => void;
   },
@@ -244,7 +292,10 @@ function Card(
           다르게 말한다(§13.34 에서 합쳐 놓은 것을 되돌리지 않는다). */}
       <Text style={s.dist}>{courseDriveText(x.dist_m)}</Text>
       {/* ★ 출처를 적는 것이 §12.25-A 의 **절반**이다. */}
-      {mine
+      {x.note
+        /* 내 기록 줄은 출처가 아니라 **언제 갔는지**를 말한다 */
+        ? <Text style={s.byUser}>{x.note}</Text>
+        : mine
         ? <Text style={s.byUser}>@{cover!.author}의 사진</Text>
         : x.event_start
           ? <Text style={s.unknownWhen}>
