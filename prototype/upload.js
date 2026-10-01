@@ -2675,7 +2675,12 @@
 
   window.initUpload = function () {
     loadPlaces();
-    document.head.appendChild(Object.assign(document.createElement('style'), { textContent: CK_CSS }));
+    /* ★ **이 함수는 다시 불린다**(§13.83). `uismoke.js:51` 이 부르고, 화면을 다시
+       세울 때도 부른다. 그런데 아래가 전부 *"만들어 붙인다"* 뿐이라, 두 번째 호출이
+       **같은 것을 하나 더** 만들었다. 붙이기 전에 **있던 것을 치운다.** */
+    document.getElementById("ckStyle")?.remove();
+    document.head.appendChild(Object.assign(document.createElement("style"),
+      { id: "ckStyle", textContent: CK_CSS }));
     UP.album = makeAlbum();
     UP.dayRule = loadDayRule();   // 지난번에 고친 판정을 그대로 이어간다
     // 지역 목록(246개·코드 포함)을 먼저 받아 둔다 — 정거장 지역을 코드로 물려받으려면 필요하다
@@ -2683,6 +2688,12 @@
       if (UP.trips.length) UP.trips = UP.trips;     // 이름 표시가 코드에서 오므로 다시 그릴 필요는 없다
     }).catch(() => {});
     recluster();
+    /* ★ 여기가 배지가 거짓말하던 자리다(§13.83).
+       두 번 불리면 `#fab` 이 **둘**이 되고, `syncFabBadge` 는 마지막 클로저의
+       `fab` 에만 쓴다. 화면이 보여 주는 것(= `document.querySelector` 가 찾는 첫 번째)은
+       **첫 호출 때의 낡은 배지**라 등록해도 숫자가 안 줄었다.
+       숫자가 틀린 게 아니라 **틀린 요소에 쓰고 있었다.** */
+    document.getElementById("fab")?.remove();
     const fab = el(`<button id="fab" title="기록 추가">+</button>`);
     document.body.appendChild(fab);
     fab.addEventListener("click", screenEntry);

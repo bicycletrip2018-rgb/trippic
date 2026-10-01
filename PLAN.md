@@ -10541,3 +10541,69 @@ FAIL ★ FAB 배지가 남은 일과 같다 (배지 7 · 남은 일 6)
 그 단언은 uismoke **371줄** — 내가 손댄 줄(**897줄**)보다 **앞**이라 닿을 수 없다.
 내 변경 어느 것도 `UP`/`upload.js` 를 건드리지 않았다.
 **따로 봐야 한다** — 여기서 묻어 두면 다음 사람이 내 커밋을 의심한다.
+
+---
+
+## §13.83 FAB 배지 — **숫자가 틀린 게 아니라 틀린 요소에 쓰고 있었다** (upload.js)
+
+§13.82 에서 uismoke 가 남긴 실패 1건:
+
+```
+FAIL ★ FAB 배지가 남은 일과 같다 (배지 7 · 남은 일 6)
+```
+
+### 공식은 이미 맞았다
+
+§12.27 이 고쳐 둔 대로, 배지(`upload.js`)와 테스트(`uismoke.js`)의 식은 **글자 그대로 같다**:
+
+```js
+UP.trips.filter((t) => !UP.registered.has(t.id)).length
+  + (UP.orphans && UP.orphans.items.length ? 1 : 0)
+```
+
+같은 식이 다른 답을 낼 수는 없다. 그러니 **배지가 그 식의 결과가 아니었다.**
+
+### 재서 좁혔다
+
+| 잰 것 | 나온 것 |
+|---|---|
+| `UP.registered.add` 를 감싸 호출 추적 | `commit`(upload.js:2585)에서 실제로 불린다 · 그 순간 `syncFabBadge` 는 함수다 |
+| 그 전후 배지 글자 | **7 → 7** (안 바뀐다) |
+| 끝난 뒤 상태 | `trips 6 · registered 1 · todo 6` · 배지 **7** |
+| 실수로 얻은 스택 | `window.initUpload (upload.js:2702) ← uiSmoke (uismoke.js:51)` |
+
+마지막 줄이 답이었다. **`initUpload()` 이 두 번 돈다** — 페이지 부팅에서 한 번,
+uismoke 가 시작하며 또 한 번. 그런데 그 함수는 이렇게 생겼다:
+
+```js
+const fab = el(`<button id="fab" …>+</button>`);
+document.body.appendChild(fab);          // ← 있는지 **안 본다**
+```
+
+→ `#fab` 이 **둘**이 된다. `syncFabBadge` 는 마지막 클로저의 `fab` 에만 쓰고,
+  화면이 보여 주는 것(= `document.querySelector` 가 찾는 **첫 번째**)은
+  첫 호출 때 만든 **낡은 배지**다. 그래서 등록해도 숫자가 안 줄었다.
+
+★ **숫자가 틀린 게 아니라 틀린 요소에 쓰고 있었다.** §12.27 의 수정은 옳았고,
+  이건 **같은 증상을 입은 다른 고장**이다. 증상이 같다고 원인이 같지 않다.
+
+### 고친 것 — 붙이기 전에 **있던 것을 치운다**
+
+`initUpload` 은 다시 불릴 수 있는 함수인데 안이 전부 *"만들어 붙인다"* 뿐이었다.
+FAB 과 주입 스타일 둘 다 같은 모양이었다.
+
+```js
+document.getElementById("fab")?.remove();
+document.getElementById("ckStyle")?.remove();
+```
+
+### ★ 이 테스트가 왜 잡았나
+
+단언이 **함수의 반환값이 아니라 화면의 글자**를 봤기 때문이다.
+`syncFabBadge()` 의 리턴을 봤다면 6이 나와 통과했을 것이고, 버그는 그대로 남았다.
+*"사용자가 보는 것"* 을 재는 단언만이 이 고장을 볼 수 있었다.
+
+### 검증
+
+uismoke **290 통과 · 0 실패** (고치기 전 289/1).
+`#fab` 1개 · `#fabBadge` 1개 · 글자 `6` = `todo` 6.
