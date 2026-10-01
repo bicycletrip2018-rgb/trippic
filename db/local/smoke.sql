@@ -999,12 +999,18 @@ select pg_temp.ok(
 
 -- 남의 눈으로 본다
 select pg_temp.login('33333333-3333-3333-3333-333333333333');
+/* ★ **`p_scope => 'all'` 로 부른다**(§13.84). 기본값은 `mine_all`(§13.55 에서 붙었다)
+   이라, 남이 그냥 부르면 *"내 것 + 나와 공유된 것"* 이 0건이라 **당연히 비어** 나온다.
+   그 0건으로는 *"RLS 를 우회하지 않는다"* 를 증명할 수 없다 — 함수가 스스로 걸러
+   놓고 RLS 가 막았다고 착각하는 꼴이다.
+   `all` 로 불러야 **RLS 만이 유일한 문지기**가 되고, 그때 남는 것이 공개 핀뿐이어야
+   비로소 이 단언이 뜻을 갖는다. 스코프가 생기면서 이 단언이 낡았다. */
 select pg_temp.ok(
-  (select bool_and(is_public) from public.api_pins_in_bbox(129.79, 35.15, 129.81, 35.17, 300, null))
-  and (select count(*) from public.api_pins_in_bbox(129.79, 35.15, 129.81, 35.17, 300, null)) > 0,
+  (select bool_and(is_public) from public.api_pins_in_bbox(129.79, 35.15, 129.81, 35.17, 300, null, 'all'))
+  and (select count(*) from public.api_pins_in_bbox(129.79, 35.15, 129.81, 35.17, 300, null, 'all')) > 0,
   '★ 남에게는 공개 핀만 보인다 — 뷰포트 함수가 RLS 를 우회하지 않는다');
 select pg_temp.ok(
-  (select bool_and(not is_mine) from public.api_pins_in_bbox(129.79, 35.15, 129.81, 35.17, 300, null)),
+  (select bool_and(not is_mine) from public.api_pins_in_bbox(129.79, 35.15, 129.81, 35.17, 300, null, 'all')),
   'is_mine 이 남의 것을 내 것이라 하지 않는다');
 
 -- ★ 공개 핀에는 **공개 자격이 있는 사진만** 붙는다(009).
@@ -1014,7 +1020,8 @@ update public.media set public_ok = false where pin_id='77777777-0000-0000-0000-
 update public.media set public_ok = false where pin_id='77777777-0000-0000-0000-000000000001';
 select pg_temp.login('33333333-3333-3333-3333-333333333333');
 select pg_temp.ok(
-  (select media_url is null from public.api_pins_in_bbox(129.79, 35.15, 129.81, 35.17, 300, null)
+  /* 남의 눈이므로 `'all'` 로 부른다 — 기본 `mine_all` 은 0건이라 아무것도 못 본다(위 참조) */
+  (select media_url is null from public.api_pins_in_bbox(129.79, 35.15, 129.81, 35.17, 300, null, 'all')
     where id='77777777-0000-0000-0000-000000000002'),
   '★ 공개 자격 없는 사진은 모두의 지도에 안 붙는다 (핀은 오되 사진만 빠진다)');
 
