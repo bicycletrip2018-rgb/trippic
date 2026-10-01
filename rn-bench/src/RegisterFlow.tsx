@@ -15,7 +15,11 @@ import {
 } from "react-native";
 import { C, CAT } from "./theme";
 import * as API from "./api";
-import { markRegistered, registeredIds, minutesFor } from "./registered";
+import { markRegistered, registeredIds } from "./registered";
+import {
+  startTidy, finishTidy, cancelTidy, secPerStop, sampleCount,
+  minutesFrom, SEC_PER_STOP_GUESS,
+} from "./tidyTime";
 import { syncWeeklyTidy } from "./remind";
 import * as Q from "./uploadQueue";
 import { ensurePermission, scanAlbum, SCAN_MAX, UNKNOWN_ACC_M } from "./album";
@@ -44,6 +48,17 @@ export function RegisterFlow({ onClose }: { onClose: () => void }) {
   const [pickFor, setPickFor] = useState<Stop | null>(null);
   /* 이번 스캔에서 **이미 등록해 둔** 여행 수. 빈 목록의 뜻을 가른다(§13.79). */
   const [doneCount, setDoneCount] = useState(0);
+  /* 지금까지 **잰** 초/정거장과 표본 수(§13.80). 표본이 없으면 추정값이고,
+     화면이 그 차이를 말한다 — 잰 적 없는 숫자를 잰 척하지 않는다. */
+  const [perStop, setPerStop] = useState(SEC_PER_STOP_GUESS);
+  const [nSamples, setNSamples] = useState(0);
+  useEffect(() => {
+    void secPerStop().then(setPerStop);
+    void sampleCount().then(setNSamples);
+  }, [step]);
+  /* ★ 화면이 사라지면 **구독을 끊는다.** 안 끊으면 AppState 리스너가 남아
+     다음 정리의 시간에 섞인다 — 재는 도구가 스스로를 오염시킨다. */
+  useEffect(() => () => cancelTidy(), []);
   const [isPublic, setIsPublic] = useState(true);
   const [result, setResult] = useState<any>(null);
 
@@ -97,6 +112,7 @@ export function RegisterFlow({ onClose }: { onClose: () => void }) {
     t.stops.forEach((st) => { if (st.items[0]) p[st.id] = [st.items[0].id]; });
     setPicks(p); setMemos({}); setPlaceOf({});
     setStep("stops");
+    startTidy();                 // ★ 여기서부터가 '정리하는 시간'이다(§13.80)
     void autoMatch(t.stops);          // ★ 아래 — 기획은 **자동이 기본**이다
   }
 
@@ -127,6 +143,9 @@ export function RegisterFlow({ onClose }: { onClose: () => void }) {
   }
 
   async function commit() {
+    /* ★ **올리기 전에** 멈춘다. 업로드 시간은 사람이 정리한 시간이 아니다 —
+       넣으면 통신이 느린 날 추정이 부풀고, 그 숫자로 다음 사람을 부르게 된다. */
+    void finishTidy(stops.length);
     setBusy("올리는 중…");
     await API.ensureSession();   // 지워진 계정을 들고 있으면 여기서 다시 든다
     const r = await API.pushTrip(trip, stops, {
@@ -160,7 +179,11 @@ export function RegisterFlow({ onClose }: { onClose: () => void }) {
     <Modal visible animationType="slide" onRequestClose={onClose}>
       <View style={s.root}>
         <View style={s.head}>
-          <Pressable onPress={step === "stops" ? () => setStep("trips") : onClose} hitSlop={12}>
+          <Pressable
+            onPress={step === "stops"
+              ? () => { cancelTidy(); setStep("trips"); }   // 그만둔 시간은 안 센다
+              : onClose}
+            hitSlop={12}>
             <Text style={s.headBtn}>{step === "stops" ? "‹ 여행" : "✕"}</Text>
           </Pressable>
           <Text style={s.headTitle}>
@@ -181,7 +204,8 @@ export function RegisterFlow({ onClose }: { onClose: () => void }) {
         ) : step === "intro" ? (
           <Intro onScan={scan} />
         ) : step === "trips" ? (
-          <TripList trips={trips} done={doneCount} onOpen={openTrip} />
+          <TripList trips={trips} done={doneCount}
+                    perStop={perStop} measured={nSamples} onOpen={openTrip} />
         ) : step === "stops" ? (
           <StopList
             stops={stops} picks={picks} memos={memos} placeOf={placeOf}
@@ -248,11 +272,22 @@ function Intro({ onScan }: { onScan: () => void }) {
 
 /* ── S2 여행 목록 ────────────────────────────────────────────── */
 function TripList(
-  { trips, done, onOpen }: { trips: Trip[]; done: number; onOpen: (t: Trip) => void },
+  { trips, done, perStop, measured, onOpen }: {
+    trips: Trip[]; done: number;
+    /** 잰 초/정거장. `measured` 가 0이면 아직 추정값이다(§13.80) */
+    perStop: number; measured: number;
+    onOpen: (t: Trip) => void;
+  },
 ) {
   /* ★ *"정리하세요"* 는 부담이고 *"N분이면 끝납니다"* 는 초대다(§12.27).
-     여행이 몇 개인지보다 **얼마나 걸리는지**가 열지 말지를 정한다. */
-  const stops = trips.reduce((n, t) => n + t.stops.length, 0);
+     여행이 몇 개인지보다 **얼마나 걸리는지**가 열지 말지를 정한다.
+
+     ★ 두 숫자는 **같은 것을 세야 한다**(§13.80). 처음엔 여행 수는 묶음을 뺀 것으로,
+       시간은 낱장 묶음까지 더한 것으로 셌더니 *"여행 1개 · 12분"* 이 나왔다 —
+       12분 중 대부분이 그 여행이 아닌 일이었다. 한 문장 안의 두 숫자가 서로 다른
+       것을 세면 **둘 다 못 믿게 된다.** */
+  const real = trips.filter((t) => !t.isOrphan);
+  const stops = real.reduce((n, t) => n + t.stops.length, 0);
 
   if (!trips.length)
     return (
@@ -280,9 +315,22 @@ function TripList(
   return (
     <ScrollView contentContainerStyle={s.body}>
       <Text style={s.tidy}>
-        {`아직 지도에 없는 여행 ${trips.filter((t) => !t.isOrphan).length}개`}
-        {stops ? ` · ${minutesFor(stops)}분이면 끝납니다` : ""}
+        {real.length
+          ? `아직 지도에 없는 여행 ${real.length}개 · ${minutesFrom(stops, perStop)}분이면 끝납니다`
+          /* 여행은 다 했고 낱장만 남은 경우. 여기서 *"여행 0개"* 라고 적으면
+             할 일이 없다는 뜻으로 읽히는데, 아래에 목록이 있다. */
+          : "묶이지 않은 사진이 남아 있습니다"}
       </Text>
+      {/* ★ **잰 것인지 어림한 것인지 말한다.** 같은 "3분" 이라도 근거가 다르고,
+          틀렸을 때 사용자가 우리를 어떻게 볼지도 다르다. 표본이 쌓이면
+          *"지난 N번 기준"* 으로 바뀐다 — 그때부터는 그 사람의 속도다. */}
+      {!!real.length && (
+        <Text style={s.tidySub}>
+          {measured
+            ? `지난 ${measured}번 정리하신 속도 기준`
+            : "아직 재 본 적이 없어 어림한 시간입니다"}
+        </Text>
+      )}
       {trips.map((t) => (
         <Pressable key={t.id} style={s.card} onPress={() => onOpen(t)}>
           <View style={{ flex: 1 }}>
@@ -564,8 +612,9 @@ const s = StyleSheet.create({
   busy: { color: C.text, fontSize: 14 },
   tidy: {
     color: C.text, fontSize: 13.5, fontWeight: "700",
-    paddingHorizontal: 2, paddingBottom: 10,
+    paddingHorizontal: 2, paddingBottom: 2,
   },
+  tidySub: { color: C.muted, fontSize: 11, paddingHorizontal: 2, paddingBottom: 10 },
   hint: { color: C.muted, fontSize: 12, lineHeight: 18 },
   empty: { color: C.muted, fontSize: 14, textAlign: "center" },
   err: { color: C.warn, fontSize: 12 },

@@ -17,7 +17,7 @@
  *   거절당하고, iOS 는 한 번 거절하면 앱에서 다시 못 묻는다(§13.53 의 권한 순서와 같다).
  */
 import * as Notifications from "expo-notifications";
-import { minutesFor } from "./registered";
+import { secPerStop, minutesFrom } from "./tidyTime";
 
 /** 토요일 오전 10시. 주말 사진을 찍기 **전**이 아니라, 지난 주말을 정리할 때다. */
 const WEEKDAY = 7;      // expo: 1=일 … 7=토
@@ -51,7 +51,9 @@ export async function syncWeeklyTidy(p: Pending): Promise<"scheduled" | "cleared
     if (s.status === "undetermined") s = await Notifications.requestPermissionsAsync();
     if (s.status !== "granted") return "denied";
 
-    const mins = minutesFor(p.stops);
+    /* ★ **잰 값으로 적는다**(§13.80). 알림은 약속이다 — 15초라는 추정으로
+       *"2분이면 끝납니다"* 라고 불러 놓고 10분이 걸리면 그 사람은 다시는 안 누른다. */
+    const mins = minutesFrom(p.stops, await secPerStop());
     await Notifications.scheduleNotificationAsync({
       identifier: ID,
       content: {

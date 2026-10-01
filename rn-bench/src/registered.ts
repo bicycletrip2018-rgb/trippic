@@ -48,18 +48,3 @@ export async function registeredIds(): Promise<Set<string>> {
 
 /** 검사·초기화용 — 앨범을 비우거나 계정을 바꿀 때. */
 export async function clearRegistered() { await write([]); }
-
-/**
- * 정리하는 데 걸리는 시간.
- *
- * ★ **측정값이 아니다.** 사람이 정거장 하나를 정리하는 시간은 사람을 봐야 알 수 있고,
- *   아직 사용자가 없다. 그래서 숫자를 **지어내지 않고 근거를 적는다** —
- *   자동 매칭(§13.70)이 장소를 미리 채우므로 대부분은 확인하고 넘기는 동작이고,
- *   그걸 정거장당 15초로 잡았다. 실제 사용 로그가 쌓이면 **등록 화면에 머문 시간**으로
- *   바꿔야 한다(그때까지 이 상수가 유일한 근거다).
- * ★ 1분 미만도 **1분이라고 적는다.** *"20초면 끝납니다"* 는 과장으로 읽혀
- *   오히려 못 미덥다.
- */
-export const SEC_PER_STOP = 15;
-export const minutesFor = (stops: number) =>
-  Math.max(1, Math.round((stops * SEC_PER_STOP) / 60));
