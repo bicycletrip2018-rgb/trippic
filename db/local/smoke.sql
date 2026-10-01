@@ -40,8 +40,18 @@ update public.profiles set handle='bravo', nickname='브라보'
   where id='22222222-2222-2222-2222-222222222222';
 update public.profiles set handle='charlie', nickname='찰리'
   where id='33333333-3333-3333-3333-333333333333';
-select pg_temp.ok((select count(*) from public.profiles) = 3,
-                  '트리거: auth.users 가입이 profiles를 자동 생성한다');
+/* ★ **표 전체를 세지 않는다**(§13.84). 예전에는 `count(*) = 3` 이었는데,
+   그건 *"이 DB 에 프로필이 3개뿐"* 이라는 뜻이라 **빈 프로젝트에서만** 참이다.
+   실제 계정이 하나라도 생기는 순간 영영 실패하고(실측: 프로필 14개),
+   그때부터 DB 검증 전체가 첫 줄에서 멎는다 — **쌓인 데이터가 테스트를 죽였다.**
+   ★ 재야 할 것은 *"방금 넣은 셋이 각각 프로필을 얻었나"* 다. 그게 트리거의 일이고,
+     이 쪽이 원래 단언보다 **더 정확하다** — 남의 행을 세지 않으므로. */
+select pg_temp.ok(
+  (select count(*) from public.profiles
+    where id in ('11111111-1111-1111-1111-111111111111',
+                 '22222222-2222-2222-2222-222222222222',
+                 '33333333-3333-3333-3333-333333333333')) = 3,
+  '트리거: auth.users 가입이 profiles를 자동 생성한다');
 -- 033 집계 코스 검사용 일행들. ★ 여기서 만든다 — 아래는 authenticated 라 auth.users 를 못 건드린다.
 insert into auth.users (id, email)
 select ('d0d0d0d0-0000-0000-0000-0000000000' || lpad(i::text,2,'0'))::uuid, 'd'||i||'@t.io'
