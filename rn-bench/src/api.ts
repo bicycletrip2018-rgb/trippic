@@ -522,6 +522,26 @@ export type MonthPlace = {
   dist_m: number; parties: number; photos: number;
 };
 
+/* ── 탭2 `갈 곳` 의 묶음 (§13.81) ────────────────────────────────────
+   ★ 예전에는 `http://localhost:5173/feed-seed.json` 을 받아 그렸다 —
+     **개발 서버가 없으면 탭이 통째로 빈 화면**이었다. 이제 서버가 답한다.
+   ★ `dist_m` 도 서버가 준다. 앱에서 다시 재면 두 숫자가 갈라진다(§13.34). */
+export type FeedRow = {
+  rail: "live" | "soon" | "near" | "unseen";
+  place_id: string; name: string; category: string;
+  lng: number; lat: number; dist_m: number;
+  image_url: string | null; thumb_url: string | null;
+  event_start: string | null; event_end: string | null;
+  region_name: string | null;
+};
+
+export const feedRails = (
+  lat: number, lng: number, opts?: { limit?: number; radiusM?: number },
+) => rpc<FeedRow[]>("api_feed_rails", {
+  p_lng: lng, p_lat: lat,
+  p_limit: opts?.limit ?? 12, p_radius_m: opts?.radiusM ?? 30000,
+});
+
 /* ── 장소의 표지 (§12.25-A · §13.74) ─────────────────────────────────
    ★ **표지를 여기서 고르지 않는다.** 029 가 `place_stats.top_media_id` 에
      골라 둔 것을 읽어 올 뿐이다. 고르는 곳이 둘이 되는 순간 두 화면이 같은

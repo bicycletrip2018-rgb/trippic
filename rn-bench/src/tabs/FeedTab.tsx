@@ -1,9 +1,14 @@
 /**
- * 탭2 `갈 곳` — 웹 `feed.js` 이식 (§12.10)
+ * 탭2 `갈 곳` — **서버가 답한다** (§12.10 · §13.81)
  *
  * ★ 단위는 사진이 아니라 **장소**다. 사진이 0장이어도 카드가 남는다 —
  *   그래서 첫날에도 화면이 찬다.
  * ★ 무한 피드가 아니라 **이유가 붙은 묶음**이다. 묶음마다 왜 떴는지 한 줄을 적는다.
+ *
+ * ★ **씨앗 파일을 걷어냈다**(§13.81). 예전에는 `http://localhost:5173/feed-seed.json`
+ *   을 받아 그려서, **개발 서버가 없으면 이 탭이 통째로 빈 화면**이었다.
+ *   출시하면 안 도는 화면을 고도화하고 있었던 셈이다.
+ *   이제 `api_feed_rails` 가 답한다 — 장소도 9,696곳에서 **465,914곳**으로 늘었다.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -14,37 +19,25 @@ import { driveText as courseDriveText } from "../course";
 import * as API from "../api";
 import { sawCover, openedCover, flushCovers } from "../coverLog";
 
-const HOST = "http://localhost:5173";     // 씨앗은 개발 서버에서 받는다 (번들 3.4MB 절약)
-
-type Seed = {
-  id: string; n: string; c: string; cpt?: string | null;
-  img: string; thumb?: string; evs?: string | null; eve?: string | null;
-  lng: number; lat: number; rg?: string; rc?: string;
-};
-
-const R = 6371;
-function distKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
-  const t = Math.PI / 180;
-  const dLat = (b.lat - a.lat) * t, dLng = (b.lng - a.lng) * t;
-  const h = Math.sin(dLat / 2) ** 2 +
-    Math.cos(a.lat * t) * Math.cos(b.lat * t) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(h));
-}
-/* ★ 거리는 `12km` 가 아니라 `차로 25분` 이다 — 갈지 말지를 정하는 단위는 분이다.
-   ★ 공식은 `course.ts` 한 곳에 있다. 여기에 따로 두었더니 60km/h 였고 저쪽은 40km/h 라,
-     같은 거리를 두 화면이 다르게 말했다 (§13.34에서 합쳤다). */
-const driveText = (km: number) => courseDriveText(km * 1000);
-
-/* ★ 시간 예산 (§12.25-C) — 사람이 실제로 묻는 것은 "근처 어디"가 아니라
-   **"지금 3시간 비는데 어디 갈까"** 다. 왕복 이동과 머무는 시간을 빼야 답이 된다.
-   ★ 체류 시간은 §13.32 에서 서버에 남겼다 — 남들은 이 값을 모른다. */
 /* ★ 카드 치수를 상수로 올린다 — 아래 `Rail` 이 **무엇이 보이는지** 계산하는 데
    쓴다. 스타일에만 적어 두면 둘이 조용히 어긋난다. */
 const CARD_W = 158, CARD_GAP = 10, RAIL_PAD = 18;
 const STRIDE = CARD_W + CARD_GAP;
 
+/* ★ 시간 예산 (§12.25-C) — 사람이 실제로 묻는 것은 "근처 어디"가 아니라
+   **"지금 3시간 비는데 어디 갈까"** 다. 왕복 이동과 머무는 시간을 빼야 답이 된다.
+   ★ 체류 시간은 §13.32 에서 서버에 남겼다 — 남들은 이 값을 모른다. */
 const BUDGETS: [number, string][] = [[120, "2시간"], [240, "반나절"], [480, "하루"]];
 const THIS_MONTH = new Date().getMonth() + 1;
+
+const RAILS: { k: API.FeedRow["rail"]; t: string; why: string }[] = [
+  { k: "live",   t: "지금 하는 행사", why: "오늘 열려 있는 곳 · 가까운 순" },
+  { k: "soon",   t: "곧 시작합니다", why: "날짜가 잡힌 행사" },
+  { k: "near",   t: "여기서 가까운", why: "지도에서 보던 자리 기준 · 가까운 순" },
+  /* ★ 이제 **진짜로** 안 가본 곳이다 — 서버가 내 핀을 빼고 준다(§13.81).
+     씨앗판은 어디를 가 봤는지 모른 채 이 이름을 달고 있었다. */
+  { k: "unseen", t: "아직 안 가본 곳", why: "기록이 없는 곳 · 지역마다 하나씩" },
+];
 
 export function FeedTab(
   { center, onOpenMap }: {
@@ -53,74 +46,36 @@ export function FeedTab(
     onOpenMap?: (p: { lng: number; lat: number; name: string }) => void;
   },
 ) {
-  const [seed, setSeed] = useState<Seed[]>([]);
-  const [cpt, setCpt] = useState<string | null>(null);
+  const [rows, setRows] = useState<API.FeedRow[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
   const [budget, setBudget] = useState<number | null>(null);
   const [budgetRows, setBudgetRows] = useState<API.BudgetPlace[] | null>(null);
   const [season, setSeason] = useState(false);
   const [seasonRows, setSeasonRows] = useState<API.MonthPlace[] | null>(null);
-  const [err, setErr] = useState<string | null>(null);
 
+  /* ★ 보던 자리가 바뀌면 다시 묻는다. `center` 는 지도의 실제 중심이다(§13.74). */
   useEffect(() => {
-    fetch(`${HOST}/feed-seed.json`).then((r) => r.json()).then(setSeed)
-      .catch((e) => setErr(String(e?.message ?? e)));
-  }, []);
+    let live = true;
+    setRows(null); setErr(null);
+    void API.feedRails(center.lat, center.lng).then((r) => {
+      if (!live) return;
+      if (r.ok) setRows(r.data ?? []);
+      else setErr(r.error ?? "불러오지 못했습니다");
+    });
+    return () => { live = false; };
+  }, [center.lat, center.lng]);
 
   const rails = useMemo(() => {
-    const base = cpt ? seed.filter((x) => x.cpt === cpt) : seed;
-    if (!base.length) return [];
-    const today = new Date().toISOString().slice(0, 10);
-    const near = (a: Seed) => distKm(center, { lat: a.lat, lng: a.lng });
-    const live = base.filter((x) => x.evs && x.evs <= today && (x.eve ?? x.evs)! >= today)
-      .sort((a, b) => near(a) - near(b));
-    const soon = base.filter((x) => x.evs && x.evs > today)
-      .sort((a, b) => (a.evs! < b.evs! ? -1 : 1));
-    const close = base.slice().sort((a, b) => near(a) - near(b));
-    /* ★ '안 가본 곳'을 거리순으로 뽑으면 '가까운 곳'과 **같은 카드**가 나온다.
-       같은 묶음 두 개는 하나보다 나쁘다 — 지역마다 하나씩 흩는다. */
-    const nearIds = new Set(close.slice(0, 12).map((x) => x.n));
-    const seenRg = new Set<string>();
-    const unseen = close.filter((x) =>
-      !!x.rg && !nearIds.has(x.n) && !seenRg.has(x.rg) && (seenRg.add(x.rg), true));
-    const out = [
-      live.length ? { k: "live", t: "지금 하는 행사", why: `오늘 열려 있는 곳 ${live.length}곳`, items: live.slice(0, 12) } : null,
-      soon.length ? { k: "soon", t: "곧 시작합니다", why: "날짜가 잡힌 행사", items: soon.slice(0, 12) } : null,
-      { k: "near", t: "여기서 가까운", why: "지도에서 보던 자리 기준 · 가까운 순", items: close.slice(0, 12) },
-      unseen.length ? { k: "unseen", t: "아직 안 가본 곳", why: `지역마다 하나씩 — ${unseen.length}곳 중에서`, items: unseen.slice(0, 12) } : null,
-    ];
-    return out.filter((x): x is { k: string; t: string; why: string; items: Seed[] } => !!x);
-  }, [seed, cpt, center]);
-
-  /* 예산을 고르면 **서버가** 답한다 — 체류 시간은 서버에만 있다.
-     씨앗(로컬 파일)에는 체류가 없으므로 이 묶음만 실제 DB 를 본다. */
-  useEffect(() => {
-    if (budget == null) { setBudgetRows(null); return; }
-    let live = true;
-    setBudgetRows(null);
-    void API.placesInBudget(center.lat, center.lng, budget, { cat: cpt, limit: 24 })
-      .then((r) => { if (live) setBudgetRows(r.data ?? []); });
-    return () => { live = false; };
-  }, [budget, cpt, center.lat, center.lng]);
-
-  useEffect(() => {
-    if (!season) { setSeasonRows(null); return; }
-    let live = true;
-    setSeasonRows(null);
-    void API.placesByMonth(center.lat, center.lng, THIS_MONTH, { limit: 24 })
-      .then((r) => { if (live) setSeasonRows(r.data ?? []); });
-    return () => { live = false; };
-  }, [season, center.lat, center.lng]);
+    if (!rows) return [];
+    return RAILS
+      .map((r) => ({ ...r, items: rows.filter((x) => x.rail === r.k) }))
+      .filter((r) => r.items.length);
+  }, [rows]);
 
   /* ── 표지 (§12.25-A) ─────────────────────────────────────────────
-     ★ §12.25-B 가 예측한 **F2** 가 여기 있었다: *"첫인상이 관공서 포스터로
-       결정된다."* 카드가 전부 한국관광공사 홍보 사진이라, 이 앱의 정체성인
-       *"사람이 고른 한 장"* 과 화면이 정면으로 어긋났다.
-     ★ 고치는 법은 표지를 새로 고르는 것이 **아니다** — 029 가 이미 골라 뒀다.
-       탭2 가 그걸 **안 읽고 있었을 뿐**이다.
-     ★ 지금 보이는 묶음의 id 만 묻는다. 씨앗은 9,696곳이라 전부 물으면
-       화면에 없는 것까지 실어 나른다. */
+     029 가 고른 표지를 **읽어 온다.** 여기서 다시 고르지 않는다. */
   const shownIds = useMemo(
-    () => [...new Set(rails.flatMap((r) => r.items.map((x) => x.id)))], [rails]);
+    () => [...new Set(rails.flatMap((r) => r.items.map((x) => x.place_id)))], [rails]);
 
   const [covers, setCovers] = useState<Record<string, API.PlaceCover>>({});
   useEffect(() => {
@@ -140,19 +95,38 @@ export function FeedTab(
   /* 쌓인 노출을 내보낸다. 화면을 떠날 때 한 번 — §13.69 와 같은 장치다. */
   useEffect(() => () => { void flushCovers(); }, []);
 
-  const concepts = useMemo(
-    () => [...new Set(seed.map((x) => x.cpt).filter(Boolean))] as string[], [seed]);
+  /* 예산을 고르면 **서버가** 답한다 — 체류 시간은 서버에만 있다. */
+  useEffect(() => {
+    if (budget == null) { setBudgetRows(null); return; }
+    let live = true;
+    setBudgetRows(null);
+    void API.placesInBudget(center.lat, center.lng, budget, { limit: 24 })
+      .then((r) => { if (live) setBudgetRows(r.data ?? []); });
+    return () => { live = false; };
+  }, [budget, center.lat, center.lng]);
 
-  if (err) return <View style={s.center}><Text style={s.dim}>씨앗을 못 받았습니다{"\n"}{err}</Text></View>;
-  if (!seed.length) return <View style={s.center}><ActivityIndicator color={C.accent} /></View>;
+  useEffect(() => {
+    if (!season) { setSeasonRows(null); return; }
+    let live = true;
+    setSeasonRows(null);
+    void API.placesByMonth(center.lat, center.lng, THIS_MONTH, { limit: 24 })
+      .then((r) => { if (live) setSeasonRows(r.data ?? []); });
+    return () => { live = false; };
+  }, [season, center.lat, center.lng]);
+
+  if (err) return <View style={s.center}><Text style={s.dim}>{err}</Text></View>;
+  if (!rows) return <View style={s.center}><ActivityIndicator color={C.accent} /></View>;
 
   return (
     <ScrollView style={s.wrap} contentContainerStyle={{ paddingBottom: 110 }}>
       <Text style={s.h1}>갈 곳</Text>
       <Text style={s.sub}>왜 떴는지 묶음마다 적어 둡니다 — 우리 추천은 설명할 수 있어야 합니다.</Text>
 
-      {/* ★ 시간 예산이 컨셉 칩보다 **앞**이다 — 사람이 먼저 정하는 것은 테마가 아니라
-          "몇 시간 쓸 수 있나"다. 다시 누르면 꺼진다 (되돌릴 수 없는 토글은 만들지 않는다). */}
+      {/* ★ **컨셉 칩을 뺐다**(§13.81). §12.25-A 가 실측해 둔 대로 태그가 붙은 곳이
+          3%뿐이라(서버에서는 465,914곳 중 431곳 = 0.09%) 누르는 순간 전국에
+          수십 곳만 남고 *"여기서 가까운"* 이 뜻을 잃는다.
+          §12.25-C 가 *"시간 예산으로 대체한다"* 고 이미 정해 뒀던 것을 이제 지킨다.
+          ★ 다시 누르면 꺼진다 — 되돌릴 수 없는 토글은 만들지 않는다. */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chips}>
         {BUDGETS.map(([m, label]) => (
           <Chip key={m} label={label} on={budget === m}
@@ -161,17 +135,17 @@ export function FeedTab(
         <Chip label={`${THIS_MONTH}월에 찍힌 사진`} on={season} onPress={() => setSeason(!season)} />
       </ScrollView>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chips}>
-        <Chip label="전체" on={!cpt} onPress={() => setCpt(null)} />
-        {concepts.map((k) => <Chip key={k} label={k} on={cpt === k} onPress={() => setCpt(k)} />)}
-      </ScrollView>
-
       {budget != null && <BudgetRail budget={budget} rows={budgetRows} />}
       {season && <SeasonRail rows={seasonRows} />}
 
+      {!rails.length && (
+        <Text style={s.dim}>
+          이 자리 둘레에는 보여 드릴 곳을 찾지 못했습니다. 지도를 옮겨 보십시오.
+        </Text>
+      )}
       {rails.map((r) => (
         <Rail key={r.k} title={r.t} why={r.why} items={r.items}
-              center={center} covers={covers} onOpenMap={onOpenMap} />
+              covers={covers} onOpenMap={onOpenMap} />
       ))}
       <Text style={s.credit}>장소·사진 출처 한국관광공사 · 경계 © OpenStreetMap contributors</Text>
     </ScrollView>
@@ -181,18 +155,15 @@ export function FeedTab(
 /* ── 묶음 하나 ────────────────────────────────────────────────────
    ★ **노출은 '그려졌다'가 아니라 '보였다'다**(§13.9). 가로 묶음은 화면 밖
      카드까지 전부 그린다. 그걸 다 세면 분모가 부풀어 **모든 점수가 0으로
-     수렴하고 순위가 뒤집힌다.** 웹에서 실측한 값이 그대로 남아 있다:
-     그린 카드 60장 → 실제로 센 노출 12장, **분모가 5배**였다.
-   ★ 지도(§13.69)에서는 이 계산이 필요 없었다. 거기서는 이미 화면 안의 카드만
-     추려 그리기 때문이다. 같은 `coverLog` 를 쓰되 **무엇이 보이는가는 화면마다
-     다르게** 판정해야 한다 — 이 차이를 놓치면 한쪽 분모만 조용히 틀린다.
-   ★ 머문 시간도 본다. 스쳐 지나간 카드는 본 것이 아니다. */
+     수렴하고 순위가 뒤집힌다.** 실측: 그린 카드 48장 → 센 노출 8장.
+   ★ 지도(§13.69)에서는 이 계산이 필요 없었다 — 거기서는 화면 안의 카드만 추려
+     그리기 때문이다. 같은 `coverLog` 를 쓰되 **무엇이 보이는가는 화면마다 다르게**
+     판정해야 한다. */
 const DWELL_MS = 500;
 
 function Rail(
-  { title, why, items, center, covers, onOpenMap }: {
-    title: string; why: string; items: Seed[];
-    center: { lat: number; lng: number };
+  { title, why, items, covers, onOpenMap }: {
+    title: string; why: string; items: API.FeedRow[];
     covers: Record<string, API.PlaceCover>;
     onOpenMap?: (p: { lng: number; lat: number; name: string }) => void;
   },
@@ -209,16 +180,15 @@ function Rail(
     for (let i = 0; i < items.length; i++) {
       const a = RAIL_PAD + i * STRIDE, b = a + CARD_W;
       const vis = Math.min(b, right) - Math.max(a, left);
-      if (vis >= CARD_W / 2) sawCover(items[i].id);
+      if (vis >= CARD_W / 2) sawCover(items[i].place_id);
     }
   }
   const settle = () => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(markSeen, DWELL_MS);
   };
-  /* 처음 그려졌을 때도 한 번 — 스크롤하지 않아도 앞의 두세 장은 보인다 */
   useEffect(() => { settle(); return () => { if (timer.current) clearTimeout(timer.current); };
-  }, [items.map((i) => i.id).join(",")]);
+  }, [items.map((i) => i.place_id).join(",")]);
 
   return (
     <View style={s.rail}>
@@ -230,17 +200,19 @@ function Rail(
         onLayout={(e) => { w.current = e.nativeEvent.layout.width; settle(); }}
         onScroll={(e) => { x.current = e.nativeEvent.contentOffset.x; settle(); }}>
         {items.map((it) => (
-          <Card key={it.id} x={it} center={center} cover={covers[it.id]}
-                onOpenMap={onOpenMap} />
+          <Card key={`${it.rail}-${it.place_id}`} x={it}
+                cover={covers[it.place_id]} onOpenMap={onOpenMap} />
         ))}
       </ScrollView>
     </View>
   );
 }
 
+const ymd = (d: string) => d.slice(5).replace("-", ".");
+
 function Card(
-  { x, center, cover, onOpenMap }: {
-    x: Seed; center: { lat: number; lng: number };
+  { x, cover, onOpenMap }: {
+    x: API.FeedRow;
     cover?: API.PlaceCover;
     onOpenMap?: (p: { lng: number; lat: number; name: string }) => void;
   },
@@ -249,34 +221,38 @@ function Card(
      남는데, 그게 카드 하나를 통째로 못 쓰게 만든다. 못 받으면 사진 없이 그린다 —
      이름과 거리만으로도 카드는 제 일을 한다. */
   const [broken, setBroken] = useState(false);
-  const uri = cover?.thumb_url || x.thumb || x.img;
+  const uri = cover?.thumb_url || x.thumb_url || x.image_url || undefined;
   const mine = !!cover?.author;
 
   return (
     <Pressable
       style={s.card}
       onPress={() => {
-        /* **열었다**는 것은 노출의 부분집합이다(§13.9 규칙 2). `sawCover` 가
-           먼저 불렸든 아니든 `coverLog` 가 두 값을 따로 센다. */
-        openedCover(x.id);
-        onOpenMap?.({ lng: x.lng, lat: x.lat, name: x.n });
+        /* **열었다**는 것은 노출의 부분집합이다(§13.9 규칙 2). */
+        openedCover(x.place_id);
+        onOpenMap?.({ lng: x.lng, lat: x.lat, name: x.name });
       }}>
-      {broken
+      {!uri || broken
         ? <View style={[s.img, s.imgBroken]}><Text style={s.dim}>사진 없음</Text></View>
         : <Image source={{ uri }} style={s.img} onError={() => setBroken(true)} />}
-      <Text style={s.name} numberOfLines={1}>{x.n}</Text>
+      <Text style={s.name} numberOfLines={1}>{x.name}</Text>
       <Text style={s.meta} numberOfLines={1}>
-        {(CAT[x.c] ?? CAT.etc).k} · {(x.rg ?? "").split(" ").pop()}
+        {(CAT[x.category] ?? CAT.etc).k}
+        {x.region_name ? ` · ${x.region_name}` : ""}
       </Text>
-      <Text style={s.dist}>{driveText(distKm(center, { lat: x.lat, lng: x.lng }))}</Text>
-      {/* ★ 출처를 적는 것이 이 기능의 **절반**이다(§12.25-A).
-          `@민지의 사진` 과 `한국관광공사` 는 보는 마음이 다르고, 적어 주지 않으면
-          *"내 사진이 그 장소의 얼굴이 된다"* 는 동기가 생기지 않는다.
-          ★ 기관 사진에는 촬영 시각이 없다 — 그것도 같이 말한다. 안 적으면
-            11월에 벚꽃 사진을 보고 가서 실망하는 사람이 생긴다. */}
+      {/* ★ 거리는 **서버가 준 것**을 쓴다. 앱에서 다시 재면 같은 곳을 두 화면이
+          다르게 말한다(§13.34 에서 합쳐 놓은 것을 되돌리지 않는다). */}
+      <Text style={s.dist}>{courseDriveText(x.dist_m)}</Text>
+      {/* ★ 출처를 적는 것이 §12.25-A 의 **절반**이다. */}
       {mine
         ? <Text style={s.byUser}>@{cover!.author}의 사진</Text>
-        : <Text style={s.unknownWhen}>촬영 시기 미상 · 한국관광공사</Text>}
+        : x.event_start
+          ? <Text style={s.unknownWhen}>
+              {ymd(x.event_start)}
+              {x.event_end && x.event_end !== x.event_start ? `–${ymd(x.event_end)}` : ""}
+              {" · 한국관광공사"}
+            </Text>
+          : <Text style={s.unknownWhen}>촬영 시기 미상 · 한국관광공사</Text>}
     </Pressable>
   );
 }
