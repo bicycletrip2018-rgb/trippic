@@ -23,6 +23,8 @@ import * as Q from "./src/uploadQueue";
 import { listenForAuth } from "./src/oauth";
 import * as API from "./src/api";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./src/config";
+import * as Notifications from "expo-notifications";
+import { TIDY } from "./src/remind";
 import { C } from "./src/theme";
 import { QualityCalib } from "./src/dev/QualityCalib";
 
@@ -88,6 +90,20 @@ export default function App() {
      늘 국토 한가운데에서 거리를 재고 있었다. */
   const [center, setCenter] = useState({ lat: 36.3, lng: 127.8 });
   const [jumpTo, setJumpTo] = useState<{ lng: number; lat: number; name: string } | null>(null);
+
+  /* ★ 주간 알림을 누르면 **정리 화면으로 간다**(§13.79).
+     이걸 안 달면 *"2분이면 끝납니다"* 라고 불러 놓고 지도에 떨어뜨린다 —
+     약속한 일을 어디서 하는지 사용자가 다시 찾아야 한다.
+     ★ 앱이 꺼져 있다가 알림으로 열린 경우(`getLastNotificationResponseAsync`)와
+       켜져 있는 동안 누른 경우를 **둘 다** 받는다. 하나만 달면 둘 중 한쪽에서만 듣는다. */
+  useEffect(() => {
+    const go = (r: Notifications.NotificationResponse | null) => {
+      if (r?.notification?.request?.content?.data?.to === TIDY) setReg(true);
+    };
+    void Notifications.getLastNotificationResponseAsync().then(go).catch(() => {});
+    const sub = Notifications.addNotificationResponseReceivedListener(go);
+    return () => sub.remove();
+  }, []);
 
   return (
     <View style={s.root}>

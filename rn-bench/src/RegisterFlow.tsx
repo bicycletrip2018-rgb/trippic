@@ -15,6 +15,8 @@ import {
 } from "react-native";
 import { C, CAT } from "./theme";
 import * as API from "./api";
+import { markRegistered, registeredIds, minutesFor } from "./registered";
+import { syncWeeklyTidy } from "./remind";
 import * as Q from "./uploadQueue";
 import { ensurePermission, scanAlbum, SCAN_MAX, UNKNOWN_ACC_M } from "./album";
 
@@ -40,6 +42,8 @@ export function RegisterFlow({ onClose }: { onClose: () => void }) {
   const [memos, setMemos] = useState<Record<string, string>>({});
   const [placeOf, setPlaceOf] = useState<Record<string, any>>({});
   const [pickFor, setPickFor] = useState<Stop | null>(null);
+  /* 이번 스캔에서 **이미 등록해 둔** 여행 수. 빈 목록의 뜻을 가른다(§13.79). */
+  const [doneCount, setDoneCount] = useState(0);
   const [isPublic, setIsPublic] = useState(true);
   const [result, setResult] = useState<any>(null);
 
@@ -61,9 +65,25 @@ export function RegisterFlow({ onClose }: { onClose: () => void }) {
        덮는다. 없으면 줄도 만들지 않는다 — 빈 줄은 길을 늘리기만 한다. */
     const ng = findNoGps(a, ts);
     setAlbum(a);
-    setTrips([...ts,
+
+    /* ★ **이미 등록한 여행은 뺀다**(§13.79). `cluster.ts` 가 여행 id 를 시작 시각으로
+       지은 이유가 이것인데(*"이미 등록한 여행이 목록에 되살아난다"*) 정작 그 기억을
+       아무도 안 하고 있었다. 등록해도 목록이 그대로라 **무엇이 남았는지 알 수 없었다.**
+       ★ 낱장 묶음(orphans·nogps)은 **안 뺀다** — 한 번 등록해도 나머지 장이 남는다. */
+    const done = await registeredIds();
+    const left = ts.filter((t) => !done.has(t.id));
+    setDoneCount(ts.length - left.length);
+    const list = [...left,
       ...(orph.stops.length ? [orph] : []),
-      ...(ng.stops.length ? [ng] : [])]);
+      ...(ng.stops.length ? [ng] : [])];
+    setTrips(list);
+
+    /* 남은 일이 곧 알림의 내용이다. 여기 말고는 이 숫자를 아는 곳이 없다. */
+    void syncWeeklyTidy({
+      trips: left.length,
+      stops: left.reduce((n, t) => n + t.stops.length, 0),
+      photos: left.reduce((n, t) => n + t.items.length, 0),
+    });
     setBusy(null);
     setStep("trips");
   }
@@ -115,6 +135,10 @@ export function RegisterFlow({ onClose }: { onClose: () => void }) {
       queue: Q.enqueue,
     });
     setBusy(null); setResult(r); setStep("done");
+    /* ★ **올라간 것이 있을 때만** 표시한다. 전부 실패했는데 등록했다고 적으면
+       그 여행이 목록에서 사라져 **되찾을 길이 없어진다.**
+       ★ 낱장 묶음은 표시하지 않는다 — 한 번에 다 올리는 묶음이 아니다. */
+    if (trip && !trip.isOrphan && (r?.pins ?? 0) > 0) void markRegistered(trip.id);
     /* ★ '완료'를 그린 **뒤에** 큐를 민다. 먼저 밀면 이 화면이 그 앞에서 기다린다 —
        나누어 올리는 이유가 사라진다. */
     void Q.start();
@@ -157,7 +181,7 @@ export function RegisterFlow({ onClose }: { onClose: () => void }) {
         ) : step === "intro" ? (
           <Intro onScan={scan} />
         ) : step === "trips" ? (
-          <TripList trips={trips} onOpen={openTrip} />
+          <TripList trips={trips} done={doneCount} onOpen={openTrip} />
         ) : step === "stops" ? (
           <StopList
             stops={stops} picks={picks} memos={memos} placeOf={placeOf}
@@ -223,18 +247,42 @@ function Intro({ onScan }: { onScan: () => void }) {
 }
 
 /* ── S2 여행 목록 ────────────────────────────────────────────── */
-function TripList({ trips, onOpen }: { trips: Trip[]; onOpen: (t: Trip) => void }) {
+function TripList(
+  { trips, done, onOpen }: { trips: Trip[]; done: number; onOpen: (t: Trip) => void },
+) {
+  /* ★ *"정리하세요"* 는 부담이고 *"N분이면 끝납니다"* 는 초대다(§12.27).
+     여행이 몇 개인지보다 **얼마나 걸리는지**가 열지 말지를 정한다. */
+  const stops = trips.reduce((n, t) => n + t.stops.length, 0);
+
   if (!trips.length)
     return (
       <View style={s.center}>
-        <Text style={s.empty}>여행으로 묶을 사진을 찾지 못했습니다</Text>
-        <Text style={s.hint}>
-          좌표가 있는 사진이 이틀 안에 두 장 이상이어야 한 여행이 됩니다.
-        </Text>
+        {/* ★ **다 끝낸 것과 못 찾은 것은 다르다.** 등록한 여행을 목록에서 빼기
+            시작했으니(§13.79) 빈 화면이 두 가지 뜻을 갖게 됐다 — 같은 문장을
+            쓰면 다 해 놓고도 *"못 찾았다"* 는 말을 듣는다. */}
+        {done ? (
+          <>
+            <Text style={s.empty}>다 정리하셨습니다</Text>
+            <Text style={s.hint}>
+              여행 {done}개를 지도에 올리셨습니다. 새 사진을 찍으시면 여기에 다시 모입니다.
+            </Text>
+          </>
+        ) : (
+          <>
+            <Text style={s.empty}>여행으로 묶을 사진을 찾지 못했습니다</Text>
+            <Text style={s.hint}>
+              좌표가 있는 사진이 이틀 안에 두 장 이상이어야 한 여행이 됩니다.
+            </Text>
+          </>
+        )}
       </View>
     );
   return (
     <ScrollView contentContainerStyle={s.body}>
+      <Text style={s.tidy}>
+        {`아직 지도에 없는 여행 ${trips.filter((t) => !t.isOrphan).length}개`}
+        {stops ? ` · ${minutesFor(stops)}분이면 끝납니다` : ""}
+      </Text>
       {trips.map((t) => (
         <Pressable key={t.id} style={s.card} onPress={() => onOpen(t)}>
           <View style={{ flex: 1 }}>
@@ -514,6 +562,10 @@ const s = StyleSheet.create({
   body: { padding: 14, gap: 10 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 10, padding: 30 },
   busy: { color: C.text, fontSize: 14 },
+  tidy: {
+    color: C.text, fontSize: 13.5, fontWeight: "700",
+    paddingHorizontal: 2, paddingBottom: 10,
+  },
   hint: { color: C.muted, fontSize: 12, lineHeight: 18 },
   empty: { color: C.muted, fontSize: 14, textAlign: "center" },
   err: { color: C.warn, fontSize: 12 },
