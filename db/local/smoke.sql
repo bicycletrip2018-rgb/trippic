@@ -93,6 +93,12 @@ insert into public.space_members (space_id, user_id, role) values
 insert into public.trips (id, user_id, title, start_date, end_date) values
   ('66666666-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', '해운대', '2026-03-14', '2026-03-16');
 
+/* ★ 아래 네 단언은 **이 절의 픽스처(`77777777-…`)만** 센다. 예전에는
+   `count(*) from public.pins` 로 **표 전체**를 셌는데, 그러면 *"이 DB 에 핀이
+   셋뿐"* 이라는 뜻이라 **빈 프로젝트에서만** 참이다 — 실서버에 핀이 하나라도
+   있으면 첫 단언에서 멎고 뒤의 270여 건이 통째로 안 돈다. §13.84 가 같은 모양을
+   네 건 고쳤는데 여기가 남아 있었고, §13.92 에서 두 번 걸렸다.
+   스코프를 박으면 **더 엄격해진다** — RLS 가 내 것만 주는지를 그대로 잰다. */
 insert into public.pins (id, user_id, trip_id, place_id, geom, category, visited_at, is_public, verification) values
   ('77777777-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111',
    '66666666-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000001',
@@ -115,14 +121,14 @@ insert into public.media (pin_id, type, url, is_main, taken_at,
   ('77777777-0000-0000-0000-000000000001', 'photo', 'https://x/2.jpg', false, '2026-03-14 12:01+09', 1800, 50, 1280, 960),
   ('77777777-0000-0000-0000-000000000002', 'photo', 'https://x/3.jpg', true,  '2026-03-14 15:00+09', 2500, 60, 1280, 960);
 
-select pg_temp.ok((select count(*) from public.pins) = 3, 'A는 자기 핀 3개를 본다');
+select pg_temp.ok((select count(*) from public.pins where id::text like '77777777-%') = 3, 'A는 자기 핀 3개를 본다');
 select pg_temp.ok((select media_count from public.pins where id='77777777-0000-0000-0000-000000000001') = 2,
                   '트리거: media_count 집계가 맞다');
 
 \echo ''
 \echo '── 2. B로 전환 — 남의 기록이 새는지 본다 ──'
 select pg_temp.login('22222222-2222-2222-2222-222222222222');
-select pg_temp.ok((select count(*) from public.pins) = 1, 'B에게는 공개 핀 1개만 보인다');
+select pg_temp.ok((select count(*) from public.pins where id::text like '77777777-%') = 1, 'B에게는 공개 핀 1개만 보인다');
 select pg_temp.ok((select count(*) from public.pins where id='77777777-0000-0000-0000-000000000001') = 0,
                   'B는 A의 비공개 핀을 못 본다');
 select pg_temp.ok((select count(*) from public.media) = 1,
@@ -162,7 +168,7 @@ end $$;
 \echo '── 3. B를 스페이스에 초대 — 공유 경로가 열리는가 ──'
 insert into public.space_members (space_id, user_id) values
   ('55555555-0000-0000-0000-000000000001', '22222222-2222-2222-2222-222222222222');
-select pg_temp.ok((select count(*) from public.pins) = 2, 'B에게 공개 1 + 스페이스 공유 1 = 2개가 보인다');
+select pg_temp.ok((select count(*) from public.pins where id::text like '77777777-%') = 2, 'B에게 공개 1 + 스페이스 공유 1 = 2개가 보인다');
 select pg_temp.ok((select count(*) from public.pins where id='77777777-0000-0000-0000-000000000003') = 1,
                   '스페이스에 공유한 핀이 보인다');
 select pg_temp.ok((select count(*) from public.pins where id='77777777-0000-0000-0000-000000000001') = 0,
@@ -177,7 +183,7 @@ select pg_temp.ok((select count(*) from public.space_members
 \echo ''
 \echo '── 4. 비로그인(anon) — 웹 뷰어 ──'
 reset role; set role anon; select pg_temp.login(null);
-select pg_temp.ok((select count(*) from public.pins) = 1, 'anon은 공개 핀만 본다');
+select pg_temp.ok((select count(*) from public.pins where id::text like '77777777-%') = 1, 'anon은 공개 핀만 본다');
 -- ★ 비로그인 웹 뷰어의 실제 경로. api_map_places는 security invoker라
 --   호출자 권한으로 pin_spaces를 조인한다. 권한이 없으면 지도가 통째로 죽는다.
 select pg_temp.ok((select count(*) from public.api_map_places(
@@ -1482,6 +1488,226 @@ select pg_temp.ok((select author from public.api_place_media('aaaaaaaa-0000-0000
   '★ 찍은 사람 이름이 온다 — uuid 만 오면 화면이 출처를 적을 수가 없다');
 select pg_temp.ok((select url from public.api_place_media('aaaaaaaa-0000-0000-0000-00000000000d') order by rank desc limit 1) = 'https://x/b-pub.jpg',
   '선명하고 최근인 쪽이 앞선다');
+
+-- ── 059 스폰서 줄 — 계약이 없으면 **비어 있는 것이 정상** (§13.92) ────
+-- ★ 여기서 지킬 것 다섯:
+--   ① 계약이 0건이면 **0행**. 가짜로 채우지 않는다
+--   ② 초안·끝난 것은 안 보인다 — 보이면 계약 전에 스폰서 이름이 샌다
+--   ③ 인정은 **현장 인증(live)만**. EXIF 는 조작할 수 있다(§009·§12.23-D)
+--   ④ 한 곳은 **한 번**. 한 자리에서 백 장을 찍어도 진행도가 안 오른다
+--   ⑤ 목표를 안 채우면 못 받고, 받은 뒤에는 두 번 못 받는다
+\echo ''
+\echo '── 20. 스폰서 줄 (059) ──'
+reset role;   -- 픽스처는 세션 사용자(superuser)로 심는다
+
+-- ① 아직 아무 계약도 없다
+set role authenticated; select pg_temp.login('11111111-1111-1111-1111-111111111111');
+select pg_temp.ok(
+  (select count(*) from public.api_sponsor_rail(129.80, 35.158)) = 0,
+  '★ 계약이 없으면 줄이 0행이다 — 자동 생성물로 채우면 §12.22 와 같은 묶음이 둘이 된다');
+
+reset role;
+/* 퀘스트 셋: 초안 · 끝난 것 · 살아 있는 것. ★ `live` 핀은 `visited_at` 이
+   `created_at` ±1일 안이어야 하므로(`pins_live_is_recent`) 기간을 **지금** 둘레로 잡는다. */
+insert into public.quests (id, title, sponsor, place_ids, starts_at, ends_at,
+                           target_count, reward_kind, reward_url, status) values
+  ('99990000-0000-0000-0000-000000000001', '초안입니다', '비밀군',
+   array['aaaaaaaa-0000-0000-0000-000000000001'::uuid],
+   now() - interval '1 day', now() + interval '7 day', 1, 'coupon', 'https://x/draft', 'draft'),
+  ('99990000-0000-0000-0000-000000000002', '지난 퀘스트', '지난군',
+   array['aaaaaaaa-0000-0000-0000-000000000001'::uuid],
+   now() - interval '30 day', now() - interval '1 day', 1, 'coupon', 'https://x/old', 'live'),
+  ('99990000-0000-0000-0000-000000000003', '해운대 두 곳 돌기', '해운대구',
+   array['aaaaaaaa-0000-0000-0000-000000000001'::uuid,
+         'aaaaaaaa-0000-0000-0000-000000000002'::uuid,
+         'aaaaaaaa-0000-0000-0000-000000000004'::uuid],
+   now() - interval '1 day', now() + interval '7 day', 2, 'coupon', 'https://x/reward', 'live');
+
+-- ② 초안과 끝난 것은 새지 않는다
+set role authenticated; select pg_temp.login('11111111-1111-1111-1111-111111111111');
+select pg_temp.ok(
+  (select count(distinct quest_id) from public.api_sponsor_rail(129.80, 35.158)) = 1,
+  '★ 줄은 **한 건**이다 — 광고 줄이 둘이면 그건 광고판이지 추천 화면이 아니다');
+select pg_temp.ok(
+  (select distinct quest_id from public.api_sponsor_rail(129.80, 35.158))
+    = '99990000-0000-0000-0000-000000000003',
+  '★ 초안과 끝난 것은 안 온다 — 초안이 보이면 계약 전에 스폰서 이름이 샌다');
+select pg_temp.ok(
+  (select count(*) from public.quests) = 1,
+  '★ RLS 로도 초안이 안 보인다 (함수만 막는 것이 아니다)');
+select pg_temp.ok(
+  (select distinct sponsor from public.api_sponsor_rail(129.80, 35.158)) = '해운대구',
+  '★ 스폰서 이름이 온다 — 화면이 이 칸을 보고 `광고` 를 붙인다 (표시광고법)');
+select pg_temp.ok(
+  (select count(*) from public.api_sponsor_rail(129.80, 35.158)) = 3
+  and (select done_count from public.api_sponsor_rail(129.80, 35.158) limit 1) = 0,
+  '장소 셋이 거리순으로 오고, 아직 한 곳도 못 했다');
+
+-- ③ 인정은 현장 인증만
+reset role;
+insert into public.pins (id, user_id, place_id, geom, category, visited_at, created_at,
+                         is_public, verification, gps_accuracy_m) values
+  /* EXIF 는 인정 안 된다 — 조작할 수 있다 */
+  ('99991111-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111',
+   'aaaaaaaa-0000-0000-0000-000000000001',
+   ST_SetSRID(ST_MakePoint(129.8000, 35.1580), 4326), 'food', now(), now(), true, 'exif', null);
+set role authenticated; select pg_temp.login('11111111-1111-1111-1111-111111111111');
+select pg_temp.ok(
+  (select done_count from public.api_sponsor_rail(129.80, 35.158) limit 1) = 0,
+  '★ EXIF 핀은 인정되지 않는다 — 쿠폰이 걸리면 사람들은 속인다(§12.23-D)');
+
+reset role;
+insert into public.pins (id, user_id, place_id, geom, category, visited_at, created_at,
+                         is_public, verification, gps_accuracy_m) values
+  ('99991111-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111',
+   'aaaaaaaa-0000-0000-0000-000000000001',
+   ST_SetSRID(ST_MakePoint(129.8000, 35.1580), 4326), 'food', now(), now(), true, 'live', 12),
+  /* ★ **같은 곳에 한 장 더.** 한 자리에서 여러 번 찍는 공격이 여기서 막혀야 한다 */
+  ('99991111-0000-0000-0000-000000000003', '11111111-1111-1111-1111-111111111111',
+   'aaaaaaaa-0000-0000-0000-000000000001',
+   ST_SetSRID(ST_MakePoint(129.8000, 35.1580), 4326), 'food', now(), now(), true, 'live', 12);
+set role authenticated; select pg_temp.login('11111111-1111-1111-1111-111111111111');
+select pg_temp.ok(
+  (select done_count from public.api_sponsor_rail(129.80, 35.158) limit 1) = 1,
+  '★ 한 곳은 한 번이다 — 같은 자리 두 장이 2가 되지 않는다 (진행도가 제출이 아니라 파생이라 공격이 성립하지 않는다)');
+select pg_temp.ok(
+  (select mine from public.api_sponsor_rail(129.80, 35.158)
+    where place_id = 'aaaaaaaa-0000-0000-0000-000000000001'),
+  '다녀온 곳이 표시된다 — 화면이 "여기는 했다"를 그릴 수 있다');
+
+-- ④ 기간 밖은 인정 안 된다
+reset role;
+update public.quests set starts_at = now() + interval '1 day'
+ where id = '99990000-0000-0000-0000-000000000003';
+set role authenticated; select pg_temp.login('11111111-1111-1111-1111-111111111111');
+select pg_temp.ok(
+  (select count(*) from public.api_sponsor_rail(129.80, 35.158)) = 0,
+  '아직 시작 안 한 퀘스트는 안 보인다');
+reset role;
+update public.quests set starts_at = now() - interval '1 day'
+ where id = '99990000-0000-0000-0000-000000000003';
+
+-- ⑤ 받아 가기
+set role authenticated; select pg_temp.login('11111111-1111-1111-1111-111111111111');
+select pg_temp.ok(
+  ((public.api_quest_claim('99990000-0000-0000-0000-000000000003'))->>'why') = 'not_yet',
+  '★ 목표(2곳)를 안 채우면 못 받는다');
+select pg_temp.ok(
+  ((public.api_quest_claim('99990000-0000-0000-0000-000000000001'))->>'why') = 'not_open',
+  '★ 초안은 "없는 것"과 같은 답을 준다 — 가르면 되묻는 것만으로 존재를 알아낸다');
+
+reset role;
+insert into public.pins (id, user_id, place_id, geom, category, visited_at, created_at,
+                         is_public, verification, gps_accuracy_m) values
+  ('99991111-0000-0000-0000-000000000004', '11111111-1111-1111-1111-111111111111',
+   'aaaaaaaa-0000-0000-0000-000000000002',
+   ST_SetSRID(ST_MakePoint(129.8001, 35.1580), 4326), 'cafe', now(), now(), true, 'live', 10);
+set role authenticated; select pg_temp.login('11111111-1111-1111-1111-111111111111');
+select pg_temp.ok(
+  (select done_count from public.api_sponsor_rail(129.80, 35.158) limit 1) = 2,
+  '두 곳째를 하면 2가 된다');
+
+create temp table pg_temp_claim as
+  select public.api_quest_claim('99990000-0000-0000-0000-000000000003') as r;
+select pg_temp.ok(((select r from pg_temp_claim)->>'ok') = 'true'
+              and ((select r from pg_temp_claim)->>'reward_url') = 'https://x/reward',
+  '★ 목표를 채우면 **URL 하나**를 준다 — 쿠폰은 우리가 발행하지 않는다 (인증 사업자로 선다)');
+select pg_temp.ok(
+  ((public.api_quest_claim('99990000-0000-0000-0000-000000000003'))->>'why') = 'already',
+  '★ 계정당 한 번이다 — 기본키가 그 규칙이라 코드가 새도 막힌다');
+select pg_temp.ok(
+  (select claimed from public.api_sponsor_rail(129.80, 35.158) limit 1),
+  '받아 간 것이 줄에도 보인다 — 다시 누르게 두면 안 된다');
+select pg_temp.ok(
+  (select cardinality(place_ids) from public.quest_claims
+    where quest_id = '99990000-0000-0000-0000-000000000003') = 2,
+  '★ 무엇으로 인정됐는지 남는다 — "왜 저 사람이 받았나"에 답할 수 있어야 한다');
+
+-- ⑥ 남의 것은 안 보이고, 남은 못 쓴다
+/* ★ **C 로 본다.** 처음엔 B 로 쟀는데 B 는 §18 에서 **운영자**가 된다 —
+   운영자에게는 보이는 것이 맞으므로(아래) 그 단언은 아무것도 지키지 못했다.
+   남남을 재려면 아무 권한도 없는 사람이어야 한다. */
+select pg_temp.login('33333333-3333-3333-3333-333333333333');
+select pg_temp.ok(
+  (select count(*) from public.quest_claims) = 0,
+  '★ 남이 무엇을 받아 갔는지는 안 보인다');
+select pg_temp.ok(
+  (select done_count from public.api_sponsor_rail(129.80, 35.158) limit 1) = 0,
+  '★ 진행도는 보는 사람 것이다 — A 의 2가 남에게 새지 않는다');
+
+/* ★ 운영자에게는 **보인다.** 숨기려고 만든 표가 아니라 분쟁에 답하려고 만든 표다 —
+   *"왜 저 사람이 받았나"* 를 물을 수 있는 사람이 하나는 있어야 한다. */
+select pg_temp.login('22222222-2222-2222-2222-222222222222');
+select pg_temp.ok(
+  (select count(*) from public.quest_claims) = 1,
+  '★ 운영자는 인증 기록을 본다 — 분쟁에 답할 사람이 하나는 있어야 한다');
+select pg_temp.ok(
+  (select count(*) from public.quests) = 3,
+  '★ 운영자는 초안도 본다 (남에게는 1건, 운영자에게는 3건)');
+
+do $$ begin
+  begin
+    insert into public.quests (title, place_ids, starts_at, ends_at, target_count)
+    values ('내가 만든 광고', array['aaaaaaaa-0000-0000-0000-000000000001'::uuid],
+            now(), now() + interval '1 day', 1);
+    raise exception 'FAIL  ★ 아무나 퀘스트를 만들었다';
+  exception when insufficient_privilege then
+    raise notice '  OK   ★ **운영자라도** PostgREST 로는 퀘스트를 못 넣는다 — insert 정책이 아예 없다 (DB 로 넣는다)';
+  end;
+end $$;
+do $$ begin
+  begin
+    insert into public.quest_claims (quest_id, user_id, place_ids, pin_ids)
+    values ('99990000-0000-0000-0000-000000000003', auth.uid(), '{}', '{}');
+    raise exception 'FAIL  ★ 목표를 건너뛰고 받아 갔다';
+  exception when insufficient_privilege then
+    raise notice '  OK   ★ 인증 기록을 손으로 못 넣는다 — 재는 길과 쓰는 길이 하나다';
+  end;
+end $$;
+
+-- ⑦ 계약서 오타를 DB 가 막는다
+reset role;
+do $$ begin
+  begin
+    insert into public.quests (title, place_ids, starts_at, ends_at, target_count)
+    values ('아무도 못 끝내는 퀘스트', array['aaaaaaaa-0000-0000-0000-000000000001'::uuid],
+            now(), now() + interval '1 day', 2);
+    raise exception 'FAIL  목표가 장소 수보다 커도 들어갔다';
+  exception when check_violation then
+    raise notice '  OK   ★ 목표가 장소 수보다 크면 막는다 — 계약서 오타 한 번이면 아무도 못 끝내는 퀘스트가 생긴다';
+  end;
+end $$;
+set role authenticated;
+
+-- ── 060 `다시 가보기` 는 **오늘 것을 담지 않는다** (§13.92) ──────────
+-- ★ 057 은 `MM-DD` 만 맞춰 보고 연도를 안 봤다. 오늘 찍은 핀은 당연히 오늘과
+--   `MM-DD` 가 같아서, *"예전에 갔던 자리"* 묶음에 **오늘 등록한 곳**이 떴다
+--   (화면에는 `오늘 오늘 이 자리에` 로 찍혔다). 앱을 처음 쓰는 사람이 가장 먼저
+--   하는 일이 오늘 사진 등록이라 **실데이터로 바로 재현된다.**
+\echo ''
+\echo '── 21. 다시 가보기 (060) ──'
+reset role;
+insert into public.pins (id, user_id, place_id, geom, category, visited_at, created_at,
+                         is_public, verification) values
+  /* 오늘 — 들어오면 안 된다 */
+  ('aaaa9999-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111',
+   'aaaaaaaa-0000-0000-0000-000000000004',
+   ST_SetSRID(ST_MakePoint(129.8004, 35.1580), 4326), 'cafe', now(), now(), false, 'exif'),
+  /* 2년 전 **오늘** — 들어와야 한다. 이 묶음이 있는 이유다 */
+  ('aaaa9999-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111',
+   'aaaaaaaa-0000-0000-0000-000000000005',
+   ST_SetSRID(ST_MakePoint(129.8009, 35.1580), 4326), 'cafe',
+   now() - interval '2 year', now() - interval '2 year', false, 'exif');
+set role authenticated; select pg_temp.login('11111111-1111-1111-1111-111111111111');
+
+select pg_temp.ok(
+  not exists (select 1 from public.api_my_revisit(129.80, 35.158)
+               where place_id = 'aaaaaaaa-0000-0000-0000-000000000004'),
+  '★ 오늘 찍은 것은 `다시 가보기` 에 안 들어온다 — 묶음 이름이 "예전에 갔던 자리"다');
+select pg_temp.ok(
+  (select anniversary from public.api_my_revisit(129.80, 35.158)
+    where place_id = 'aaaaaaaa-0000-0000-0000-000000000005'),
+  '★ 2년 전 **오늘**은 들어온다 — 빗장을 걸다가 이 묶음이 존재하는 이유까지 막으면 안 된다');
 
 -- ── 038 초대 링크로 합류 ─────────────────────────────────────────────
 -- ★ §3 이 "초대 수락률이 핵심 지표"라고 적어 뒀는데 수락 경로가 없었다.

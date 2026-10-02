@@ -12,7 +12,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View,
+  ActivityIndicator, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View,
 } from "react-native";
 import { C, CAT } from "../theme";
 import { driveText as courseDriveText } from "../course";
@@ -33,7 +33,7 @@ const THIS_MONTH = new Date().getMonth() + 1;
 
 /* 서버 행에 **화면에서만 쓰는 한 줄**을 더한 모양. 서버 타입을 더럽히지 않는다. */
 type FeedItem = Omit<API.FeedRow, "rail"> & {
-  rail: API.FeedRow["rail"] | "again"; note?: string;
+  rail: API.FeedRow["rail"] | "again" | "sponsor"; note?: string;
   /* ★ `다시 가보기` 는 **장소에 안 붙은 핀**도 담는다 — `RevisitRow.place_id` 가
      null 일 수 있어 거기서는 합성 키를 쓴다(아래). 그 카드로 장소 상세를 열면
      서버가 *"그런 장소 없다"* 로 빈 화면을 준다. 그런 카드는 지도로 보낸다. */
@@ -77,6 +77,10 @@ export function FeedTab(
   /* ★ 내 발자국. 서버 묶음과 **따로** 부른다 — 이건 남의 데이터가 아니라
      내 핀이고, 로그인 상태에 따라 비기도 한다(§13.86). */
   const [revisit, setRevisit] = useState<API.RevisitRow[]>([]);
+  /* ★ 스폰서 줄(§13.92). **계약이 없으면 빈 배열**이고 그러면 줄이 아예 안 뜬다 —
+     광고 줄은 광고가 없을 때 비어 있는 것이 정상이다. 지금은 계약이 0건이라
+     **실제로 늘 비어 있다.** 그게 맞는 모습이다. */
+  const [sponsor, setSponsor] = useState<API.SponsorRow[]>([]);
 
   /* ★ 보던 자리가 바뀌면 다시 묻는다. `center` 는 지도의 실제 중심이다(§13.74). */
   useEffect(() => {
@@ -98,6 +102,14 @@ export function FeedTab(
     return () => { live = false; };
   }, [center.lat, center.lng]);
 
+  useEffect(() => {
+    let live = true;
+    void API.sponsorRail(center.lat, center.lng).then((r) => {
+      if (live) setSponsor(r.ok ? (r.data ?? []) : []);
+    });
+    return () => { live = false; };
+  }, [center.lat, center.lng]);
+
   const rails = useMemo(() => {
     if (!rows) return [];
     return RAILS
@@ -107,8 +119,13 @@ export function FeedTab(
 
   /* ── 표지 (§12.25-A) ─────────────────────────────────────────────
      029 가 고른 표지를 **읽어 온다.** 여기서 다시 고르지 않는다. */
+  /* ★ 스폰서 줄의 장소도 **같은 호출로** 표지를 받는다. 따로 부르면 왕복이 하나 늘고,
+     무엇보다 표지를 고르는 곳이 둘이 된다(§12.25-A 가 금한 것). */
   const shownIds = useMemo(
-    () => [...new Set(rails.flatMap((r) => r.items.map((x) => x.place_id)))], [rails]);
+    () => [...new Set([
+      ...rails.flatMap((r) => r.items.map((x) => x.place_id)),
+      ...sponsor.map((x) => x.place_id),
+    ])], [rails, sponsor]);
 
   const [covers, setCovers] = useState<Record<string, API.PlaceCover>>({});
   useEffect(() => {
@@ -188,6 +205,18 @@ export function FeedTab(
               covers={covers} onOpen={openCard} />
       ))}
 
+      {/* ★ 스폰서 줄은 **유기적인 줄들 아래**에 둔다(§13.92). 맨 위에 두면 이 탭이
+          *"뭐 볼까"* 에 답하는 화면이 아니라 광고판으로 읽힌다 — §12.20 이
+          *"왜 떴는지 묶음마다 적는다. 우리 추천은 설명할 수 있어야 한다"* 고 적어
+          둔 것과 정면으로 어긋난다. **유기적인 답이 먼저고, 돈 받은 답이 그 아래다.**
+          (스폰서가 상단을 요구하면 그건 계약서에서 다룰 일이지 여기서 몰래 정할 일이 아니다.) */}
+      <SponsorRail rows={sponsor} covers={covers} onOpen={openCard}
+                   onClaimed={() => {
+                     /* 받고 나면 줄을 다시 읽는다 — `claimed` 가 바뀌어야 버튼이 사라진다 */
+                     void API.sponsorRail(center.lat, center.lng)
+                       .then((r) => { if (r.ok) setSponsor(r.data ?? []); });
+                   }} />
+
       {/* ★ **맨 아래에 둔다.** 위 넷은 *"어디 갈까"* 에 답하고, 이건 *"거기 또 갈까"* 다.
           묻는 것이 달라서 섞으면 둘 다 흐려진다. */}
       {!!revisit.length && (
@@ -206,10 +235,12 @@ export function FeedTab(
               : `${x.visited_at.slice(0, 10).replace(/-/g, ".")} 방문`,
           }))}
           covers={{}}
-          /* ★ 노출을 **세지 않는다**(§13.86). 표지 경쟁의 분모는 *"남들이 보고
-             고르는 것"* 인데, 내가 내 기록을 들여다본 것을 거기 섞으면 내 사진의
-             분모만 조용히 부푼다 — 경쟁이 아니라 자기 표를 던지는 것이다. */
-          countSeen={false}
+          /* ★ 표지 경쟁에 **참가하지 않는다**(§13.86). 분모는 *"남들이 보고
+             고르는 것"* 인데, 내가 내 기록을 들여다본 것을 거기 섞으면 그건
+             경쟁이 아니라 자기 표를 던지는 것이다.
+             ★ 예전에는 **노출만** 껐다 — 열림은 그대로 세고 있었다. 점수가
+               노출 대비라 그 상태가 오히려 점수를 **부풀렸다**(§13.92에서 고쳤다). */
+          rank={false}
           onOpen={openCard} />
       )}
       <Text style={s.credit}>장소·사진 출처 한국관광공사 · 경계 © OpenStreetMap contributors</Text>
@@ -243,13 +274,22 @@ export function FeedTab(
 const DWELL_MS = 500;
 
 function Rail(
-  { title, why, items, covers, onOpen, countSeen = true }: {
+  { title, why, items, covers, onOpen, rank = true, badge, foot }: {
     title: string; why: string; items: FeedItem[];
     covers: Record<string, API.PlaceCover>;
     /** 카드 하나를 연다 — 장소 상세로 간다(§13.91) */
     onOpen: (x: FeedItem) => void;
-    /** 이 묶음의 노출을 표지 경쟁에 셀 것인가(§13.86) */
-    countSeen?: boolean;
+    /* ★ 이 묶음이 **표지 경쟁에 참가하는가**(§13.86 · §13.92).
+       예전 이름은 `countSeen` 이었고 **노출만** 껐다. 그런데 점수는
+       `wilson_lower(opened*0.4…, max(imp,1))` 라(027) — 노출을 안 세고 열림만 세면
+       **분모가 그대로인 채 분자만 올라 점수가 거꾸로 부푼다.** 끄려면 둘 다 꺼야 한다.
+       (`다시 가보기` 가 그 상태였다. 자기 표를 안 던지려고 만든 장치가 반대로
+        자기 표를 더 세게 던지고 있었다.) */
+    rank?: boolean;
+    /** 제목 옆 꼬리표 — 광고 표시 같은 것 */
+    badge?: string;
+    /** 묶음 아래에 붙는 것 — 보상 받기 버튼 같은 것 */
+    foot?: React.ReactNode;
   },
 ) {
   const x = useRef(0);
@@ -264,7 +304,7 @@ function Rail(
     for (let i = 0; i < items.length; i++) {
       const a = RAIL_PAD + i * STRIDE, b = a + CARD_W;
       const vis = Math.min(b, right) - Math.max(a, left);
-      if (vis >= CARD_W / 2 && countSeen) sawCover(items[i].place_id);
+      if (vis >= CARD_W / 2 && rank) sawCover(items[i].place_id);
     }
   }
   const settle = () => {
@@ -276,7 +316,12 @@ function Rail(
 
   return (
     <View style={s.rail}>
-      <Text style={s.railT}>{title}</Text>
+      <View style={s.railHead}>
+        <Text style={s.railT}>{title}</Text>
+        {/* ★ 광고는 **명확히** 알려야 한다(표시광고법). 제목 옆, 같은 줄에 둔다 —
+            설명 줄에 섞어 두면 읽는 사람이 흘려 보낸다. */}
+        {badge ? <Text style={s.railBadge}>{badge}</Text> : null}
+      </View>
       <Text style={s.railWhy}>{why}</Text>
       <ScrollView
         horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.row}
@@ -285,9 +330,10 @@ function Rail(
         onScroll={(e) => { x.current = e.nativeEvent.contentOffset.x; settle(); }}>
         {items.map((it) => (
           <Card key={`${it.rail}-${it.place_id}`} x={it}
-                cover={covers[it.place_id]} onOpen={onOpen} />
+                cover={covers[it.place_id]} onOpen={onOpen} rank={rank} />
         ))}
       </ScrollView>
+      {foot}
     </View>
   );
 }
@@ -295,10 +341,12 @@ function Rail(
 const ymd = (d: string) => d.slice(5).replace("-", ".");
 
 function Card(
-  { x, cover, onOpen }: {
+  { x, cover, onOpen, rank = true }: {
     x: FeedItem;
     cover?: API.PlaceCover;
     onOpen: (x: FeedItem) => void;
+    /** 이 카드가 표지 경쟁에 참가하는가 — 위 `Rail` 주석 참고 */
+    rank?: boolean;
   },
 ) {
   /* ★ 기관 사진 URL 중 일부는 **404** 다(§13.8 곁가지). 깨진 표지는 회색 칸으로
@@ -314,8 +362,10 @@ function Card(
       onPress={() => {
         /* **열었다**는 것은 노출의 부분집합이다(§13.9 규칙 2).
            ★ 여는 곳이 지도에서 장소 상세로 바뀌었어도 이 신호의 뜻은 같다 —
-             *"이 표지를 보고 눌렀다."* 오히려 더 정확해졌다(§13.91). */
-        openedCover(x.place_id);
+             *"이 표지를 보고 눌렀다."* 오히려 더 정확해졌다(§13.91).
+           ★ **참가하지 않는 묶음에서는 세지 않는다**(§13.92). 노출을 안 센 묶음에서
+             열림만 세면 분모가 그대로인 채 분자만 올라 점수가 부푼다. */
+        if (rank) openedCover(x.place_id);
         onOpen(x);
       }}>
       {!uri || broken
@@ -343,6 +393,104 @@ function Card(
             </Text>
           : <Text style={s.unknownWhen}>촬영 시기 미상 · 한국관광공사</Text>}
     </Pressable>
+  );
+}
+
+/* ── 스폰서 줄 (§12.23 · §12.26-A · §13.92) ───────────────────────
+   ★ **계약이 없으면 아무것도 그리지 않는다.** 자동 생성물로 채우지 않는다 —
+     §12.26-A 가 퀘스트를 탭에서 내린 이유가 *"§12.22 `아직 안 간 곳`에 옷만
+     갈아입힌 것"* 이었다. 빈 광고 줄을 가짜로 메우면 그때 거절한 것을 되살린다.
+   ★ **광고 표시는 묻지 않는다.** `sponsor` 가 있으면 제목 옆에 `광고` 가 선다
+     (표시광고법은 명확히 알리라고 한다). 이 줄은 돈을 받은 줄이다.
+   ★ 진행도는 **핀에서 파생**한다 — 퀘스트 전용 업로드 경로를 만들지 않는다(§12.23-G).
+     그래서 *"제출을 조작한다"* 는 공격이 성립하지 않는다.
+   ★ 보상은 **URL 하나**다. 쿠폰은 우리가 발행하지 않는다(§12.23-D) —
+     금전 사고와 환불 책임을 앱이 지면 안 되고, 전자금융 규제에 걸릴 이유도 없다. */
+function SponsorRail(
+  { rows, covers, onOpen, onClaimed }: {
+    rows: API.SponsorRow[];
+    covers: Record<string, API.PlaceCover>;
+    onOpen: (x: FeedItem) => void;
+    onClaimed: () => void;
+  },
+) {
+  const [busy, setBusy] = useState(false);
+  const [why, setWhy] = useState<string | null>(null);
+
+  if (!rows.length) return null;            // ← 계약이 없는 날의 정상 상태
+  const q = rows[0];                        // 메타는 모든 행에 같은 값으로 실려 온다
+  const left = Math.ceil(
+    (new Date(q.ends_at).getTime() - Date.now()) / 86400000);
+  const done = Math.min(q.done_count, q.target_count);
+  const ready = q.done_count >= q.target_count && !q.claimed;
+
+  const items: FeedItem[] = rows.map((x) => ({
+    rail: "sponsor" as const,
+    place_id: x.place_id, name: x.name, category: x.category,
+    lng: x.lng, lat: x.lat, dist_m: x.dist_m,
+    image_url: x.image_url, thumb_url: x.thumb_url,
+    event_start: null, event_end: null, region_name: x.region_name,
+    /* ★ 이미 다녀온 곳을 카드가 **스스로** 말한다. 진행도 숫자만 적어 두면
+       *"어디를 더 가야 하나"* 를 사용자가 세어야 한다. */
+    note: x.mine ? "다녀왔습니다" : undefined,
+  }));
+
+  const claim = async () => {
+    setBusy(true);
+    const r = await API.questClaim(q.quest_id);
+    setBusy(false);
+    if (r?.ok && r.reward_url) {
+      /* ★ 여는 것은 **사용자가 누른 결과**다. 자동으로 열지 않는다. */
+      void Linking.openURL(r.reward_url).catch(() => setWhy("링크를 열지 못했습니다"));
+      onClaimed();
+      return;
+    }
+    setWhy(
+      r?.why === "already"  ? "이미 받으셨습니다"
+    : r?.why === "not_yet"  ? `아직 ${q.target_count}곳을 채우지 못했습니다`
+    : r?.why === "not_open" ? "지금은 받을 수 없는 퀘스트입니다"
+    : r?.why === "need_login" ? "로그인이 필요합니다"
+    : "받지 못했습니다");
+  };
+
+  return (
+    <Rail
+      title={q.title}
+      /* ★ `sponsor` 하나로 갈린다 — 유료면 `광고`, 우리 것이면 꼬리표가 없다 */
+      badge={q.sponsor ? "광고" : undefined}
+      why={[
+        q.sponsor ? `${q.sponsor} 제공` : null,
+        `${q.target_count}곳 중 ${done}곳`,
+        /* ★ 남은 날을 **지어내지 않는다** — 오늘 끝나면 "오늘까지"다 */
+        left <= 0 ? "오늘까지" : `${left}일 남음`,
+      ].filter(Boolean).join(" · ")}
+      items={items}
+      covers={covers}
+      onOpen={onOpen}
+      /* ★ **표지 경쟁에 참가하지 않는다.** 우리가 **팔아서** 생긴 노출을 "사람들이
+         보고 골랐다"는 분모에 섞으면, 그 장소의 사진이 돈으로 순위를 산 것이 된다.
+         §13.8 이 *"표지는 주어지지 않는다. 이긴다"* 로 정한 것을 돈이 뒤집으면 안 된다. */
+      rank={false}
+      foot={
+        <View style={s.spFoot}>
+          {q.claimed ? (
+            <Text style={s.spDone}>받으셨습니다</Text>
+          ) : ready ? (
+            <Pressable style={s.spBtn} onPress={() => { void claim(); }} disabled={busy}>
+              <Text style={s.spBtnT}>{busy ? "확인 중…" : "보상 받기"}</Text>
+            </Pressable>
+          ) : (
+            /* ★ **현장 인증만 인정된다는 것을 미리 적는다.** 다 가고 나서 "안 된다"를
+               보면 그건 속은 기분이다 — 조건은 시작할 때 보여야 한다(§12.23-D). */
+            <Text style={s.spHint}>
+              남은 {q.target_count - done}곳을{" "}
+              {/* ★ 별표는 RN 에서 **글자 그대로 찍힌다.** 강조는 스타일로 한다 */}
+              <Text style={s.spStrong}>지금 찍기</Text>로 남기면 받을 수 있습니다
+            </Text>
+          )}
+          {why ? <Text style={s.spWhy}>{why}</Text> : null}
+        </View>
+      } />
   );
 }
 
@@ -427,6 +575,22 @@ const s = StyleSheet.create({
   h1: { color: C.text, fontSize: 19, fontWeight: "700", paddingHorizontal: 18, paddingTop: 58 },
   sub: { color: C.muted, fontSize: 11.5, lineHeight: 18, paddingHorizontal: 18, paddingTop: 5 },
   chips: { paddingHorizontal: 18, paddingVertical: 12, gap: 6 },
+  railHead: { flexDirection: "row", alignItems: "center", gap: 7 },
+  spFoot: { paddingHorizontal: RAIL_PAD, paddingTop: 10, gap: 6 },
+  spBtn: {
+    backgroundColor: C.accent, borderRadius: 10,
+    paddingVertical: 11, alignItems: "center",
+  },
+  spBtnT: { color: C.onAccent, fontSize: 14, fontWeight: "700" },
+  spHint: { color: C.muted, fontSize: 12, lineHeight: 18 },
+  spStrong: { color: C.text, fontWeight: "700" },
+  spDone: { color: C.visited, fontSize: 13, fontWeight: "600" },
+  spWhy: { color: C.warn, fontSize: 12 },
+  railBadge: {
+    color: C.muted, fontSize: 10.5, fontWeight: "700",
+    borderWidth: 1, borderColor: C.line, borderRadius: 5,
+    paddingHorizontal: 5, paddingVertical: 1.5, overflow: "hidden",
+  },
   chip: { paddingHorizontal: 13, paddingVertical: 7, borderRadius: 99, borderWidth: 1, borderColor: C.line },
   chipOn: { backgroundColor: C.accent, borderColor: C.accent },
   chipT: { color: C.muted, fontSize: 12, fontWeight: "600" },

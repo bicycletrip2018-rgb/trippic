@@ -576,6 +576,40 @@ export type PlaceCover = {
 export const placeCovers = (ids: string[]) =>
   rpc<PlaceCover[]>("api_place_covers", { p_ids: ids.slice(0, 80) });
 
+/* ── 스폰서 줄 (§12.23 · §12.26-A · §13.92 · 059) ─────────────────────
+   ★ §12.26-A 가 `퀘스트` 탭을 접으면서 남긴 자리다 —
+     *"퀘스트는 탭이 아니다. `갈 곳` 안의 스폰서 줄로 들어온다."*
+   ★ **계약이 없으면 0행이다.** 자동 생성물로 채우지 않는다 — §12.26-A 가 퀘스트를
+     내린 이유 자체가 *"§12.22 `아직 안 간 곳`에 옷만 갈아입힌 것"* 이었다.
+     광고 줄은 **광고가 없을 때 비어 있는 것이 정상**이다.
+   ★ 한 건만 온다. 줄이 둘이면 그건 광고판이지 추천 화면이 아니다.
+   ★ 퀘스트 메타(제목·스폰서·기한·진행도)는 **모든 행에 같은 값**으로 실린다 —
+     화면은 첫 행에서 읽는다. 왕복을 둘로 나누지 않으려고 이 모양을 골랐다. */
+export type SponsorRow = {
+  quest_id: string; title: string;
+  /** null 이 아니면 **유료**다 — 화면이 이 칸 하나를 보고 `광고` 를 붙인다 */
+  sponsor: string | null;
+  ends_at: string; target_count: number; reward_url: string | null;
+  done_count: number; claimed: boolean;
+  place_id: string; name: string; category: string;
+  lng: number; lat: number; dist_m: number;
+  image_url: string | null; thumb_url: string | null; region_name: string | null;
+  /** 이 곳을 내가 **현장 인증**으로 남겼는가 (EXIF 는 인정되지 않는다) */
+  mine: boolean;
+};
+
+export const sponsorRail = (lat: number, lng: number, radiusM = 80000) =>
+  rpc<SponsorRow[]>("api_sponsor_rail", {
+    p_lng: lng, p_lat: lat, p_radius_m: radiusM,
+  });
+
+/* 보상은 **URL 하나**다 — 쿠폰은 우리가 발행하지 않는다(§12.23-D).
+   `{ok:false, why:"not_yet"|"already"|"not_open"|"need_login"}` 가 올 수 있다. */
+export const questClaim = (questId: string) =>
+  rpc<any>("api_quest_claim", { p_quest: questId })
+    .then((r) => (r.ok ? (r.data ?? { ok: false, why: "unknown" })
+                       : { ok: false, why: r.error ?? "unknown" }));
+
 /* ── 장소 상세 (§13.91 · 058) ────────────────────────────────────────
    ★ `갈 곳` 카드를 누르면 지금까지 **지도로 날아갔다**(§13.74). 거기 내 핀이
      없으면 **열 것이 없었다** — 누른 사람이 원한 것은 "저기 뭐가 있나"인데
