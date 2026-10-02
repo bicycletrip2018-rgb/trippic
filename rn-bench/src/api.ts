@@ -576,6 +576,49 @@ export type PlaceCover = {
 export const placeCovers = (ids: string[]) =>
   rpc<PlaceCover[]>("api_place_covers", { p_ids: ids.slice(0, 80) });
 
+/* ── 장소 상세 (§13.91 · 058) ────────────────────────────────────────
+   ★ `갈 곳` 카드를 누르면 지금까지 **지도로 날아갔다**(§13.74). 거기 내 핀이
+     없으면 **열 것이 없었다** — 누른 사람이 원한 것은 "저기 뭐가 있나"인데
+     받은 것은 아무것도 없는 지도였다.
+   ★ **핀 상세와 다른 것**이다. 핀 상세는 *기록 하나*(사진·메모·머문 시간),
+     상세는 *자리 하나*(이름·주소·행사일·그 자리의 사진들·내가 가 봤는지).
+   ★ `저장` 은 **없다.** `save_count` 칸은 있는데 담을 표가 없어서, 버튼을 달면
+     눌러도 아무 일이 안 난다 — `PinSheet` 에 적어 둔 규칙 그대로다. */
+export type PlaceDetail = {
+  place_id: string; name: string; category: string;
+  address: string | null; region_name: string | null;
+  lng: number; lat: number;
+  image_url: string | null; image_thumb_url: string | null; image_license: string | null;
+  event_start: string | null; event_end: string | null;
+  concept: string | null; closed_at: string | null;
+  /* 사용자 표지. null 이면 기관 사진을 쓰거나 표지가 없다(055 와 같은 규칙) */
+  cover_url: string | null; cover_thumb_url: string | null; cover_author: string | null;
+  pin_count: number; visitor_count: number; media_count: number;
+  /* ★ 상세에서 가장 값나가는 두 칸 — **내가 가 봤는가.** 나만 보기도 센다 */
+  mine_count: number; mine_last_at: string | null;
+};
+
+export const placeDetail = (id: string) =>
+  rpc<PlaceDetail[]>("api_place_detail", { p_place: id })
+    .then((r) => (r.ok ? (r.data?.[0] ?? null) : null));
+
+/* ★ 공개 사진만 온다 — 그게 맞다. 내 비공개 사진까지 여기서 주면 남의 화면과
+   내 화면이 같은 목록을 다르게 그린다. 내가 몇 번 갔는지는 `mine_count` 가 답한다. */
+export type PlaceMedia = {
+  media_id: string; pin_id: string;
+  url: string; thumb_url: string; poster_url: string | null;
+  type: string; orientation: string | null; width: number | null; height: number | null;
+  caption: string | null; taken_at: string | null;
+  user_id: string; author: string | null;
+  like_count: number; save_count: number; rank: number;
+};
+
+export const placeMedia = (id: string, opts?: { limit?: number; offset?: number }) =>
+  rpc<PlaceMedia[]>("api_place_media", {
+    p_place: id, p_orientation: null,
+    p_limit: opts?.limit ?? 24, p_offset: opts?.offset ?? 0,
+  });
+
 export const placesByMonth = (
   lat: number, lng: number, month: number, opts?: { radiusM?: number; limit?: number },
 ) => rpc<MonthPlace[]>("api_places_by_month", {

@@ -18,6 +18,7 @@ import { C, CAT } from "../theme";
 import { driveText as courseDriveText } from "../course";
 import * as API from "../api";
 import { sawCover, openedCover, flushCovers } from "../coverLog";
+import { PlaceSheet } from "../PlaceSheet";
 
 /* ★ 카드 치수를 상수로 올린다 — 아래 `Rail` 이 **무엇이 보이는지** 계산하는 데
    쓴다. 스타일에만 적어 두면 둘이 조용히 어긋난다. */
@@ -33,6 +34,10 @@ const THIS_MONTH = new Date().getMonth() + 1;
 /* 서버 행에 **화면에서만 쓰는 한 줄**을 더한 모양. 서버 타입을 더럽히지 않는다. */
 type FeedItem = Omit<API.FeedRow, "rail"> & {
   rail: API.FeedRow["rail"] | "again"; note?: string;
+  /* ★ `다시 가보기` 는 **장소에 안 붙은 핀**도 담는다 — `RevisitRow.place_id` 가
+     null 일 수 있어 거기서는 합성 키를 쓴다(아래). 그 카드로 장소 상세를 열면
+     서버가 *"그런 장소 없다"* 로 빈 화면을 준다. 그런 카드는 지도로 보낸다. */
+  noPlace?: boolean;
 };
 
 /** `2025-10-01` → `작년` / `3년 전` */
@@ -53,10 +58,16 @@ const RAILS: { k: API.FeedRow["rail"]; t: string; why: string }[] = [
 export function FeedTab(
   { center, onOpenMap }: {
     center: { lat: number; lng: number };
-    /** 카드를 누르면 **지도로 보낸다**(§13.74). 여는 곳이 없으면 누를 이유도 없다 */
+    /* ★ 카드 탭의 끝이 **더 이상 지도가 아니다**(§13.91). 예전에는 여기서 바로
+       지도로 날아갔는데, 내 핀이 없는 장소면 도착해서 **열 것이 없었다.**
+       이제 장소 상세가 먼저 열리고, 지도로 가는 것은 그 안의 버튼이 한다 —
+       웹 시안의 alert 가 적어 둔 순서(`기록 · 지도에서 보기 · 저장`)가 그것이다. */
     onOpenMap?: (p: { lng: number; lat: number; name: string }) => void;
   },
 ) {
+  /* 상세로 넘길 것: id 와, **이미 알고 있는** 이름·거리. 거리를 상세에서 다시
+     재면 카드와 상세가 같은 곳을 다르게 말한다(§13.34). */
+  const [open, setOpen] = useState<{ id: string; name: string; distM: number | null } | null>(null);
   const [rows, setRows] = useState<API.FeedRow[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [budget, setBudget] = useState<number | null>(null);
@@ -136,10 +147,17 @@ export function FeedTab(
     return () => { live = false; };
   }, [season, center.lat, center.lng]);
 
+  /* ★ 카드 하나를 여는 **단 한 곳**. 두 군데에서 결정하면 `다시 가보기` 의
+     장소 없는 카드 처리가 한쪽에서만 빠진다. */
+  const openCard = (x: FeedItem) => {
+    if (x.noPlace) { onOpenMap?.({ lng: x.lng, lat: x.lat, name: x.name }); return; }
+    setOpen({ id: x.place_id, name: x.name, distM: x.dist_m ?? null });
+  };
+
   if (err) return <View style={s.center}><Text style={s.dim}>{err}</Text></View>;
   if (!rows) return <View style={s.center}><ActivityIndicator color={C.accent} /></View>;
 
-  return (
+  const list = (
     <ScrollView style={s.wrap} contentContainerStyle={{ paddingBottom: 110 }}>
       <Text style={s.h1}>갈 곳</Text>
       <Text style={s.sub}>왜 떴는지 묶음마다 적어 둡니다 — 우리 추천은 설명할 수 있어야 합니다.</Text>
@@ -167,7 +185,7 @@ export function FeedTab(
       )}
       {rails.map((r) => (
         <Rail key={r.k} title={r.t} why={r.why} items={r.items}
-              covers={covers} onOpenMap={onOpenMap} />
+              covers={covers} onOpen={openCard} />
       ))}
 
       {/* ★ **맨 아래에 둔다.** 위 넷은 *"어디 갈까"* 에 답하고, 이건 *"거기 또 갈까"* 다.
@@ -182,6 +200,7 @@ export function FeedTab(
             lng: x.lng, lat: x.lat, dist_m: x.dist_m,
             image_url: x.image_url, thumb_url: x.thumb_url,
             event_start: null, event_end: null, region_name: x.region_name,
+            noPlace: !x.place_id,
             note: x.anniversary
               ? `${yearsAgo(x.visited_at)} 오늘 이 자리에`
               : `${x.visited_at.slice(0, 10).replace(/-/g, ".")} 방문`,
@@ -191,10 +210,26 @@ export function FeedTab(
              고르는 것"* 인데, 내가 내 기록을 들여다본 것을 거기 섞으면 내 사진의
              분모만 조용히 부푼다 — 경쟁이 아니라 자기 표를 던지는 것이다. */
           countSeen={false}
-          onOpenMap={onOpenMap} />
+          onOpen={openCard} />
       )}
       <Text style={s.credit}>장소·사진 출처 한국관광공사 · 경계 © OpenStreetMap contributors</Text>
     </ScrollView>
+  );
+
+  /* ★ 상세는 목록 **위에** 얹는다. 목록을 갈아 끼우면 닫을 때 스크롤 위치와
+     받아 둔 묶음을 잃는다 — 카드 하나 보고 돌아왔는데 처음부터면 안 된다. */
+  return (
+    <View style={{ flex: 1 }}>
+      {list}
+      {open && (
+        <PlaceSheet
+          placeId={open.id} fallbackName={open.name} distM={open.distM}
+          onClose={() => setOpen(null)}
+          /* 지도로 가는 것은 **상세 안의 버튼**이 한다. 가면 상세는 닫는다 —
+             돌아왔을 때 지도를 덮고 있으면 방금 날아간 자리를 못 본다. */
+          onOpenMap={(p) => { setOpen(null); onOpenMap?.(p); }} />
+      )}
+    </View>
   );
 }
 
@@ -208,10 +243,11 @@ export function FeedTab(
 const DWELL_MS = 500;
 
 function Rail(
-  { title, why, items, covers, onOpenMap, countSeen = true }: {
+  { title, why, items, covers, onOpen, countSeen = true }: {
     title: string; why: string; items: FeedItem[];
     covers: Record<string, API.PlaceCover>;
-    onOpenMap?: (p: { lng: number; lat: number; name: string }) => void;
+    /** 카드 하나를 연다 — 장소 상세로 간다(§13.91) */
+    onOpen: (x: FeedItem) => void;
     /** 이 묶음의 노출을 표지 경쟁에 셀 것인가(§13.86) */
     countSeen?: boolean;
   },
@@ -249,7 +285,7 @@ function Rail(
         onScroll={(e) => { x.current = e.nativeEvent.contentOffset.x; settle(); }}>
         {items.map((it) => (
           <Card key={`${it.rail}-${it.place_id}`} x={it}
-                cover={covers[it.place_id]} onOpenMap={onOpenMap} />
+                cover={covers[it.place_id]} onOpen={onOpen} />
         ))}
       </ScrollView>
     </View>
@@ -259,10 +295,10 @@ function Rail(
 const ymd = (d: string) => d.slice(5).replace("-", ".");
 
 function Card(
-  { x, cover, onOpenMap }: {
+  { x, cover, onOpen }: {
     x: FeedItem;
     cover?: API.PlaceCover;
-    onOpenMap?: (p: { lng: number; lat: number; name: string }) => void;
+    onOpen: (x: FeedItem) => void;
   },
 ) {
   /* ★ 기관 사진 URL 중 일부는 **404** 다(§13.8 곁가지). 깨진 표지는 회색 칸으로
@@ -276,9 +312,11 @@ function Card(
     <Pressable
       style={s.card}
       onPress={() => {
-        /* **열었다**는 것은 노출의 부분집합이다(§13.9 규칙 2). */
+        /* **열었다**는 것은 노출의 부분집합이다(§13.9 규칙 2).
+           ★ 여는 곳이 지도에서 장소 상세로 바뀌었어도 이 신호의 뜻은 같다 —
+             *"이 표지를 보고 눌렀다."* 오히려 더 정확해졌다(§13.91). */
         openedCover(x.place_id);
-        onOpenMap?.({ lng: x.lng, lat: x.lat, name: x.name });
+        onOpen(x);
       }}>
       {!uri || broken
         ? <View style={[s.img, s.imgBroken]}><Text style={s.dim}>사진 없음</Text></View>

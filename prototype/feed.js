@@ -371,9 +371,16 @@
       }
       const card = e.target.closest(".fdCard");
       if (card && card.dataset.ck && window.LOG) LOG.open(card.dataset.ck, card.dataset.place || "");
+      /* ★ 장소 상세는 **앱에 생겼다**(§13.91 · `rn-bench/src/PlaceSheet.tsx`).
+           여기는 아직 자리만 잡아 둔다 — 같은 화면을 두 벌 쓰면 언젠가 둘이
+           갈라진다(§13.37 에서 지도로 겪은 것과 같다). 옮길 때 한 번에 옮긴다.
+         ★ 다만 **약속을 고친다.** 예전 문구는 `· 저장` 을 적어 놨는데 저장을 담을
+           표(`place_saves`)가 없어 앱에도 그 버튼이 없다. 시안이 없는 기능을
+           광고하면 그 시안을 보고 만든 화면에 죽은 버튼이 생긴다. */
       if (card && card.dataset.name) return alert(
-        `${card.dataset.name}\n\n실제 앱에서는 장소 상세가 열립니다.\n` +
-        `· 이 장소의 기록(뷰어)\n· 지도에서 보기\n· 저장`);
+        `${card.dataset.name}\n\n앱에서는 여기서 장소 상세가 열립니다.\n` +
+        `· 이 장소의 사진(찍은 사람과 함께)\n· 내가 몇 번 갔는지\n· 지도에서 보기\n\n` +
+        `저장은 아직 없습니다 — 담을 곳을 만들고 붙입니다.`);
     });
     await loadFeed();
   };

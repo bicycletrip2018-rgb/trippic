@@ -12,7 +12,11 @@ red(){ printf "\033[31m%s\033[0m\n" "$*"; }; green(){ printf "\033[32m%s\033[0m\
 echo "=== 실제 Supabase 동작 검증 ==="
 echo "  로컬과 달리 여기서는 진짜 PostGIS와 진짜 auth.uid()가 돈다."
 echo
-out=$(psql -X -d "$DB_URL" -v ON_ERROR_STOP=1 -f "$ROOT/db/local/smoke.sql" 2>&1)
+# ★ `|| true` 가 **꼭 있어야 한다.** 없으면 psql 이 실패한 순간 `set -e` 가
+#   대입문에서 스크립트를 죽여, 아래 "무엇이 틀렸나"를 **한 줄도 못 찍는다** —
+#   실제로 그랬다: 실패하면 머리말 두 줄만 내고 조용히 exit 3 이었다(§13.91).
+#   실패를 말 못 하는 검증기는 없느니만 못하다.
+out=$(psql -X -d "$DB_URL" -v ON_ERROR_STOP=1 -f "$ROOT/db/local/smoke.sql" 2>&1) || true
 echo "$out" | grep -E "NOTICE:|──" | sed 's/^psql:[^ ]* //; s/^NOTICE:  //'
 if echo "$out" | grep -q "ERROR"; then
   echo "$out" | grep -E "ERROR|DETAIL|CONTEXT" | sed 's/^/  /'

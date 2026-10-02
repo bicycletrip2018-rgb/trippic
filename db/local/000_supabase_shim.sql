@@ -26,6 +26,22 @@ create table if not exists auth.users (
 );
 alter table auth.users add column if not exists is_anonymous boolean not null default false;
 
+-- ★ `auth.identities` — 소셜을 **얹었을 때** 한 줄이 생기는 표다(044·045).
+--   이게 없어서 044 가 트리거 생성에서 죽었고, 같은 파일 뒤쪽의
+--   `spaces.auto_title` 이 영영 안 붙어 **052 까지 같이 넘어졌다.**
+--   한 파일이 중간에서 죽으면 뒤의 문장은 조용히 사라진다 — 그게 두 번째 실패의
+--   정체였고, 실패 3건이 원인 3개로 보여 한참 헤맸다.
+--   → 044 가 들어온 뒤로 **045~058 열넷은 로컬에서 한 번도 검사된 적이 없었고**,
+--     동작 검증(smoke)은 그 앞에서 `exit 1` 이라 아예 돌지 않았다(§13.91).
+--     스텁은 마이그레이션이 늘 때 **같이** 늘어야 한다.
+create table if not exists auth.identities (
+  id            uuid primary key default gen_random_uuid(),
+  user_id       uuid not null references auth.users(id) on delete cascade,
+  provider      text not null,
+  identity_data jsonb not null default '{}'::jsonb,
+  created_at    timestamptz not null default now()
+);
+
 -- 현재 사용자. 로컬에서는 세션 변수로 흉내낸다.
 --   select set_config('request.jwt.claim.sub', '<uuid>', false);
 create or replace function auth.uid()

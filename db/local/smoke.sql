@@ -1364,6 +1364,125 @@ select pg_temp.ok(
   (select coalesce(sum(n),0) from public.api_pins_by_region('mine', null)) = 0,
   '★ 남의 계정으로 보면 내 지도 집계는 0이다 — 숫자로도 새지 않는다');
 
+-- ── 058 장소 상세 — 자리 하나를 묻는다 (§13.91) ───────────────────────
+-- ★ 여기서 지킬 것 넷:
+--   ① 사실을 그대로 준다 — 지역 이름은 join 으로 오고, 모르면 비운다
+--   ② `mine_count` 는 **내 것만** 센다. RLS 는 남의 **공개** 핀을 통과시키므로
+--      `user_id = auth.uid()` 가 없으면 *"내가 3번 갔다"* 가 된다 — 가장 쉬운 거짓말
+--   ③ 표지는 029 가 고른 것을 **읽기만** 하고, 찍은 사람 이름을 같이 준다
+--   ④ 남의 비공개 사진은 표지로도 새지 않는다 (security invoker 가 하는 일)
+\echo ''
+\echo '── 19. 장소 상세 (058) ──'
+reset role;   -- 픽스처는 세션 사용자(superuser)로 심는다
+/* ★ **`regions` 에 줄을 넣지 않는다.** 처음엔 넣었고, 점 하나로 세 칸을 채웠다 —
+   이 DB 는 PostGIS 스텁이라 MultiPolygon·Polygon 이 전부 `point` 로 눌려 있어
+   로컬에서는 통과했다. 그런데 같은 스모크가 **진짜 Supabase 에서도 돈다**
+   (`db/supabase/verify.sh`) — 거기서 바로 걸렸다:
+     `Geometry type (Point) does not match column type (MultiPolygon)`
+   스텁이 느슨한 것을 사실로 착각하면, 로컬만 보고 "됐다"고 적게 된다.
+   → 경계를 지어내는 대신 **표가 말하는 것과 같은지**를 잰다. 로컬에는 지역이
+     없으니 둘 다 null 이고(모르면 비운다), 실서버에는 251개가 있으니 거기서는
+     진짜 이름이 맞는지까지 잰다. 한쪽에서만 도는 단언보다 낫다. */
+
+insert into public.places (id, name, category, address, region_code, geom, source,
+                           is_ground, image_url, image_thumb_url, image_license) values
+  ('aaaaaaaa-0000-0000-0000-00000000000d', '상세시험 전망대', 'nature',
+   /* ★ 코드를 **표에서 꺼내 온다.** 로컬 스텁에는 지역이 한 줄도 없어 '26350' 을
+      그대로 박으면 FK 가 막는다. 실서버에는 251개가 있어 거기서만 붙는다 —
+      둘 다에서 도는 유일한 모양이다(FK 는 null 을 허용한다). */
+   '부산 해운대구 전망길 1', (select code from public.regions where code = '26350'),
+   ST_SetSRID(ST_MakePoint(129.8003, 35.1581), 4326), 'public_data', true,
+   'https://tong/agency.png', 'https://tong/agency_s.png', 'Type3');
+
+-- A 는 두 번 갔다 (한 번은 공개, 한 번은 나만 보기) · B 는 한 번 갔다 (공개)
+insert into public.pins (id, user_id, place_id, geom, category, visited_at, is_public, verification) values
+  ('88880000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111',
+   'aaaaaaaa-0000-0000-0000-00000000000d',
+   ST_SetSRID(ST_MakePoint(129.8003, 35.1581), 4326), 'nature', '2026-04-01 10:00+09', true,  'exif'),
+  ('88880000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111',
+   'aaaaaaaa-0000-0000-0000-00000000000d',
+   ST_SetSRID(ST_MakePoint(129.8003, 35.1581), 4326), 'nature', '2026-05-02 10:00+09', false, 'exif'),
+  ('88880000-0000-0000-0000-000000000003', '22222222-2222-2222-2222-222222222222',
+   'aaaaaaaa-0000-0000-0000-00000000000d',
+   ST_SetSRID(ST_MakePoint(129.8003, 35.1581), 4326), 'nature', '2026-06-03 10:00+09', true,  'exif');
+
+-- ★ B 의 사진이 **가장 선명하다**(초점 3000) — 표지는 B 가 가져가야 한다.
+--   A 의 공개 사진에는 작은 판이 **없다**(thumb_url null) — 047 의 폴백을 시험한다.
+insert into public.media (pin_id, type, url, thumb_url, is_main, taken_at,
+                          focus_score, contrast_score, width, height) values
+  ('88880000-0000-0000-0000-000000000001', 'photo', 'https://x/a-pub.jpg', null,
+   true, '2026-04-01 10:00+09', 2000, 55, 1280, 960),
+  ('88880000-0000-0000-0000-000000000002', 'photo', 'https://x/a-priv.jpg', 'https://x/a-priv_s.jpg',
+   true, '2026-05-02 10:00+09', 2900, 58, 1280, 960),
+  ('88880000-0000-0000-0000-000000000003', 'photo', 'https://x/b-pub.jpg', 'https://x/b-pub_s.jpg',
+   true, '2026-06-03 10:00+09', 3000, 60, 1280, 960);
+select public.refresh_place_stats('aaaaaaaa-0000-0000-0000-00000000000d');
+
+/* ★ 헬퍼 함수로 감싸지 않는다. `returns table` 은 **복합 타입을 만들지 않으므로**
+   `returns public.api_place_detail` 이 "그런 타입 없다"로 죽는다. 그리고 뷰로
+   감싸면 더 나쁘다 — 뷰는 기본값이 **소유자 권한**이라 superuser 가 만든 뷰는
+   RLS 를 건너뛰고, 그러면 ②(남의 것을 안 센다)가 늘 통과한다. 그대로 부른다. */
+-- ① 사실
+set role authenticated; select pg_temp.login('11111111-1111-1111-1111-111111111111');
+select pg_temp.ok((select name from public.api_place_detail('aaaaaaaa-0000-0000-0000-00000000000d')) = '상세시험 전망대'
+              and (select address from public.api_place_detail('aaaaaaaa-0000-0000-0000-00000000000d')) = '부산 해운대구 전망길 1',
+  '장소의 사실이 그대로 온다');
+select pg_temp.ok(
+  (select region_name from public.api_place_detail('aaaaaaaa-0000-0000-0000-00000000000d'))
+    is not distinct from (select name from public.regions where code = '26350'),
+  '★ 지역 이름은 regions 가 말하는 것과 같다 — 없으면 비운다(지어내지 않는다)');
+select pg_temp.ok((select image_url from public.api_place_detail('aaaaaaaa-0000-0000-0000-00000000000d')) = 'https://tong/agency.png'
+              and (select image_license from public.api_place_detail('aaaaaaaa-0000-0000-0000-00000000000d')) = 'Type3',
+  '★ 기관 사진과 라이선스를 같이 준다 — 출처를 못 적는 사진은 띄우면 안 된다');
+select pg_temp.ok((select lng from public.api_place_detail('aaaaaaaa-0000-0000-0000-00000000000d')) between 129.80 and 129.81
+              and (select lat from public.api_place_detail('aaaaaaaa-0000-0000-0000-00000000000d')) between 35.15 and 35.16,
+  '좌표를 준다 — 상세에서 바로 지도로 날아갈 수 있다');
+
+-- ② ★ 내가 몇 번 갔나 — 여기가 이 함수의 값어치다
+select pg_temp.ok((select mine_count from public.api_place_detail('aaaaaaaa-0000-0000-0000-00000000000d')) = 2,
+  'A 는 두 번 갔다 — 나만 보기도 **내 발자국**이므로 센다');
+select pg_temp.ok((select mine_last_at from public.api_place_detail('aaaaaaaa-0000-0000-0000-00000000000d')) = '2026-05-02 10:00+09'::timestamptz,
+  '마지막으로 간 날이 최근 쪽이다');
+select pg_temp.login('22222222-2222-2222-2222-222222222222');
+select pg_temp.ok((select mine_count from public.api_place_detail('aaaaaaaa-0000-0000-0000-00000000000d')) = 1,
+  '★ B 는 한 번이다 — 3이 아니다. RLS 는 남의 공개 핀을 통과시키므로 '
+  'user_id = auth.uid() 가 없으면 "내가 세 번 갔다"가 된다');
+select pg_temp.login('33333333-3333-3333-3333-333333333333');
+select pg_temp.ok((select mine_count from public.api_place_detail('aaaaaaaa-0000-0000-0000-00000000000d')) = 0 and (select mine_last_at from public.api_place_detail('aaaaaaaa-0000-0000-0000-00000000000d')) is null,
+  '★ 안 가본 사람에게는 0 과 null 이다 — 0번째 방문을 지어내지 않는다');
+
+-- ③ 표지는 029 가 고른 것을 읽기만 한다 + 찍은 사람
+select pg_temp.ok((select cover_url from public.api_place_detail('aaaaaaaa-0000-0000-0000-00000000000d')) = 'https://x/b-pub.jpg'
+              and (select cover_author from public.api_place_detail('aaaaaaaa-0000-0000-0000-00000000000d')) = '브라보',
+  '★ 표지는 가장 선명한 공개 사진이고, 찍은 사람 이름이 같이 온다');
+select pg_temp.ok((select cover_thumb_url from public.api_place_detail('aaaaaaaa-0000-0000-0000-00000000000d')) = 'https://x/b-pub_s.jpg',
+  '표지는 작은 판으로 온다 — 상세가 원본부터 받지 않는다');
+select pg_temp.ok((select pin_count from public.api_place_detail('aaaaaaaa-0000-0000-0000-00000000000d')) = 2 and (select visitor_count from public.api_place_detail('aaaaaaaa-0000-0000-0000-00000000000d')) = 2,
+  '집계는 공개 핀만 센다 (A 공개 1 + B 공개 1 = 2)');
+
+-- ④ ★ 남의 비공개가 표지로 새지 않는다 — A 의 비공개 사진이 가장 선명했다면?
+reset role;   -- 픽스처는 세션 사용자(superuser)로 심는다
+update public.media set focus_score = 3500
+ where pin_id = '88880000-0000-0000-0000-000000000002';
+select public.refresh_place_stats('aaaaaaaa-0000-0000-0000-00000000000d');
+set role authenticated; select pg_temp.login('33333333-3333-3333-3333-333333333333');
+select pg_temp.ok((select cover_url from public.api_place_detail('aaaaaaaa-0000-0000-0000-00000000000d')) = 'https://x/b-pub.jpg',
+  '★ A 의 나만 보기 사진이 더 선명해도 표지가 되지 않는다 — 029 가 공개만 고른다');
+
+-- ── api_place_media — 격자가 쓸 수 있는 모양인가
+select pg_temp.ok((select count(*) from public.api_place_media('aaaaaaaa-0000-0000-0000-00000000000d')) = 2,
+  '공개 사진 둘만 온다 — 나만 보기는 목록에도 없다');
+select pg_temp.ok((select thumb_url from public.api_place_media('aaaaaaaa-0000-0000-0000-00000000000d') where url='https://x/b-pub.jpg')
+                  = 'https://x/b-pub_s.jpg',
+  '★ 작은 판을 준다 — 없으면 격자 30칸이 1600px 원본 30장을 받는다');
+select pg_temp.ok((select thumb_url from public.api_place_media('aaaaaaaa-0000-0000-0000-00000000000d') where url='https://x/a-pub.jpg')
+                  = 'https://x/a-pub.jpg',
+  '★ 작은 판이 없는 옛 사진은 본판으로 떨어진다 (047 의 폴백을 화면이 아니라 서버가 한다)');
+select pg_temp.ok((select author from public.api_place_media('aaaaaaaa-0000-0000-0000-00000000000d') where url='https://x/b-pub.jpg') = '브라보',
+  '★ 찍은 사람 이름이 온다 — uuid 만 오면 화면이 출처를 적을 수가 없다');
+select pg_temp.ok((select url from public.api_place_media('aaaaaaaa-0000-0000-0000-00000000000d') order by rank desc limit 1) = 'https://x/b-pub.jpg',
+  '선명하고 최근인 쪽이 앞선다');
+
 -- ── 038 초대 링크로 합류 ─────────────────────────────────────────────
 -- ★ §3 이 "초대 수락률이 핵심 지표"라고 적어 뒀는데 수락 경로가 없었다.
 --   여기서 지킬 것: ① 무엇을 수락하는지 먼저 보인다 ② 여러 링크가 한 계정에 쌓인다

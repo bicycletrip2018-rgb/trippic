@@ -33,6 +33,7 @@ import {
 import * as API from "../api";
 import { whereAmI, watchHere, watchHeading, type Here } from "../live";
 import { MapSheet, SHEET_PEEK, SHEET_BOTTOM, SHEET_HALF, type Snap } from "../MapSheet";
+import { PlaceSheet } from "../PlaceSheet";
 import { sawCover, openedCover, flushCovers } from "../coverLog";
 import { dur, ymd } from "../course";
 import { C, CAT } from "../theme";
@@ -307,12 +308,19 @@ export function MapTab(
   const [more, setMore] = useState(false);
   const [why, setWhy] = useState<string | null>(null);
   const [open, setOpen] = useState<Pin | null>(null);
+  /* ★ **장소** 상세 (§13.91). 핀 상세(`open`)와 **다른 것**이다 — 핀은 기록 하나,
+     이건 자리 하나. 지금까지 지도의 상호 점과 이름은 **눌러도 아무 일이 없었다**:
+     표지 카드는 전부 핀이라(§13.63) 핀이 없는 장소는 눌 곳 자체가 없었고,
+     `갈 곳` 에서 날아와도(§13.74) 도착해서 열 것이 없었다. */
+  const [openPlace, setOpenPlace] = useState<{ id: string; name: string } | null>(null);
   const [zoom, setZoom] = useState(5.6);
   const [agg, setAgg] = useState<API.RegionAgg[]>([]);
   const [into, setInto] = useState<string | null>(null);   // 들어온 지역 이름
   const camRef = useRef<CameraRef>(null);
   const size = useRef({ w: 402, h: 700 });
-  useEffect(() => { onSheet?.(!!open); }, [open]);
+  /* ★ 장소 상세도 (+) 를 감춰야 한다. 전면 화면이라 안 감추면 (+) 가 **상세
+     위에** 떠서 닫기 버튼 옆에 엉뚱한 버튼이 하나 더 있는 모양이 된다. */
+  useEffect(() => { onSheet?.(!!open || !!openPlace); }, [open, openPlace]);
   /* 열었다 = 관심이다. **누를 때마다** 센다(노출과 달리 한 번만이 아니다). */
   useEffect(() => { if (open) openedCover(open.place_id); }, [open?.id]);
 
@@ -507,7 +515,19 @@ export function MapTab(
       ?.queryRenderedFeatures(pt, { layers: ["pin-dot"] })
       .catch(() => [] as any[]);
     const id = hits?.[0]?.properties?.pinId;
-    setOpen(id ? (pins.find((p) => p.id === id) ?? null) : null);
+    if (id) { setOpen(pins.find((p) => p.id === id) ?? null); return; }
+    setOpen(null);
+
+    /* ★ **핀을 먼저 본다.** 내 기록이 배경에 묻히면 안 된다 — 상호를 핀보다 뒤에
+       그리는 것과 같은 이유다(위 `placeFc` 주석). 핀을 노린 손가락을 상호가
+       가로채면, 지도에서 내 기록을 여는 일이 제일 어려워진다.
+       ★ 이름 레이어도 같이 받는다. 점은 반지름 2.5px 라 손가락으로 겨눌 수 없다 —
+         실제로 누르게 되는 것은 **글자**다. */
+    const ph = await mapRef.current
+      ?.queryRenderedFeatures(pt, { layers: ["place-label", "place-dot"] })
+      .catch(() => [] as any[]);
+    const pid = ph?.[0]?.properties?.id;
+    if (pid) setOpenPlace({ id: pid, name: ph?.[0]?.properties?.name ?? "장소" });
   };
 
   const changeScope = (v: API.Scope) => {
@@ -656,6 +676,9 @@ export function MapTab(
       type: "Feature" as const,
       geometry: { type: "Point" as const, coordinates: [q.lng, q.lat] },
       properties: {
+        /* ★ `id` 를 싣는다. 없으면 눌렀을 때 **어느 장소인지 알 길이 없다** —
+           이름으로 되찾으면 같은 이름의 가게 둘 중 아무 쪽이나 열린다. */
+        id: q.id,
         name: q.name,
         color: CAT[q.category ?? "etc"]?.c ?? CAT.etc.c,
       },
@@ -1087,6 +1110,21 @@ export function MapTab(
             const p = pins.find((x) => x.id === id);
             if (p) setOpen(p);
           }} />
+      )}
+
+      {/* ★ 장소 상세 (§13.91). **지도 위에 전면으로 얹는다** — 바텀시트로 두면
+          `MapSheet` 와 같은 바닥을 다투고(§13.66 에서 겪었다), 표지 사진과 사진
+          격자가 시트 높이에 들어가지 않는다.
+          ★ `지도에서 보기` 를 **주지 않는다**(`onOpenMap` 을 안 넘긴다) — 이미
+            지도이고, 사용자가 **보고 있던 점**을 누른 것이다. 그 버튼을 달면 누르고
+            나서 아무 일도 안 난 것처럼 보인다. 날아가지도 않는다 — 보고 있는 자리를
+            빼앗을 이유가 없다.
+          ★ 거리(`distM`)도 안 넘긴다. 지도는 그 값을 모르고, 여기서 새로 재면
+            `갈 곳` 카드와 같은 곳을 다르게 말한다(§13.34). 모르면 그 줄을 비운다. */}
+      {openPlace && (
+        <PlaceSheet
+          placeId={openPlace.id} fallbackName={openPlace.name}
+          onClose={() => setOpenPlace(null)} />
       )}
     </View>
   );
