@@ -154,11 +154,30 @@ export function SpaceTab({ onOpenMap }: { onOpenMap?: (spaceId: string) => void 
             <Pressable style={s.spaceRow} onPress={() => onOpenMap?.(sp.id)}>
               <View style={{ flex: 1 }}>
                 <Text style={s.cardT}>{sp.title}</Text>
+                {/* ★ `함께 채운 N곳` 은 **지역(합집합)** 이다. 예전에는 `pins`(기록 수)를
+                    그 이름으로 불렀다 — 셋이 같은 카페에 꽂으면 "3곳"이 됐다(§13.94).
+                    기록 수는 기록 수라고 적는다. */}
                 <Text style={s.cardS}>
                   멤버 {sp.members}명
-                  {sp.pins ? ` · 함께 채운 ${sp.pins}곳` : " · 아직 기록 없음"}
-                  {sp.regions ? ` · ${sp.regions}개 지역` : ""}
+                  {sp.regions
+                    ? ` · 함께 채운 ${sp.regions}곳 / ${sp.region_total} 시·군·구`
+                    : sp.pins ? " · 아직 지역이 잡힌 기록이 없습니다" : " · 아직 기록 없음"}
+                  {sp.pins ? ` · 기록 ${sp.pins}개` : ""}
                 </Text>
+                {/* ★ **이게 '함께'의 실체다**(§13.16 ②). 혼자 다 채운 방과 셋이 나눠
+                    채운 방은 완전히 다른 관계인데 총량만 보면 똑같아 보인다.
+                    ★ `같이 간 곳` 은 *"둘 이상이 남긴 곳"* 이다 — 같은 날 같이 갔다는
+                      증명이 아니라서, 0일 때는 아예 적지 않는다(없는 것을 0으로 적으면
+                      "같이 간 적 없다"는 판정처럼 읽힌다). */}
+                {sp.regions ? (
+                  <Text style={s.cardSplit}>
+                    {sp.together
+                      ? <Text style={s.cardTogether}>같이 간 곳 {sp.together}</Text>
+                      : null}
+                    {sp.together && sp.alone ? " · " : ""}
+                    {sp.alone ? `혼자 다녀온 곳 ${sp.alone}` : ""}
+                  </Text>
+                ) : null}
               </View>
               <Text style={s.spaceGo}>지도 ›</Text>
             </Pressable>
@@ -435,6 +454,9 @@ const s = StyleSheet.create({
   },
   covFill: { height: "100%", borderRadius: 3, backgroundColor: C.visited },
   spaceRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  cardSplit: { color: C.muted, fontSize: 11.5, marginTop: 3 },
+  /* 함께 간 것은 **보조색**으로 — '다녀온 것'에 쓰는 색이다(theme.ts) */
+  cardTogether: { color: C.visited, fontWeight: "700" },
   spaceGo: { color: C.accent, fontSize: 13, fontWeight: "600" },
   /* 부차 동작은 **아래 줄로 내린다** — 카드를 누르는 것(지도로 가기)이
      주 동작이라, 같은 줄에 두면 어느 것이 본론인지 흐려진다. */

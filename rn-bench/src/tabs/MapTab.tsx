@@ -37,6 +37,7 @@ import { PlaceSheet } from "../PlaceSheet";
 import { sawCover, openedCover, flushCovers } from "../coverLog";
 import { dur, ymd } from "../course";
 import { C, CAT } from "../theme";
+import { zoomForBBox, padPinBox, unionBox } from "../fitBox";
 
 /* ★ 배경 경계는 **DB 에서 뽑았다**(251개, 0.001° 단순화 → 691K).
    §13.47 에서 번들한 프로토타입의 `korea-sgg.json` 은 **코드 체계가 달랐다** —
@@ -85,33 +86,6 @@ const CATS: { v: string | null; k: string }[] = [
    머문다** — 웹에서 강릉시를 눌렀더니 z8.7 이라 여전히 '지역' 단위였고, 탭했는데
    아무 일도 안 일어난 것처럼 보였다. 그래서 직접 계산해서 **반드시 집계 줌을 벗어나게**
    클램프한다. 무엇을 눌렀든 장소 단위까지는 들어간다. */
-const mercY = (lat: number) =>
-  Math.log(Math.tan(Math.PI / 4 + (Math.max(-85, Math.min(85, lat)) * Math.PI) / 360)) / Math.PI / 2 + 0.5;
-
-function zoomForBBox(b: number[], wPx: number, hPx: number, onPins = false) {
-  const lonFrac = Math.max(1e-6, (b[2] - b[0]) / 360);
-  const latFrac = Math.max(1e-6, Math.abs(mercY(b[3]) - mercY(b[1])));
-  const zx = Math.log2(wPx / (256 * lonFrac));
-  const zy = Math.log2(hPx / (256 * latFrac));
-  /* ★ 상한이 **둘**이다. 행정구역 상자로 갈 때는 12.5 에서 멈춘다 —
-     그 큰 상자를 다 담으려다 보면 어차피 멀다. 그런데 **핀 상자**로 갈 때는
-     내용이 있는 곳이니 더 들어가도 된다. 상호가 z14 부터 켜지므로(§13.60)
-     그 위로 가야 *"주변에 뭐가 있나"* 가 같이 보인다. */
-  const hi = onPins ? 16.5 : 12.5;
-  return Math.min(hi, Math.max(Z_REGION + 0.3, Math.min(zx, zy)));
-}
-
-/* 핀 상자에 여백을 준다. ★ 한 곳뿐이면 상자가 **점**이라 그대로 쓰면 줌이
-   무한대로 튄다 — 최소 크기를 준다(약 400m). 여러 곳이면 가장자리 핀이
-   화면 끝에 붙지 않게 한 뼘 넓힌다. */
-function padPinBox(b: number[]) {
-  const MIN = 0.004;                              // 도 단위 ≈ 400m
-  const cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2;
-  const w = Math.max(MIN, (b[2] - b[0]) * 1.6);
-  const h = Math.max(MIN, (b[3] - b[1]) * 1.6);
-  return [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2];
-}
-
 /* 로그로 편다. ★ 선형으로 칠하면 거의 다 0에 붙는다 — 한 지역만 빨갛고 나머지는 검다.
    웹(§13.37)이 실측으로 고른 구간을 그대로 쓴다. */
 const STOPS: [number, number][] = [[0, 0], [0.25, 0.05], [0.55, 0.26], [0.8, 0.52], [1, 0.82]];
@@ -434,12 +408,8 @@ export function MapTab(
      *"지도 ›"* 를 눌렀을 때 전국 화면에 떨어지면 *"함께 채운 지도"* 가 아니라
      그냥 지도다 — 무엇을 채웠는지 보여 주려고 온 길이다. */
   const flyToAgg = (rows: API.RegionAgg[]) => {
-    const ok = rows.filter((r) => Number.isFinite(r.bw));
-    if (!ok.length) return;
-    const box = [
-      Math.min(...ok.map((r) => r.bw)), Math.min(...ok.map((r) => r.bs)),
-      Math.max(...ok.map((r) => r.be)), Math.max(...ok.map((r) => r.bn)),
-    ];
+    const box = unionBox(rows);
+    if (!box) return;
     const pad = padPinBox(box);
     camRef.current?.flyTo({
       center: [(pad[0] + pad[2]) / 2, (pad[1] + pad[3]) / 2],

@@ -32,7 +32,8 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "test:course": "tsc src/course.ts --ignoreConfig --outDir build-test --module commonjs --target es2020 --skipLibCheck && node test/course.test.cjs",
-    "test:pending": "tsc src/pendingCount.ts --ignoreConfig --outDir build-test --module commonjs --target es2020 --skipLibCheck && node test/pending.test.cjs"
+    "test:pending": "tsc src/pendingCount.ts --ignoreConfig --outDir build-test --module commonjs --target es2020 --skipLibCheck && node test/pending.test.cjs",
+    "test:fit": "tsc src/fitBox.ts --ignoreConfig --outDir build-test --module commonjs --target es2020 --skipLibCheck && node test/fit.test.cjs"
   },
   "private": true
 }

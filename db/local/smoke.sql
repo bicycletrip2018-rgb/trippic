@@ -1709,6 +1709,128 @@ select pg_temp.ok(
     where place_id = 'aaaaaaaa-0000-0000-0000-000000000005'),
   '★ 2년 전 **오늘**은 들어온다 — 빗장을 걸다가 이 묶음이 존재하는 이유까지 막으면 안 된다');
 
+-- ── 061 스페이스 = 함께 채운 지도 (§13.16 · §13.94) ───────────────────
+-- ★ 여기서 지킬 것 셋:
+--   ① `함께 채운 N곳` 은 **합집합**이다 — 셋이 같은 지역에 가도 1곳이다
+--   ② `같이 간 곳`(둘 이상이 남김)과 `혼자 다녀온 곳`(한 사람만)이 갈린다
+--   ③ 둘을 더하면 `함께 채운 곳` 이다 — 어느 한쪽이 새면 바로 드러난다
+\echo ''
+\echo '── 22. 스페이스 함께 채운 지도 (061) ──'
+reset role;
+/* ★ 지역을 **심어서** 잰다. `region_code` 가 없으면 아무것도 안 세므로(052 의 규칙)
+   지역 없이는 이 절을 쓸 수가 없다. WKT 로 넣어 실서버(진짜 PostGIS)와 로컬 스텁
+   양쪽에서 같은 픽스처가 서게 한다 — §13.91 에서 점으로 때우다 실서버에서 걸렸다. */
+insert into public.regions (code, name, sido, geom, bbox, center) values
+  ('TT1', '시험군A', '시험도',
+   ST_GeomFromText('MULTIPOLYGON(((129.0 35.0,129.1 35.0,129.1 35.1,129.0 35.1,129.0 35.0)))', 4326),
+   ST_GeomFromText('POLYGON((129.0 35.0,129.1 35.0,129.1 35.1,129.0 35.1,129.0 35.0))', 4326),
+   ST_GeomFromText('POINT(129.05 35.05)', 4326)),
+  ('TT2', '시험군B', '시험도',
+   ST_GeomFromText('MULTIPOLYGON(((129.2 35.0,129.3 35.0,129.3 35.1,129.2 35.1,129.2 35.0)))', 4326),
+   ST_GeomFromText('POLYGON((129.2 35.0,129.3 35.0,129.3 35.1,129.2 35.1,129.2 35.0))', 4326),
+   ST_GeomFromText('POINT(129.25 35.05)', 4326));
+
+insert into public.spaces (id, type, title, owner_id) values
+  ('5c5c0000-0000-0000-0000-000000000001', 'shared', '함께 채운 시험',
+   '11111111-1111-1111-1111-111111111111');
+insert into public.space_members (space_id, user_id, role) values
+  ('5c5c0000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'owner'),
+  ('5c5c0000-0000-0000-0000-000000000001', '22222222-2222-2222-2222-222222222222', 'member');
+
+/* ★ TT1 에는 **A 와 B 가 둘 다**, TT2 에는 **A 만**.
+   그리고 A 는 TT1 에 **두 장**을 남긴다 — 합계로 세면 여기서 숫자가 부푼다. */
+insert into public.pins (id, user_id, geom, category, visited_at, region_code, is_public, verification) values
+  ('5c5c1111-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111',
+   ST_SetSRID(ST_MakePoint(129.05, 35.05), 4326), 'cafe', '2026-03-14 10:00+09', 'TT1', false, 'exif'),
+  ('5c5c1111-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111',
+   ST_SetSRID(ST_MakePoint(129.06, 35.05), 4326), 'food', '2026-03-14 12:00+09', 'TT1', false, 'exif'),
+  ('5c5c1111-0000-0000-0000-000000000003', '22222222-2222-2222-2222-222222222222',
+   ST_SetSRID(ST_MakePoint(129.05, 35.06), 4326), 'cafe', '2026-03-15 10:00+09', 'TT1', false, 'exif'),
+  ('5c5c1111-0000-0000-0000-000000000004', '11111111-1111-1111-1111-111111111111',
+   ST_SetSRID(ST_MakePoint(129.25, 35.05), 4326), 'nature', '2026-03-16 10:00+09', 'TT2', false, 'exif'),
+  /* ★ 지역을 모르는 핀 — 세면 안 된다. 좌표만 있고 어디인지 모르는 것을
+     '채웠다'고 할 수 없다(052 의 규칙).
+     ★ **좌표를 바다에 둔다.** 처음엔 시험 폴리곤 안에 뒀는데, 실서버에는
+       `pins_fill_region` 트리거가 있어 **좌표로 지역을 채워 버린다**(로컬 스텁에는
+       경계가 없어 안 채워져서 로컬만 통과했다). 그래서 B 가 TT2 에도 남긴 것이 되어
+       `혼자 다녀온 곳` 이 0 이 됐다. 지역을 모르는 핀을 만들려면 **어느 경계에도
+       안 들어가는 자리**여야 한다 — §13.91 과 같은 교훈이다(스텁이 느슨한 것을
+       사실로 착각하면 안 된다). */
+  ('5c5c1111-0000-0000-0000-000000000005', '22222222-2222-2222-2222-222222222222',
+   ST_SetSRID(ST_MakePoint(123.0, 32.0), 4326), 'etc', '2026-03-16 12:00+09', null, false, 'exif');
+insert into public.pin_spaces (pin_id, space_id)
+select id, '5c5c0000-0000-0000-0000-000000000001' from public.pins
+ where id::text like '5c5c1111-%';
+
+create or replace function pg_temp.sp(c text) returns int language sql as $$
+  select case c
+    when 'pins'     then (select pins     from public.api_my_spaces() where id='5c5c0000-0000-0000-0000-000000000001')
+    when 'regions'  then (select regions  from public.api_my_spaces() where id='5c5c0000-0000-0000-0000-000000000001')
+    when 'together' then (select together from public.api_my_spaces() where id='5c5c0000-0000-0000-0000-000000000001')
+    when 'alone'    then (select alone    from public.api_my_spaces() where id='5c5c0000-0000-0000-0000-000000000001')
+    when 'members'  then (select members  from public.api_my_spaces() where id='5c5c0000-0000-0000-0000-000000000001')
+  end $$;
+
+set role authenticated; select pg_temp.login('11111111-1111-1111-1111-111111111111');
+
+select pg_temp.ok(pg_temp.sp('members') = 2, '멤버 2명');
+select pg_temp.ok(pg_temp.sp('pins') = 5,
+  '`pins` 는 **기록 수**다 (5장) — 화면이 이걸 `곳` 이라 부르면 거짓말이 된다');
+
+-- ① 합집합이지 합계가 아니다
+select pg_temp.ok(pg_temp.sp('regions') = 2,
+  '★ `함께 채운 곳` 은 **2곳**이다 — 기록은 5장이지만 지역은 둘뿐이다. '
+  '합계로 세면 "함께 갈수록 커지는" 지표가 되어 협업이 아니라 중복을 잰다(§13.16 ①)');
+select pg_temp.ok(pg_temp.sp('regions') < pg_temp.sp('pins'),
+  '★ 같은 지역에 여러 장을 남겨도 곳 수는 안 는다');
+
+-- ② 같이 / 혼자
+select pg_temp.ok(pg_temp.sp('together') = 1,
+  '★ `같이 간 곳` 1 — TT1 에는 A 와 B 가 **둘 다** 남겼다 (§13.16 ②: 이게 함께의 실체다)');
+select pg_temp.ok(pg_temp.sp('alone') = 1,
+  '★ `혼자 다녀온 곳` 1 — TT2 에는 A 만 남겼다');
+select pg_temp.ok(pg_temp.sp('together') + pg_temp.sp('alone') = pg_temp.sp('regions'),
+  '★ 같이 + 혼자 = 함께 채운 곳 — 어느 한쪽이 새면 여기서 바로 드러난다');
+select pg_temp.ok(
+  (select region_code from public.pins where id='5c5c1111-0000-0000-0000-000000000005') is null
+  and pg_temp.sp('pins') = 5 and pg_temp.sp('regions') = 2,
+  '★ 지역을 모르는 핀은 **기록으로는 세지만 곳으로는 안 센다** — '
+  '좌표만 있고 어디인지 모르는 것을 "채웠다"고 할 수 없다(052)');
+select pg_temp.ok(
+  (select region_total from public.api_my_spaces()
+    where id='5c5c0000-0000-0000-0000-000000000001')
+    = (select count(*)::int from public.regions),
+  '전국 시·군·구 수를 같이 준다 — 화면이 250 을 박아 두지 않아도 된다');
+
+-- ③ A 가 한 장 더 남겨도 `같이 간 곳` 은 안 변한다 (사람 수로 세지 장 수로 세지 않는다)
+reset role;
+insert into public.pins (id, user_id, geom, category, visited_at, region_code, is_public, verification) values
+  ('5c5c1111-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111',
+   ST_SetSRID(ST_MakePoint(129.27, 35.05), 4326), 'cafe', '2026-03-17 10:00+09', 'TT2', false, 'exif');
+insert into public.pin_spaces (pin_id, space_id)
+values ('5c5c1111-0000-0000-0000-00000000000a', '5c5c0000-0000-0000-0000-000000000001');
+set role authenticated; select pg_temp.login('11111111-1111-1111-1111-111111111111');
+select pg_temp.ok(pg_temp.sp('alone') = 1 and pg_temp.sp('together') = 1,
+  '★ 같은 사람이 한 장 더 남겨도 `혼자`가 `같이`로 바뀌지 않는다 — **사람 수**로 센다');
+
+-- ④ B 가 TT2 에도 남기면 그때 `같이`가 된다
+reset role;
+insert into public.pins (id, user_id, geom, category, visited_at, region_code, is_public, verification) values
+  ('5c5c1111-0000-0000-0000-00000000000b', '22222222-2222-2222-2222-222222222222',
+   ST_SetSRID(ST_MakePoint(129.28, 35.05), 4326), 'cafe', '2026-03-18 10:00+09', 'TT2', false, 'exif');
+insert into public.pin_spaces (pin_id, space_id)
+values ('5c5c1111-0000-0000-0000-00000000000b', '5c5c0000-0000-0000-0000-000000000001');
+set role authenticated; select pg_temp.login('11111111-1111-1111-1111-111111111111');
+select pg_temp.ok(pg_temp.sp('together') = 2 and pg_temp.sp('alone') = 0,
+  '★ 둘째 사람이 남기면 `혼자` 가 `같이` 로 넘어간다 (2 · 0) — 합은 그대로 2다');
+
+-- ⑤ 남에게는 이 방이 아예 안 보인다
+select pg_temp.login('33333333-3333-3333-3333-333333333333');
+select pg_temp.ok(
+  not exists (select 1 from public.api_my_spaces()
+               where id='5c5c0000-0000-0000-0000-000000000001'),
+  '★ 멤버가 아니면 이 방이 목록에 없다 — 숫자는커녕 존재도 안 샌다');
+
 -- ── 038 초대 링크로 합류 ─────────────────────────────────────────────
 -- ★ §3 이 "초대 수락률이 핵심 지표"라고 적어 뒀는데 수락 경로가 없었다.
 --   여기서 지킬 것: ① 무엇을 수락하는지 먼저 보인다 ② 여러 링크가 한 계정에 쌓인다

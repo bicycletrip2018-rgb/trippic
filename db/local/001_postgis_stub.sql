@@ -78,6 +78,15 @@ returns point language sql immutable as $$
   select point(round(($1[0] / $2))::numeric::double precision * $2,
                round(($1[1] / $3))::numeric::double precision * $3) $$;
 
+-- ★ WKT 를 **파싱하지 않는다.** 이 DB 에서 geometry 는 전부 `point` 라 타입만 맞으면
+--   되고, 경계 연산은 애초에 로컬 검증 대상이 아니다(verify.sh 머리말).
+--   이것이 있어야 스모크가 `regions` 를 심을 수 있다 — 실서버에서는 진짜
+--   MULTIPOLYGON·POLYGON 이 되고, 여기서는 점 하나가 된다.
+--   (§13.91 에서 점으로 MultiPolygon 칸을 채웠다가 실서버에서 걸렸다. 같은 픽스처가
+--    양쪽에서 서려면 **생성자를 맞춰야지 타입을 뭉개면 안 된다.**)
+create or replace function ST_GeomFromText(text, int default 4326) returns point
+language sql immutable as $$ select point(0,0) $$;
+
 create or replace function ST_Envelope(point) returns point
 language sql immutable as $$ select $1 $$;
 create or replace function ST_PointOnSurface(point) returns point

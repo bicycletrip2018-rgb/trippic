@@ -433,9 +433,22 @@ export const pinsByRegion = (
      빈 방과 쌓인 방은 다른 것이다. */
 export type SpaceRow = {
   id: string; title: string; auto_title: boolean;
-  members: number; pins: number;
-  /** 함께 닿은 지역 수(052). 목록을 **성적표**로 만드는 숫자다(§12.13). */
+  members: number;
+  /* ★ 이 방에 공유된 **기록 수**다. **`곳` 이 아니다** — 화면이 `함께 채운 N곳` 으로
+     부르고 있었는데(§13.94에서 고쳤다), 셋이 같은 카페에 꽂으면 *"함께 채운 3곳"* 이
+     된다. §13.16 이 금한 바로 그것: *"합계로 세면 숫자가 거짓말을 한다 —
+     함께 갈수록 커지는 지표는 협업이 아니라 중복을 잰다."* */
+  pins: number;
+  /** 함께 닿은 시·군·구 수 = **합집합**(052). 이것이 `함께 채운 곳` 이다 */
   regions: number;
+  /* ★ `함께`의 실체(§13.16 ②). 혼자 다 채운 방과 셋이 나눠 채운 방은 **완전히 다른
+     관계**인데 총량만 보면 똑같아 보인다. 공유 지도 앱만 보여줄 수 있는 구별이다.
+     ★ `together` 는 *"그 시·군·구에 **둘 이상이** 기록을 남겼다"* 이지
+       *"같은 날 같이 갔다"* 가 아니다 — 화면도 그만큼만 말한다. */
+  together: number;
+  alone: number;
+  /** 전국 시·군·구 수 — 250 을 화면에 박아 두지 않으려고 서버가 같이 준다 */
+  region_total: number;
 };
 export const mySpaces = () => rpc<SpaceRow[]>("api_my_spaces", {});
 
