@@ -156,3 +156,42 @@ export const driveText = (distM: number) => {
   const m = driveMin(distM);
   return m < 60 ? `차로 ${m}분` : `차로 ${Math.floor(m / 60)}시간 ${m % 60 ? (m % 60) + "분" : ""}`.trim();
 };
+
+/* ── 코스를 **글로** (§12.25-B · §13.89) ──────────────────────────
+   ★ §12.25-B 가 이 묶음의 값어치를 이렇게 적었다:
+     *"앱 밖으로 나가는 두 번째 산출물이다. 코스 카드 → 링크 → 친구가 그대로 따라간다."*
+     만들어 놓고 **나갈 문이 없었다.**
+
+   ★ 링크가 아니라 **글**이다. 링크는 받는 쪽에 열 화면이 있어야 하는데 아직 없다.
+     없는 것을 가리키는 링크를 보내느니, **카카오톡에 붙여 놓으면 그대로 읽히는 글**이
+     지금 할 수 있는 가장 쓸모 있는 산출물이다. 링크는 받을 화면이 생기면 더한다.
+
+   ★ **모르는 것은 모른다고 쓴다** — 화면과 같은 규칙이다(§12.25-B).
+     체류를 모르는 곳에 `0분`을 적으면 받는 사람이 그걸 믿고 일정을 짠다.
+   ★ 좌표·사진·메모는 **안 넣는다.** 공유는 밖으로 나가는 일이라 §10 최소 수집이
+     더 세게 걸린다 — 어디서 몇 시에 뭘 했는지면 따라가기에 충분하다. */
+export function courseText(c: Course, title?: string): string {
+  const head = `${ymd(c.date)}${title ? " " + title : ""} 하루 코스`;
+  const lines = c.stops.map((p, i) => {
+    const leg = i > 0 ? c.legs[i - 1] : null;
+    const move = leg
+      ? (leg.crossSea
+          ? "   ↓ 육로로 이어지지 않습니다 (배·비행기)"
+          : `   ↓ ${(leg.distM / 1000).toFixed(1)}km${leg.moveSec ? ` · 차로 ${dur(leg.moveSec)}` : ""}`)
+      : null;
+    const name = p.placeName?.trim() || p.memo?.trim() || "기록";
+    const stay = dur(p.stay_sec);
+    return [move, `${hhmm(new Date(p.visited_at))}  ${name}${stay ? ` — ${stay}` : ""}`]
+      .filter(Boolean).join("\n");
+  });
+  const foot = [
+    `${c.stops.length}곳 · ${hhmm(c.startAt)}–${hhmm(c.endAt)}`,
+    c.staySec ? `머문 시간 ${dur(c.staySec)}` : null,
+    c.moveSec ? `이동 ${dur(c.moveSec)}` : null,
+    /* 모르는 것이 있으면 **합계가 전부가 아니라고** 말한다 */
+    c.stayUnknown ? `${c.stayUnknown}곳은 머문 시간을 알 수 없습니다` : null,
+    c.crossSea ? `${c.crossSea}구간은 배·비행기` : null,
+  ].filter(Boolean).join(" · ");
+
+  return [head, "", ...lines, "", foot, "", "TRIPPIC 에서 사진으로 되살린 하루입니다."].join("\n");
+}

@@ -320,6 +320,11 @@ export async function consumeAuthRedirect(url: string) {
 /* ── 읽기 ──────────────────────────────────────────────────── */
 const PIN_COLS =
   "id,trip_id,place_id,region_code,geom,category,visited_at,stay_sec,memo,verification,is_public,comment_count," +
+  /* ★ **장소 이름을 같이 읽는다**(§13.89). `CoursePin.placeName` 은 진작 선언돼
+     있었는데 채우는 곳이 없어서, 하루 코스가 *"맛집 09:40"* 이라고 적고 있었다 —
+     내 기록을 볼 때는 사진으로 알아보지만 **남에게 보내면 아무 뜻이 없다.**
+     PostgREST 가 FK 를 따라 한 번에 준다 — 핀마다 따로 묻지 않는다. */
+  "places(name)," +
   "media(url,width,height,is_main,sort_order)";
 
 /* ★ 좌표를 주면 **그 근처만** 본다(054). 실측: 반경 1.5km 100~200ms,

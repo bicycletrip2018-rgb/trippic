@@ -17,6 +17,8 @@ import { isAvailable as appleAvailable, signInWithApple } from "../appleAuth";
 import { Alert } from "react-native";
 
 type Pin = {
+  /** PostgREST 가 FK 를 따라 붙여 주는 장소 이름(§13.89). 핀마다 따로 묻지 않는다. */
+  places?: { name?: string | null } | null;
   id: string; category: string; visited_at: string; memo: string | null;
   verification: string; is_public: boolean; comment_count: number;
   geom: { coordinates: [number, number] } | null;
@@ -389,7 +391,12 @@ export function MyTab({ authTick = 0 }: { authTick?: number }) {
             ? <Image source={{ uri: cover(p) }} style={s.thumb} />
             : <View style={[s.thumb, { backgroundColor: "#222" }]} />}
           <View style={{ flex: 1 }}>
-            <Text style={s.cardT} numberOfLines={1}>{p.memo || (CAT[p.category] ?? CAT.etc).k}</Text>
+            {/* ★ 이름 → 메모 → 분류(§13.89). *"맛집"* 은 내 기록 목록에서 아무것도
+                말해 주지 않는다 — 어느 맛집인지가 빠져 있다. 서버가 장소 이름을
+                같이 주기 시작했으니(PIN_COLS) 여기서도 그걸 먼저 쓴다. */}
+            <Text style={s.cardT} numberOfLines={1}>
+              {p.places?.name || p.memo || (CAT[p.category] ?? CAT.etc).k}
+            </Text>
             <Text style={s.cardS}>{ymd(p.visited_at)} · {p.is_public ? "공개" : "나만 보기"}</Text>
           </View>
         </View>

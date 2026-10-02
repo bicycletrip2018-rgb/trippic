@@ -10,10 +10,10 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View,
+  ActivityIndicator, Image, Modal, Pressable, ScrollView, Share, StyleSheet, Text, View,
 } from "react-native";
 import * as API from "./api";
-import { buildCourses, dur, hhmm, ymd, type Course, type CoursePin } from "./course";
+import { buildCourses, courseText, dur, hhmm, ymd, type Course, type CoursePin } from "./course";
 import { C, CAT } from "./theme";
 import { NextPlaces } from "./NextPlaces";
 
@@ -42,6 +42,7 @@ export function DayCourse({ onClose }: { onClose: () => void }) {
           id: p.id, placeId: p.place_id, regionCode: p.region_code,
           visited_at: p.visited_at, stay_sec: p.stay_sec,
           category: p.category, memo: p.memo,
+          placeName: p.places?.name ?? null,
           lng: c[0], lat: c[1], photo: m?.url ?? null,
         } as CoursePin;
       })
@@ -91,8 +92,18 @@ function CourseCard({ c }: { c: Course }) {
   return (
     <View style={s.card}>
       <View style={s.cardHead}>
-        <Text style={s.date}>{ymd(c.date)}</Text>
-        <Text style={s.sub}>{c.stops.length}곳 · {hhmm(c.startAt)}–{hhmm(c.endAt)}</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={s.date}>{ymd(c.date)}</Text>
+          <Text style={s.sub}>{c.stops.length}곳 · {hhmm(c.startAt)}–{hhmm(c.endAt)}</Text>
+        </View>
+        {/* ★ 코스마다 하나다 — 화면 하나에 여러 날이 있어서, 위에 하나만 두면
+            *"어느 날을 보내는지"* 를 또 고르게 만든다(§13.89).
+            ★ OS 공유 시트를 연다. 카카오톡은 거기 이미 들어 있다 — 따로 붙일 것이 없다. */}
+        <Pressable
+          hitSlop={10}
+          onPress={() => { void Share.share({ message: courseText(c) }); }}>
+          <Text style={s.share}>공유</Text>
+        </Pressable>
       </View>
 
       {c.stops.map((p, i) => {
@@ -117,8 +128,9 @@ function CourseCard({ c }: { c: Course }) {
                 : <View style={[s.thumb, s.thumbNone]}><Text style={s.thumbX}>사진 없음</Text></View>}
               <View style={{ flex: 1 }}>
                 <Text style={s.time}>{hhmm(new Date(p.visited_at))}</Text>
+                {/* 이름 → 메모 → 분류. 이름이 있으면 그게 가장 정확하다 */}
                 <Text style={s.name} numberOfLines={1}>
-                  {p.memo?.trim() || (CAT[p.category || "etc"]?.k ?? "기록")}
+                  {p.placeName?.trim() || p.memo?.trim() || (CAT[p.category || "etc"]?.k ?? "기록")}
                 </Text>
                 {/* ★ 0분을 쓰지 않는다 — 사진 한 장이면 **모르는** 것이다 */}
                 <Text style={s.stay}>{st ? `${st} 머물렀습니다` : "머문 시간은 알 수 없습니다"}</Text>
@@ -177,6 +189,7 @@ const s = StyleSheet.create({
   },
   cardHead: { flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 8 },
   date: { color: C.text, fontSize: 15, fontWeight: "700" },
+  share: { color: C.accent, fontSize: 13, fontWeight: "700", paddingHorizontal: 4 },
   sub: { color: C.muted, fontSize: 12 },
 
   stop: { flexDirection: "row", gap: 10, alignItems: "center", paddingVertical: 4 },
