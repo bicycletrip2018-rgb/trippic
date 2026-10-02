@@ -60,3 +60,37 @@ export function unionBox(rows: { bw: number; bs: number; be: number; bn: number 
     Math.max(...ok.map((r) => r.be)), Math.max(...ok.map((r) => r.bn)),
   ];
 }
+
+/** `mercY` 의 역함수 — 메르카토르 세로 좌표를 위도로 되돌린다 */
+export const invMercY = (m: number) =>
+  ((Math.atan(Math.exp((m - 0.5) * 2 * Math.PI)) - Math.PI / 4) * 360) / Math.PI;
+
+export type Insets = { top: number; bottom: number };
+
+/**
+ * 상자를 **가려지지 않은 띠 안에** 맞춘다 (§13.95)
+ *
+ * ★ 지금까지 화면 **전체 높이**로 맞춰 왔다. 그런데 지도 위에는 늘 두 가지가 떠 있다 —
+ *   상단 칩 두 줄과 하단 바텀시트. 전체로 맞추면 상자의 위아래 끝이 **그 밑으로 들어가**
+ *   사용자는 "다 보인다"는 약속을 못 받는다. 실제로 스페이스로 날아갔을 때 맨 아래
+ *   지역이 시트에 반쯤 가렸다.
+ *
+ * ★ **줌만 고치면 더 틀린다.** 보이는 띠는 화면 한가운데가 아니라 **위로 치우쳐**
+ *   있는데(시트가 칩보다 두껍다) 카메라는 늘 화면 한가운데에 중심을 놓기 때문이다.
+ *   그래서 **중심도 같이 옮긴다** — 그 둘은 한 쌍이다.
+ *
+ *   보이는 띠의 한가운데 = `(h + top - bottom) / 2`
+ *   화면 한가운데      = `h / 2`
+ *   → 상자 중심이 띠 한가운데에 오려면 카메라 중심은 **남쪽으로** `(bottom - top)/2` px.
+ */
+export function fitView(
+  box: number[], w: number, h: number, insets: Insets, onPins = false,
+) {
+  const vis = Math.max(80, h - insets.top - insets.bottom);
+  const zoom = zoomForBBox(box, w, vis, onPins);
+  const cx = (box[0] + box[2]) / 2;
+  /* 픽셀을 메르카토르 단위로 — 세계 전체가 `256 * 2^zoom` px 이다 */
+  const shiftSouthPx = (insets.bottom - insets.top) / 2;
+  const my = (mercY(box[1]) + mercY(box[3])) / 2 - shiftSouthPx / (256 * Math.pow(2, zoom));
+  return { center: [cx, invMercY(my)] as [number, number], zoom };
+}

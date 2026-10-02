@@ -37,7 +37,7 @@ import { PlaceSheet } from "../PlaceSheet";
 import { sawCover, openedCover, flushCovers } from "../coverLog";
 import { dur, ymd } from "../course";
 import { C, CAT } from "../theme";
-import { zoomForBBox, padPinBox, unionBox } from "../fitBox";
+import { zoomForBBox, padPinBox, unionBox, fitView } from "../fitBox";
 
 /* ★ 배경 경계는 **DB 에서 뽑았다**(251개, 0.001° 단순화 → 691K).
    §13.47 에서 번들한 프로토타입의 `korea-sgg.json` 은 **코드 체계가 달랐다** —
@@ -179,6 +179,62 @@ function koreanFirst(style: any) {
       "coalesce", ["get", "name:ko"], ["get", "name"], ["get", "name:latin"],
     ];
   }
+
+  /* ── ★ **산이 보여야 한다** (§13.95) ──────────────────────────────
+     이 스타일은 `mountain_peak` 을 **한 겹도 안 그린다** — 그런데 타일에는
+     들어 있다(`vector_layers` 에 있다). 네이버에서 위치가 바로 읽히는 이유의
+     절반이 산 이름이다(금정산·백양산·승학산). 없는 데이터를 지어내는 것이
+     아니라 **안 그리고 있던 것을 그린다.** */
+  const i = style.layers.findIndex((l: any) => l.id === "place_other");
+  const peak = {
+    id: "mountain-peak", type: "symbol", source: "openmaptiles",
+    "source-layer": "mountain_peak",
+    minzoom: 8,
+    /* 이름이 없는 봉우리는 점만 남아 소음이 된다. 그리고 낮은 봉우리까지 다 그리면
+       산줄기가 글자로 덮인다 — `rank` 가 낮을수록 중요한 봉우리다(OpenMapTiles). */
+    filter: ["all", ["has", "name"], ["<=", ["get", "rank"], 3]],
+    layout: {
+      "text-field": ["coalesce", ["get", "name:ko"], ["get", "name"]],
+      "text-font": ["Noto Sans Regular"],
+      "text-size": ["interpolate", ["linear"], ["zoom"], 8, 10, 12, 12.5],
+      "text-anchor": "top", "text-offset": [0, 0.5],
+      "text-max-width": 6, "text-padding": 4,
+      "icon-image": "", "symbol-sort-key": ["get", "rank"],
+    },
+    paint: {
+      "text-color": "rgba(150,196,160,0.95)",      // 산은 **초록 글씨**로 — 상호와 안 헷갈린다
+      "text-halo-color": "rgba(0,0,0,0.9)", "text-halo-width": 1.3,
+    },
+  };
+  style.layers.splice(i < 0 ? style.layers.length : i, 0, peak);
+
+  /* ── ★ **강과 숲에 색을 준다** (§13.95) ───────────────────────────
+     레이어는 처음부터 있었는데 **색이 배경과 같아서 안 보였다**(실측):
+       · `waterway`      line-color `rgb(27,27,29)`  ← 배경 `rgb(12,12,12)`·땅 `#282B36`
+       · `water`         fill-color `rgb(27,27,29)`
+       · `landcover_wood` 불투명도가 **z8 에서 0**, 색은 `rgb(32,32,32)`
+     즉 순서를 고쳐 위로 올려도 **보일 색이 아니었다.** 강은 선 하나로 방향을
+     잡게 해 주는 가장 센 단서다 — 낙동강이 보이면 "강 건너 김해"가 즉시 읽힌다. */
+  for (const l of style.layers) {
+    if (l.id === "water") {
+      l.paint = { ...l.paint, "fill-color": "#0F1A26" };     // 바다·호수: 땅보다 어둡고 **푸르게**
+    } else if (l.id === "waterway") {
+      l.paint = {
+        "line-color": "rgba(104,152,196,0.85)",
+        /* 줌에 따라 굵기를 준다 — 원래는 굵기 지정이 없어 1px 고정이었다 */
+        "line-width": ["interpolate", ["linear"], ["zoom"], 7, 0.6, 10, 1.3, 14, 2.6],
+      };
+      l.minzoom = 5;
+    } else if (l.id === "landcover_wood" || l.id === "landuse_park") {
+      /* ★ `fill-pattern`(스프라이트)을 **뺀다.** 패턴이 없으면 면이 통째로
+         안 그려진다 — 색 하나가 더 믿을 만하다. */
+      l.paint = {
+        "fill-color": "#1C2A22",                              // 산·공원: 초록 기운
+        "fill-opacity": ["interpolate", ["linear"], ["zoom"], 6, 0.5, 10, 0.7, 14, 0.5],
+      };
+      l.minzoom = 5;
+    }
+  }
   return style;
 }
 
@@ -287,6 +343,9 @@ export function MapTab(
      표지 카드는 전부 핀이라(§13.63) 핀이 없는 장소는 눌 곳 자체가 없었고,
      `갈 곳` 에서 날아와도(§13.74) 도착해서 열 것이 없었다. */
   const [openPlace, setOpenPlace] = useState<{ id: string; name: string } | null>(null);
+  /* ★ 지도 위에 떠 있는 것들의 높이를 **잰다**(§13.95). 상수로 박으면 칩이 한 줄
+     늘거나 글꼴이 바뀔 때 조용히 틀어진다 — 그러면 "다 보인다"는 약속이 깨진다. */
+  const [headH, setHeadH] = useState(116);
   const [zoom, setZoom] = useState(5.6);
   const [agg, setAgg] = useState<API.RegionAgg[]>([]);
   const [into, setInto] = useState<string | null>(null);   // 들어온 지역 이름
@@ -411,11 +470,12 @@ export function MapTab(
     const box = unionBox(rows);
     if (!box) return;
     const pad = padPinBox(box);
-    camRef.current?.flyTo({
-      center: [(pad[0] + pad[2]) / 2, (pad[1] + pad[3]) / 2],
-      zoom: zoomForBBox(pad, size.current.w, size.current.h, true),
-      duration: 700,
-    });
+    /* ★ **가려지는 만큼 빼고** 맞춘다(§13.95). 화면 전체로 맞추면 상자의 위아래 끝이
+       상단 칩과 바텀시트 **밑으로 들어간다** — 실제로 맨 아래 지역이 시트에 반쯤
+       가렸다. 줌과 중심은 **한 쌍**이라 같이 옮긴다(`fitView` 주석 참고). */
+    const v = fitView(pad, size.current.w, size.current.h,
+                      { top: headH, bottom: SHEET_BOTTOM + SHEET_PEEK }, true);
+    camRef.current?.flyTo({ center: v.center, zoom: v.zoom, duration: 700 });
   };
 
   const loadAgg = useCallback(async (sc: API.Scope, ct: string | null,
@@ -474,11 +534,10 @@ export function MapTab(
         ? padPinBox([a.bw, a.bs, a.be, a.bn])
         : r.bbox;                                 // 기록이 없는 지역은 예전처럼
 
-      camRef.current?.flyTo({
-        center: [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2],
-        zoom: zoomForBBox(box, size.current.w, size.current.h, !!a),
-        duration: 700,
-      });
+      /* 지역을 눌러 들어갈 때도 같다 — 들어간 자리가 시트에 가리면 누른 보람이 없다 */
+      const v = fitView(box, size.current.w, size.current.h,
+                        { top: headH, bottom: SHEET_BOTTOM + SHEET_PEEK }, !!a);
+      camRef.current?.flyTo({ center: v.center, zoom: v.zoom, duration: 700 });
       return;
     }
     const hits = await mapRef.current
@@ -801,7 +860,8 @@ export function MapTab(
 
   return (
     <View style={st.root}>
-      <View style={st.head}>
+      <View style={st.head}
+            onLayout={(e) => setHeadH(e.nativeEvent.layout.height)}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}
                     contentContainerStyle={st.chipRow}>
           {SCOPES.map((c) => {
@@ -900,21 +960,33 @@ export function MapTab(
               *"여기가 어디냐"* 로 바뀌고, 그때는 **실제 지도**여야 한다.
               → 면을 지웠다 그렸다 하지 않고 **불투명도만** 줌에 맡긴다
                 (레이어를 끼웠다 빼면 앱이 죽는다 — §13.47). */}
-          <Layer id="region-base" type="fill"
+          {/* ★ **배경 지도 위가 아니라 아래에 깐다**(§13.95). 예전에는 맨 위에
+              있어서 전국 줌에서 불투명도 1 로 **강·도로·지명을 통째로 덮었다.**
+              그래서 "어디를 채웠나"는 보였지만 **여기가 어디인지**를 알 수 없었다 —
+              행정경계만 떠 있는 땅덩어리였다.
+              ★ `beforeId="water"` 는 *"이 레이어 **아래**에 넣는다"* 는 뜻이다.
+                배경(background) 바로 위에 들어가므로, 물·숲·강·도로·지명이
+                전부 우리 면 **위로** 올라온다. 우리가 칠하는 것은 땅 색일 뿐이다. */}
+          <Layer id="region-base" type="fill" beforeId="water"
                  paint={{
                    "fill-color": LAND,
+                   /* ★ 이제 **덮지 않으므로** 전국 줌에서도 1 로 둔다 — 땅과 바다를
+                      가르는 것이 이 면의 일이고, 지형은 위에서 그려진다. */
                    "fill-opacity": [
                      "interpolate", ["linear"], ["zoom"],
-                     Z_REGION - 1, 1,      // 전국: 지적도
-                     Z_REGION + 2, 0.15,   // 들어가는 중: 옅어진다
-                     Z_ALL, 0,             // 골목: 실제 지도만
+                     Z_REGION - 1, 1,
+                     Z_REGION + 2, 0.5,
+                     Z_ALL, 0.25,          // 골목에서도 옅게 남긴다 — 경계가 뜬금없지 않게
                    ],
                  } as any} />
           {/* ★ **끼웠다 뺐다 하지 않는다.** 조건부로 렌더하면 줌 단위가 바뀔 때
               형제 위치가 밀려 다음 레이어의 `id` 가 바뀐 것으로 잡히고,
               라이브러리가 `id cannot be changed` 로 **앱을 죽인다**(실제로 죽었다).
               같은 레이어를 두고 **paint 만** 바꾼다 — paint 는 바꿔도 된다. */}
-          <Layer id="region-line" type="line"
+          {/* ★ 경계선은 **지명 바로 아래**에 둔다. 면과 같이 맨 밑으로 내리면
+              도로가 그 위를 지나가 커버리지(채운 곳)가 안 읽히고, 맨 위에 두면
+              지명을 덮는다. 둘 사이가 이 선의 자리다. */}
+          <Layer id="region-line" type="line" beforeId="place_other"
                  paint={{ "line-color": strokeExpr, "line-width": widthExpr }} />
         </GeoJSONSource>
 

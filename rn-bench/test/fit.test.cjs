@@ -51,6 +51,41 @@ ok(smallRegion <= 12.5,
 ok(unionBox([]) === null && unionBox([{ bw: NaN, bs: 1, be: 2, bn: 3 }]) === null,
    "★ 쓸 상자가 없으면 null — 날아가지 않는다(보던 자리를 안 빼앗는다)");
 
+/* ── 가려지는 만큼 빼고 맞추기 (§13.95) ── */
+const { fitView, invMercY } = require("../build-test/fitBox.js");
+const INS = { top: 116, bottom: 182 };          // 상단 칩 두 줄 · 바텀시트(peek)
+
+ok(Math.abs(invMercY(mercY(35.1)) - 35.1) < 1e-9,
+   "★ mercY 의 역함수가 제자리로 돌아온다 — 중심을 옮기려면 되돌릴 수 있어야 한다");
+
+const full = zoomForBBox(padPinBox(box), W, H, true);
+const fit = fitView(padPinBox(box), W, H, INS, true);
+ok(fit.zoom < full,
+   `★ 가려지는 만큼 빼면 **더 물러난다** (${full.toFixed(2)} → ${fit.zoom.toFixed(2)}) — ` +
+   "전체 높이로 맞추면 위아래 끝이 칩과 시트 밑으로 들어간다");
+
+/* 그 줌에서 **보이는 띠**가 상자를 덮는가 */
+const visH = H - INS.top - INS.bottom;
+const coveredVis = visH / 256 / Math.pow(2, fit.zoom);
+ok(coveredVis >= need,
+   `★ 보이는 띠 안에 다 담긴다 (띠가 덮는 폭 ${coveredVis.toFixed(4)} ≥ 필요 ${need.toFixed(4)})`);
+
+/* ★ 중심도 옮겨야 한다 — 시트가 칩보다 두꺼우므로 카메라는 **남쪽**으로 내려간다 */
+/* ★ `padPinBox` 는 **도 단위**로 넓히므로 메르카토르 중앙이 살짝 달라진다 —
+   비교 대상은 **맞출 때 쓴 바로 그 상자**여야 한다(처음엔 패딩 전 상자로 쟀다). */
+const pb = padPinBox(box);
+const mid = invMercY((mercY(pb[1]) + mercY(pb[3])) / 2);
+ok(fit.center[1] < mid,
+   `★ 카메라 중심이 상자 한가운데보다 **남쪽**이다 (${fit.center[1].toFixed(3)} < ${mid.toFixed(3)}) — ` +
+   "줌만 고치고 중심을 그대로 두면 위로 치우친 띠에 안 맞아 더 틀린다");
+ok(Math.abs(fit.center[0] - (pb[0] + pb[2]) / 2) < 1e-9,
+   "좌우는 가리는 것이 없으므로 중심이 그대로다");
+
+/* 위아래가 같으면 중심은 안 움직인다 — 옮기는 것은 **치우침 때문**이다 */
+const even = fitView(padPinBox(box), W, H, { top: 150, bottom: 150 }, true);
+ok(Math.abs(even.center[1] - mid) < 1e-9,
+   "★ 위아래가 같으면 중심은 그대로다 — 무조건 내리는 것이 아니다");
+
 console.log("");
 if (fail) { console.log(`=== 실패 ${fail}건 / 통과 ${pass}건 ===`); process.exit(1); }
 console.log(`=== 전부 통과 (${pass}건) ===`);
