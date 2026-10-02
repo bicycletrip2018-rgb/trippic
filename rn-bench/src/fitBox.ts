@@ -14,11 +14,30 @@ export const mercY = (lat: number) =>
 /* 전국 집계 줌. `MapTab` 의 `Z_REGION` 과 같은 값이어야 한다 */
 export const Z_REGION = 9;
 
+/**
+ * ★ 줌 한 단계가 **몇 픽셀의 세상**인가 — `WORLD_PX = TILE * 2^zoom` (§13.99)
+ *
+ * **256 으로 두고 있었다. 실측하니 512 다.** MapLibre 의 zoom 은 512px 타일 기준이다:
+ *
+ *   위도 35.16 · 폭 402px 에서 재 보니
+ *     z8  실측 249.965 m/px  (256식 499.927 · **512식 249.963**)
+ *     z12 실측  15.623 m/px  (256식  31.245 · **512식  15.623**)
+ *
+ * 그래서 맞춤이 **늘 한 단계 더 조여** 있었다. 패딩(1.6배)이 그걸 반쯤 가려서
+ * 화면에는 담겨 보였고 — **화면에는 담겼지만 보이는 띠에는 안 담겼다**(§13.95 가
+ * 하려던 바로 그것이 안 된 것이다).
+ *
+ * ★ 단위 시험이 **같은 가정을 베껴 써서** 못 잡았다. 코드가 `256` 이면 시험도
+ *   `256` 으로 쟀으니 둘이 사이좋게 틀렸다 — **시험은 코드의 가정이 아니라
+ *   바깥의 사실과 맞춰야 한다.** 그래서 이 숫자는 실측값이고, 주석에 적어 둔다.
+ */
+export const WORLD_TILE = 512;
+
 export function zoomForBBox(b: number[], wPx: number, hPx: number, onPins = false) {
   const lonFrac = Math.max(1e-6, (b[2] - b[0]) / 360);
   const latFrac = Math.max(1e-6, Math.abs(mercY(b[3]) - mercY(b[1])));
-  const zx = Math.log2(wPx / (256 * lonFrac));
-  const zy = Math.log2(hPx / (256 * latFrac));
+  const zx = Math.log2(wPx / (WORLD_TILE * lonFrac));
+  const zy = Math.log2(hPx / (WORLD_TILE * latFrac));
   /* ★ 상한이 **둘**이다. 행정구역 상자로 갈 때는 12.5 에서 멈춘다 —
      그 큰 상자를 다 담으려다 보면 어차피 멀다. 그런데 **핀 상자**로 갈 때는
      내용이 있는 곳이니 더 들어가도 된다. 상호가 z14 부터 켜지므로(§13.60)
@@ -89,8 +108,9 @@ export function fitView(
   const vis = Math.max(80, h - insets.top - insets.bottom);
   const zoom = zoomForBBox(box, w, vis, onPins);
   const cx = (box[0] + box[2]) / 2;
-  /* 픽셀을 메르카토르 단위로 — 세계 전체가 `256 * 2^zoom` px 이다 */
+  /* 픽셀을 메르카토르 단위로 — 세계 전체가 `WORLD_TILE * 2^zoom` px 이다 */
   const shiftSouthPx = (insets.bottom - insets.top) / 2;
-  const my = (mercY(box[1]) + mercY(box[3])) / 2 - shiftSouthPx / (256 * Math.pow(2, zoom));
+  const my = (mercY(box[1]) + mercY(box[3])) / 2
+           - shiftSouthPx / (WORLD_TILE * Math.pow(2, zoom));
   return { center: [cx, invMercY(my)] as [number, number], zoom };
 }

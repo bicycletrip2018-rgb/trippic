@@ -39,6 +39,7 @@ import { dur, ymd } from "../course";
 import { C, CAT } from "../theme";
 import { zoomForBBox, padPinBox, unionBox, fitView } from "../fitBox";
 import { pickNearest, TAP_SLOP, type Cand } from "../tapPick";
+import { metersPerPx, pickScale } from "../scaleBar";
 
 /* ★ 배경 경계는 **DB 에서 뽑았다**(251개, 0.001° 단순화 → 691K).
    §13.47 에서 번들한 프로토타입의 `korea-sgg.json` 은 **코드 체계가 달랐다** —
@@ -374,6 +375,9 @@ export function MapTab(
   /* ★ 지도 위에 떠 있는 것들의 높이를 **잰다**(§13.95). 상수로 박으면 칩이 한 줄
      늘거나 글꼴이 바뀔 때 조용히 틀어진다 — 그러면 "다 보인다"는 약속이 깨진다. */
   const [headH, setHeadH] = useState(116);
+  /* ★ 축척 막대가 쓸 **보고 있는 위도**(§13.99). 메르카토르라 같은 줌이라도
+     위도에 따라 1픽셀이 덮는 거리가 다르다 — 제주와 강원이 다르다. */
+  const [atLat, setAtLat] = useState(36.3);
   const [zoom, setZoom] = useState(5.6);
   const [agg, setAgg] = useState<API.RegionAgg[]>([]);
   const [into, setInto] = useState<string | null>(null);   // 들어온 지역 이름
@@ -988,6 +992,13 @@ export function MapTab(
                 화살표가 옛 방위에 붙어 있다가 툭 튄다. */
              const b = (e as any)?.nativeEvent?.bearing;
              if (typeof b === "number") setBearing(b);
+             /* ★ 축척도 **도중에** 따라간다. 손을 뗄 때까지 옛 값이면 핀치하는
+                내내 `5km` 라고 적힌 채 화면만 좁아진다 — 그 사이 내내 거짓말이다.
+                (방위와 같은 자리다. 여기는 이미 매 프레임 리렌더한다.) */
+             const z2 = (e as any)?.nativeEvent?.zoom;
+             if (typeof z2 === "number") setZoom(z2);
+             const c = (e as any)?.nativeEvent?.center;
+             if (Array.isArray(c) && typeof c[1] === "number") setAtLat(c[1]);
            }}
            onRegionDidChange={(e) => {
              const b = (e as any)?.nativeEvent?.bearing;
@@ -1005,7 +1016,9 @@ export function MapTab(
                 이 값으로 잰다(§13.74). 예전에는 그 탭이 **전국 중심 상수**를
                 쓰면서 화면에는 *"지도에서 보던 자리 기준"* 이라고 적고 있었다. */
              void mapRef.current?.getBounds().then((b) => {
-               if (b) onCenter?.({ lng: (b[0] + b[2]) / 2, lat: (b[1] + b[3]) / 2 });
+               if (!b) return;
+               onCenter?.({ lng: (b[0] + b[2]) / 2, lat: (b[1] + b[3]) / 2 });
+               setAtLat((b[1] + b[3]) / 2);
              }).catch(() => {});
            }}>
         {/* ★ 줌 숫자가 아니라 **담을 범위**로 말한다. `zoom: 5.6` 은 벤치마크 화면에서
@@ -1201,6 +1214,20 @@ export function MapTab(
             : <Text style={[st.locateT, here && { color: C.accent }]}>◎</Text>}
         </Pressable>
       )}
+
+      {/* ★ 축척 막대(§13.97 ②). **왼쪽 아래** — 오른쪽에는 내 위치와 (+) 가 있다.
+          시트를 따라 올라간다(위치 버튼과 같은 기준) — 안 그러면 시트에 가린다.
+          ★ 막대 길이는 **고른 거리에 정확히 맞춘다**. "100px 에 3.7km" 라고 쓰면
+            읽는 사람이 그 길이로 다른 거리를 가늠할 수 없다(§13.99). */}
+      {!!style && !open && !openPlace && (() => {
+        const sc = pickScale(metersPerPx(zoom, atLat));
+        return (
+          <View style={[st.scale, { bottom: SHEET_BOTTOM + Math.min(sheetH, SHEET_HALF) + 14 }]}>
+            <Text style={st.scaleT}>{sc.label}</Text>
+            <View style={[st.scaleBar, { width: sc.px }]} />
+          </View>
+        );
+      })()}
 
       {pickSpace && (
         <SpacePicker
@@ -1474,6 +1501,21 @@ const st = StyleSheet.create({
   fill: { flex: 1 },
   center: { alignItems: "center", justifyContent: "center" },
   /* (+) 는 right:20/bottom:96 에 있다(App). 그 **위로** 올린다. */
+  scale: {
+    position: "absolute", left: 16,   /* bottom 은 시트 높이를 따라간다 */
+    alignItems: "flex-start",
+  },
+  scaleT: {
+    color: C.text, fontSize: 10.5, fontWeight: "600", marginBottom: 2,
+    /* 지도 위 어디서든 읽혀야 한다 — 숲 위·바다 위·도시 위가 다 다르다 */
+    textShadowColor: "rgba(0,0,0,0.9)", textShadowRadius: 3,
+  },
+  scaleBar: {
+    height: 3, borderRadius: 1,
+    backgroundColor: "rgba(255,255,255,0.9)",
+    borderLeftWidth: 1.5, borderRightWidth: 1.5, borderColor: "rgba(255,255,255,0.9)",
+    shadowColor: "#000", shadowOpacity: 0.8, shadowRadius: 2,
+  },
   locate: {
     position: "absolute", right: 22,   /* bottom 은 시트 높이를 따라간다 */
     width: 44, height: 44, borderRadius: 22,

@@ -5,7 +5,7 @@
  *   자리를 비춘다 — 그래서 눈으로는 *"데이터가 없나 보다"* 로 읽힌다.
  *   §13.94 에서 실제로 그렇게 넘어갔다(스페이스 `지도 ›` 가 빈 화면에 떨어졌다).
  */
-const { zoomForBBox, padPinBox, unionBox, Z_REGION } = require("../build-test/fitBox.js");
+const { zoomForBBox, padPinBox, unionBox, Z_REGION, WORLD_TILE } = require("../build-test/fitBox.js");
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log("  OK   " + m); } else { fail++; console.log("  FAIL " + m); } };
@@ -30,15 +30,21 @@ ok(z < 8.5,
 
 /* 담기는지 직접 본다 — 줌 z 에서 화면이 덮는 위도 폭이 상자보다 넓어야 한다 */
 const mercY = (lat) => Math.log(Math.tan(Math.PI/4 + lat*Math.PI/360))/Math.PI/2 + 0.5;
-const covered = (H / 256 / Math.pow(2, z));                 // 메르카토르 단위
+/* ★ **실측 상수로 잰다**(§13.99). 예전에는 코드와 같은 `256` 을 베껴 써서
+   둘이 사이좋게 틀렸다 — 시험은 코드의 가정이 아니라 바깥의 사실과 맞춰야 한다. */
+const covered = (H / WORLD_TILE / Math.pow(2, z));
 const need = Math.abs(mercY(box[3]) - mercY(box[1]));
 ok(covered >= need,
    `★ 그 줌에서 세 곳이 **실제로 화면에 담긴다** (덮는 폭 ${covered.toFixed(4)} ≥ 필요 ${need.toFixed(4)})`);
 
 /* 한 곳뿐일 때는 여전히 바짝 들어간다 — 하한을 푼 것이 이쪽을 망치면 안 된다 */
 const one = zoomForBBox(padPinBox([129.173, 35.167, 129.173, 35.167]), W, H, true);
-ok(one === 16.5,
-   `★ 한 곳뿐이면 상한 16.5 까지 들어간다 (${one}) — 점짜리 상자는 padPinBox 가 막는다`);
+/* ★ 숫자를 못 박지 않는다. 예전에는 `=== 16.5`(상한)였는데, 그건 **256 가정 탓에
+   줌이 한 단계 높아 상한에 부딪혔던 것**이다(§13.99). 고치고 나니 자연값 16.1 이
+   나온다 — 상한은 **달아나지 않게 막는 안전장치**이지 목표값이 아니다.
+   지킬 것은 *"한 곳만 있으면 가게가 보일 만큼 들어간다"* 와 *"상한을 안 넘는다"* 다. */
+ok(one >= 15.5 && one <= 16.5,
+   `★ 한 곳뿐이면 가게가 보일 만큼 들어간다 (${one.toFixed(2)}) — 점짜리 상자는 padPinBox 가 막고, 상한이 달아남을 막는다`);
 
 /* 행정구역 상자는 **하한을 그대로 둔다** — "눌렀으면 집계 줌에 머물지 않는다" */
 const wideRegion = zoomForBBox([126.0, 34.0, 130.0, 38.0], W, H, false);
@@ -66,7 +72,7 @@ ok(fit.zoom < full,
 
 /* 그 줌에서 **보이는 띠**가 상자를 덮는가 */
 const visH = H - INS.top - INS.bottom;
-const coveredVis = visH / 256 / Math.pow(2, fit.zoom);
+const coveredVis = visH / WORLD_TILE / Math.pow(2, fit.zoom);
 ok(coveredVis >= need,
    `★ 보이는 띠 안에 다 담긴다 (띠가 덮는 폭 ${coveredVis.toFixed(4)} ≥ 필요 ${need.toFixed(4)})`);
 
