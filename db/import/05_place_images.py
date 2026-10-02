@@ -20,17 +20,32 @@ def esc(v):
     s = str(v or "").strip()
     return s.replace("\\", "\\\\").replace("\t", " ").replace("\n", " ").replace("\r", " ")
 
+# ★ **평문 http 로 들여오지 않는다**(§13.90). TourAPI 는 같은 이미지를 어떤 건
+#   `http://`, 어떤 건 `https://` 로 준다(실측: 49.2%가 http · 전부 tong.visitkorea.or.kr).
+#   같은 호스트가 https 로도 200 을 주므로 **들어오는 자리에서 한 번 바꾼다** —
+#   여기서 안 바꾸면 DB 를 고쳐 놔도 **다음 적재가 되살린다**(§13.81 에서 같은 실수를 했다).
+# ★ 호스트를 **못 박는다.** 아무 http 나 https 로 바꾸면, https 를 안 하는 서버의
+#   이미지가 조용히 깨진다 — 우리가 확인한 곳만 바꾼다.
+HTTPS_HOSTS = ("tong.visitkorea.or.kr",)
+
+def https(u):
+    if not u or not u.startswith("http://"):
+        return u
+    host = u.split("//", 1)[1].split("/", 1)[0]
+    return "https://" + u[len("http://"):] if host in HTTPS_HOSTS else u
+
 def main():
     local = "--local" in sys.argv
     rows, seen = [], set()
     for line in open(RAW, encoding="utf-8"):
         d = json.loads(line)
         ref = esc(d.get("contentid"))
-        img = esc(d.get("firstimage"))
+        img = https(esc(d.get("firstimage")))
         if not ref or ref in seen or not img:
             continue
         seen.add(ref)
-        rows.append((ref, img, esc(d.get("firstimage2")) or r"\N", esc(d.get("cpyrhtDivCd")) or r"\N"))
+        rows.append((ref, img, https(esc(d.get("firstimage2"))) or r"\N",
+                     esc(d.get("cpyrhtDivCd")) or r"\N"))
     print(f"이미지 있는 장소 {len(rows):,}건")
 
     sql = ["set statement_timeout='30min';", "begin;",

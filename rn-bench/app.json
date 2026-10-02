@@ -11,8 +11,7 @@
       "bundleIdentifier": "app.trippic.bench",
       "infoPlist": {
         "NSAppTransportSecurity": {
-          "NSAllowsLocalNetworking": true,
-          "NSAllowsArbitraryLoads": true
+          "NSAllowsLocalNetworking": true
         },
         "NSPhotoLibraryUsageDescription": "찍으신 사진의 촬영 시각과 위치만 읽어 여행을 자동으로 묶습니다. 사진은 기기 밖으로 나가지 않으며, 올릴 사진은 직접 고르십니다.",
         "NSCameraUsageDescription": "지금 이 자리에서 찍어 올릴 때만 카메라를 엽니다. 이 경로로 찍은 것에만 '현장 인증'이 붙습니다 — 앨범에서 고른 사진에는 붙지 않습니다.",
