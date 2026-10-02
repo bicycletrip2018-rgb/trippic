@@ -41,6 +41,28 @@ export async function ensurePermission() {
   return ML.requestPermissionsAsync();
 }
 
+/**
+ * 그 시각 뒤에 찍은 사진이 **몇 장인가** (§13.93)
+ *
+ * ★ **권한을 묻지 않는다.** `getPermissionsAsync` 만 본다 — 배지 하나 때문에 앱을
+ *   켜자마자 사진 권한 창을 띄우면 안 된다(§13.62: *"누른 그 순간에 묻는다"*).
+ *   허락이 없으면 0 을 돌려주고, 화면은 배지를 안 그린다.
+ * ★ **EXIF 를 안 읽는다.** `getAssetsAsync` 의 개수만 본다 — 1,200장을 다시 읽는 것은
+ *   앱을 켤 때 할 일이 아니다. 여기서 아는 것은 *"더 있다"* 뿐이고,
+ *   **몇 개의 여행이 되는지는 모른다.** 화면은 그래서 숫자 대신 `+` 를 붙인다.
+ */
+export async function newPhotosSince(at: number): Promise<number> {
+  if (!at) return 0;
+  try {
+    const cur = await ML.getPermissionsAsync();
+    if (!cur.granted && cur.status !== "granted") return 0;
+    const page = await ML.getAssetsAsync({
+      first: 1, mediaType: ["photo"], createdAfter: at,
+    });
+    return page.totalCount ?? 0;
+  } catch { return 0; }
+}
+
 /* 좌표가 있는 사진만 판정에 쓸 수 있다. 없는 사진도 목록에는 들어간다 —
    빼 버리면 사용자는 "내 사진이 왜 없지"를 겪는다(§6.5 4단계). */
 export async function scanAlbum(

@@ -25,6 +25,8 @@ import * as API from "./src/api";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./src/config";
 import * as Notifications from "expo-notifications";
 import { TIDY } from "./src/remind";
+import { readPending, type Pending } from "./src/pending";
+import { newPhotosSince } from "./src/album";
 import { C } from "./src/theme";
 import { QualityCalib } from "./src/dev/QualityCalib";
 
@@ -53,6 +55,13 @@ export default function App() {
      그리지 않고, 탭1 의 `공유 스페이스` 스코프를 그 방으로 맞춰 준다 —
      같은 것을 두 곳에서 그리면 언젠가 둘이 갈라진다(§13.37). */
   const [jumpSpace, setJumpSpace] = useState<string | null>(null);
+  /* ★ 남은 일 배지 (§12.27 · §13.93). **RN 에는 배지가 아예 없었다** — 웹은
+     §12.27·§13.83 에서 두 번이나 고쳤는데 이쪽은 한 번도 붙은 적이 없어서,
+     앱이 찾아 놓은 일을 알 길이 `+` 를 눌러 들어가 보는 것과 주 1회 알림뿐이었다.
+     §12.27 이 `정리함` 탭을 접으며 *"그래도 하나 건졌다"* 고 남긴 것이 이것이다.
+     ★ 탭을 새로 만들지 않는다 — §12.27 이 세 번째로 같은 실수를 하고 접은 자리다. */
+  const [pending, setPending] = useState<Pending | null>(null);
+  const [more, setMore] = useState(0);        // 마지막으로 잰 뒤에 새로 찍힌 사진 수
 
   useEffect(() => {
     API.setConfig(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -105,6 +114,30 @@ export default function App() {
     return () => sub.remove();
   }, []);
 
+  /* ★ **앨범을 다시 읽지 않는다.** 배지 하나 때문에 켤 때마다 1,200장의 EXIF 를
+     읽을 수는 없다. 기기에 적어 둔 마지막 셈을 읽고, *"그 뒤에 새 사진이 있는가"* 만
+     싸게 묻는다(개수만, 권한을 묻지 않는다 — 허락이 없으면 0이다).
+     ★ 정리 화면을 닫을 때 다시 읽는다 — 그 안에서 등록했으면 숫자가 줄어 있다. */
+  useEffect(() => {
+    if (reg) return;                          // 열려 있는 동안은 읽을 이유가 없다
+    let live = true;
+    void readPending().then(async (p) => {
+      if (!live) return;
+      setPending(p);
+      setMore(await newPhotosSince(p.at));
+    });
+    return () => { live = false; };
+  }, [reg]);
+
+  /* ★ 배지가 **무엇을 말하는가**:
+       · `3`  — 정리 화면에 카드 3장이 기다린다 (미등록 여행 + 낱장 묶음)
+       · `3+` — 3장은 확실하고, 그 뒤에 찍은 사진이 더 있다. **몇 개가 될지는 모른다**
+       · `•`  — 다 정리했는데 그 뒤에 새 사진이 있다. 숫자를 지어내지 않는다
+     모르는 것을 아는 척하면 §12.27 이 웹에서 찾은 거짓말이 그대로 되살아난다. */
+  const badge = !pending ? null
+    : pending.cards > 0 ? `${pending.cards}${more ? "+" : ""}`
+    : more ? "•" : null;
+
   return (
     <View style={s.root}>
       <StatusBar style="light" />
@@ -133,6 +166,11 @@ export default function App() {
       {tab === "map" && !sheet && sheetH < SHEET_HALF + 40 && (
         <Pressable style={[s.fab, { bottom: SHEET_BOTTOM + Math.min(sheetH, SHEET_HALF) + 12 }]} onPress={() => setAdd(true)}>
           <Text style={s.fabT}>＋</Text>
+          {badge ? (
+            <View style={s.fabBadge}>
+              <Text style={s.fabBadgeT}>{badge}</Text>
+            </View>
+          ) : null}
         </Pressable>
       )}
       {add && (
@@ -161,4 +199,14 @@ const s = StyleSheet.create({
     shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6,
   },
   fabT: { color: C.onAccent, fontSize: 26, fontWeight: "300", marginTop: -2 },
+  /* ★ 파랑 버튼 위에 **파랑 배지**를 올리면 안 보인다. 경고색을 쓰되 빨강은
+     *"잘못됐다"* 로 읽히므로 §13.4 의 `warn` 을 쓴다 — 이건 할 일이지 오류가 아니다. */
+  fabBadge: {
+    position: "absolute", top: -3, right: -3, minWidth: 21, height: 21,
+    borderRadius: 11, paddingHorizontal: 5,
+    backgroundColor: C.warn, alignItems: "center", justifyContent: "center",
+    /* 버튼과 배지가 같은 덩어리로 보이지 않게 바탕색으로 테를 두른다 */
+    borderWidth: 2, borderColor: C.bg,
+  },
+  fabBadgeT: { color: "#1a1206", fontSize: 11, fontWeight: "800" },
 });

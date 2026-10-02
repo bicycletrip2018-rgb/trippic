@@ -49,7 +49,8 @@ git commit
 
 ```bash
 cd rn-bench && npx tsc --noEmit -p tsconfig.json    # ① 타입
-cd rn-bench && npm run test:course                   # ② 단위 (course.ts)
+cd rn-bench && npm run test:course                   # ② 단위 — 하루 코스
+cd rn-bench && npm run test:pending                  # ② 단위 — 남은 일 셈(배지·알림)
 cd prototype && /usr/bin/python3 -m http.server 5173 # ③ UI — 브라우저에서 await uiSmoke()
 ./db/supabase/reset_test_data.sh && ./db/supabase/verify.sh   # ④ DB
 ```

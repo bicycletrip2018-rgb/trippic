@@ -16,6 +16,7 @@ import {
 import { C, CAT } from "./theme";
 import * as API from "./api";
 import { markRegistered, registeredIds } from "./registered";
+import { pendingOf, writePending } from "./pending";
 import {
   startTidy, finishTidy, cancelTidy, secPerStop, sampleCount,
   minutesFrom, SEC_PER_STOP_GUESS,
@@ -93,11 +94,14 @@ export function RegisterFlow({ onClose }: { onClose: () => void }) {
       ...(ng.stops.length ? [ng] : [])];
     setTrips(list);
 
-    /* 남은 일이 곧 알림의 내용이다. 여기 말고는 이 숫자를 아는 곳이 없다. */
+    /* ★ 남은 일을 **한 번만 센다**(§13.93). 예전에는 여기서 알림용으로만 세고
+       그 값을 아무 데도 안 남겼다 — 그래서 지도 위 `+` 는 할 일이 있는지를 몰랐고,
+       RN 에는 배지가 아예 없었다. 이제 같은 셈이 배지와 알림을 **둘 다** 먹인다.
+       세는 곳이 둘이 되는 순간 둘이 갈라지고, 그게 §12.27 이 웹에서 찾은 거짓말이다. */
+    const pend = pendingOf(list);
+    void writePending(pend);
     void syncWeeklyTidy({
-      trips: left.length,
-      stops: left.reduce((n, t) => n + t.stops.length, 0),
-      photos: left.reduce((n, t) => n + t.items.length, 0),
+      trips: pend.trips, stops: pend.stops, photos: pend.photos,
     });
     setBusy(null);
     setStep("trips");
@@ -157,7 +161,16 @@ export function RegisterFlow({ onClose }: { onClose: () => void }) {
     /* ★ **올라간 것이 있을 때만** 표시한다. 전부 실패했는데 등록했다고 적으면
        그 여행이 목록에서 사라져 **되찾을 길이 없어진다.**
        ★ 낱장 묶음은 표시하지 않는다 — 한 번에 다 올리는 묶음이 아니다. */
-    if (trip && !trip.isOrphan && (r?.pins ?? 0) > 0) void markRegistered(trip.id);
+    if (trip && !trip.isOrphan && (r?.pins ?? 0) > 0) {
+      void markRegistered(trip.id);
+      /* ★ **배지가 지금 줄어야 한다**(§12.27). *"등록했는데 숫자가 그대로면
+         거짓말이다"* 가 웹 스모크에 박아 둔 문장이고, 다음 번 `scan()` 까지
+         기다리면 사용자는 이 화면을 닫고 지도에서 **안 줄어든 숫자**를 본다.
+         ★ 목록도 같이 줄인다 — 하나로 세므로 둘이 어긋날 수가 없다. */
+      const rest = trips.filter((t) => t.id !== trip.id);
+      setTrips(rest);
+      void writePending(pendingOf(rest));
+    }
     /* ★ '완료'를 그린 **뒤에** 큐를 민다. 먼저 밀면 이 화면이 그 앞에서 기다린다 —
        나누어 올리는 이유가 사라진다. */
     void Q.start();
