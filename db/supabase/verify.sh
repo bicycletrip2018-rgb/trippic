@@ -62,6 +62,27 @@ begin
   if n = 0 then
     raise notice 'OK   ★ 덩어리를 모르는 곳(백령도)에서는 아무것도 말하지 않는다';
   else raise exception 'FAIL 모르는 곳에서 % 건을 내놨다', n; end if;
+
+  -- ── ★ 검색이 **빠른가** (§13.100) ────────────────────────────────
+  -- 동작 단언으로는 이것을 못 잡는다. `api_search` 는 **매번 타임아웃**이었는데
+  -- 스모크는 내내 초록이었다 — 답이 맞으면 통과하니까. 느려진 것은 **시간으로**만
+  -- 잡힌다. 그리고 46만 행이 있는 **여기서만** 뜻이 있다(로컬 스텁에는 5곳뿐이다).
+  --
+  -- ★ **두 번째(따뜻한) 호출**을 잰다. 첫 호출은 버퍼가 차가워 2초가 넘을 수 있고,
+  --   그걸로 재면 멀쩡한 날에도 깨진다. 고장 났을 때는 **따뜻해도 4.7초**였으므로
+  --   0.5초 문턱이면 열 배 여유를 두고도 그 고장을 잡는다.
+  declare t0 timestamptz; ms numeric;
+  begin
+    perform count(*) from public.api_search(p_q => '해운대', p_limit => 5);  -- 데우기
+    t0 := clock_timestamp();
+    perform count(*) from public.api_search(p_q => '해운대', p_limit => 5);
+    ms := extract(epoch from clock_timestamp() - t0) * 1000;
+    if ms < 500 then
+      raise notice 'OK   ★ 검색이 따뜻할 때 %ms — 두 경우를 한 OR 에 넣으면 여기서 4,700ms 가 된다', round(ms);
+    else
+      raise exception 'FAIL 검색이 %ms 다 — 좌표 유무를 한 식에 넣어 색인을 놓쳤는지 보라(§13.100)', round(ms);
+    end if;
+  end;
 end $$;
 LAND
 echo

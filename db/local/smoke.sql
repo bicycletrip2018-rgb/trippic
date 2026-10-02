@@ -189,6 +189,9 @@ select pg_temp.ok((select count(*) from public.pins where id::text like '7777777
 select pg_temp.ok((select count(*) from public.api_map_places(
     128.0, 34.0, 130.0, 36.0, 'all', null, null, null, null, null, null, null, null, 200)) = 1,
   '★ anon이 api_map_places를 실제로 호출할 수 있다 (비로그인 웹 뷰어)');
+/* ★ 예전에는 `>= 0` 이었다 — **아무것도 재지 않는 단언**이다. 그래서 검색이
+   1년 가까이 매번 타임아웃이었는데도 스모크는 내내 초록이었다(§13.100).
+   *"부르면 터지지 않는다"* 는 *"된다"* 가 아니다. 무엇이 나와야 하는지를 적는다. */
 select pg_temp.ok((select count(*) from public.api_search('해운대', 10)) >= 0,
   'anon이 검색을 호출할 수 있다');
 do $$ begin
@@ -1830,6 +1833,71 @@ select pg_temp.ok(
   not exists (select 1 from public.api_my_spaces()
                where id='5c5c0000-0000-0000-0000-000000000001'),
   '★ 멤버가 아니면 이 방이 목록에 없다 — 숫자는커녕 존재도 안 샌다');
+
+-- ── 062 검색 — **무엇이 나와야 하는지**를 적는다 (§13.100) ───────────
+-- ★ 좌표가 있을 때와 없을 때는 **다른 질의**다(062 가 갈라 썼다). 갈라 둔 것이
+--   도로 합쳐지면 색인을 못 타 다시 타임아웃이 되므로, 두 길을 **따로** 재 둔다.
+\echo ''
+\echo '── 23. 검색 두 길 (062) ──'
+set role authenticated; select pg_temp.login('11111111-1111-1111-1111-111111111111');
+
+/* ★ 단언을 **픽스처로 좁힌다.** 처음엔 `= 2` 처럼 **센 개수**로 썼는데, 실서버에는
+   장소가 **465,914곳**이라 '해운대' 로 찾으면 수십 건이 나와 바로 깨졌다 —
+   §13.92 에서 고쳤던 것과 **같은 실수**다(표 전체를 세는 단언).
+   세는 대신 *"이것이 들어 있는가"* 를 묻는다. 그러면 양쪽에서 같은 뜻이 된다. */
+
+-- ① 좌표 없음 — 앞머리 일치
+select pg_temp.ok(
+  exists (select 1 from public.api_search('해운대 파스타', 10)
+           where kind = 'place' and name = '해운대 파스타'),
+  '★ 좌표가 없으면 앞머리로 찾는다');
+
+-- ② 좌표 없음 — 3자 이상이면 **가운데**도 찾는다
+select pg_temp.ok(
+  exists (select 1 from public.api_search('층 네일샵', 10)
+           where kind = 'place' and name = '3층 네일샵'),
+  '★ 3자 이상이면 이름 가운데도 찾는다 — 앞머리만 보면 "3층 네일샵" 을 영영 못 찾는다');
+
+-- ③ 두 길이 **겹치지 않는다** — 같은 곳이 두 번 나오면 목록이 거짓말을 한다
+select pg_temp.ok(
+  (select count(*) from public.api_search('해운대', 20) where kind = 'place')
+  = (select count(distinct id) from public.api_search('해운대', 20) where kind = 'place'),
+  '★ 같은 장소가 두 번 안 나온다 (앞머리와 부분일치가 겹칠 때)');
+
+-- ④ 좌표 있음 — 반경이 실제로 자른다
+/* ★ 처음엔 `카페` 로 쟀는데, 이 DB 의 해운대 장소들은 전부 **82m 안**에 모여 있어
+   200m 든 5km 든 같은 답이 나왔다 — **반경을 재지 못하는 표본**이었다.
+   제주(약 300km 밖)를 쓰면 반경이 실제로 자르는지가 드러난다. */
+select pg_temp.ok(
+  not exists (select 1 from public.api_search('제주도', 10, 129.8000, 35.1580, 1500)
+               where kind = 'place' and name = '제주도'),
+  '★ 좌표를 주면 반경 밖은 안 나온다 (해운대에서 1.5km 안에 제주도는 없다)');
+select pg_temp.ok(
+  exists (select 1 from public.api_search('제주도', 10, 129.8000, 35.1580, 500000)
+           where kind = 'place' and name = '제주도'),
+  '★ 반경을 넓히면 나온다 — 반경이 장식이 아니다 (500km 면 제주가 들어온다)');
+select pg_temp.ok(
+  exists (select 1 from public.api_search('해운대 파스타', 10, 129.8000, 35.1580, 1500)
+           where kind = 'place' and name = '해운대 파스타'),
+  '반경 안의 것은 그대로 나온다');
+
+-- ⑤ 빈 질의는 아무것도 안 준다 (전체를 훑지 않는다)
+select pg_temp.ok((select count(*) from public.api_search('   ', 10)) = 0,
+  '★ 빈 질의는 0행 — 공백만 넣었다고 전국을 훑으면 안 된다');
+
+-- ⑥ 지역이 먼저 온다 — 화면이 그 순서를 쓴다
+select pg_temp.ok(
+  (select kind from public.api_search('해운대', 10) limit 1) = 'region'
+  or not exists (select 1 from public.api_search('해운대', 10) where kind='region'),
+  '지역이 있으면 맨 앞에 온다');
+
+-- ⑦ 비로그인도 찾는다 (웹 뷰어)
+reset role; set role anon; select pg_temp.login(null);
+select pg_temp.ok(
+  exists (select 1 from public.api_search('해운대 파스타', 10)
+           where kind='place' and name = '해운대 파스타'),
+  '★ 비로그인도 장소를 찾는다 — 검색은 로그인 앞에 있다');
+reset role; set role authenticated;
 
 -- ── 038 초대 링크로 합류 ─────────────────────────────────────────────
 -- ★ §3 이 "초대 수락률이 핵심 지표"라고 적어 뒀는데 수락 경로가 없었다.
