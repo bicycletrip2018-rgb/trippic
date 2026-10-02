@@ -38,7 +38,13 @@ def call(page, start):
                 return json.loads(r.read().decode("utf-8"))
         except Exception as e:
             if t == 3:
-                print(f"  ! 실패: {type(e).__name__}", file=sys.stderr); return None
+                # ★ **이유를 적는다**(§13.88). 예전에는 `URLError` 라고만 찍어서
+                #   막힌 건지, 끊긴 건지, 키가 틀린 건지 알 수가 없었다.
+                #   CI 에서 실패했을 때 로그가 유일한 단서다 — 거기에 이름만 있으면
+                #   한 번 돌리는 데 2분 반이 드는 시험을 몇 번씩 해야 한다.
+                why = getattr(e, "reason", None) or getattr(e, "code", None) or e
+                print(f"  ! 실패: {type(e).__name__}: {str(why)[:160]}", file=sys.stderr)
+                return None
             time.sleep(3 * t)
 
 def main():
