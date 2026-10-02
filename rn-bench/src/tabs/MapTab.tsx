@@ -38,6 +38,7 @@ import { sawCover, openedCover, flushCovers } from "../coverLog";
 import { dur, ymd } from "../course";
 import { C, CAT } from "../theme";
 import { zoomForBBox, padPinBox, unionBox, fitView } from "../fitBox";
+import { pickNearest, TAP_SLOP, type Cand } from "../tapPick";
 
 /* ★ 배경 경계는 **DB 에서 뽑았다**(251개, 0.001° 단순화 → 691K).
    §13.47 에서 번들한 프로토타입의 `korea-sgg.json` 은 **코드 체계가 달랐다** —
@@ -537,7 +538,13 @@ export function MapTab(
      지도를 보려고 매번 작은 버튼을 겨눠야 한다. */
   const onMapPress = async (e: any) => {
     if (Date.now() - cardTapAt.current < 400) return;   // 카드가 방금 열었다
+    /* ★ 이벤트에서 쓸 것은 **await 전에 전부 꺼낸다.** React 의 synthetic event 는
+       **재사용**되므로, `await` 뒤에 `e.nativeEvent` 를 읽으면 그때는 다른 탭의
+       값이거나 비어 있을 수 있다 — 실제로 콘솔이
+       *"This synthetic event is reused for performance reasons"* 로 경고했다.
+       한 번은 맞게 돌아서 더 나쁘다: 간헐적으로만 틀린다. */
     const pt = e?.nativeEvent?.point;
+    const ll = e?.nativeEvent?.lngLat;
     if (!pt) { setOpen(null); return; }
 
     /* ★ 집계 줌에서만 지역 탭을 받는다. 확대된 상태에서도 받으면
@@ -567,23 +574,50 @@ export function MapTab(
       camRef.current?.flyTo({ center: v.center, zoom: v.zoom, duration: 700 });
       return;
     }
+    /* ★ **손가락만큼 여유를 준다**(§13.98). 예전에는 점 **하나**를 찍어야 했다 —
+       반지름 2.5px 짜리를 맞히라는 뜻이었고, 그래서 실제로는 글자를 눌러야만 열렸다.
+       이제 누른 자리 둘레 44pt(= 애플 최소 타깃) 안을 보고 **가장 가까운 것**을 연다.
+       ★ 핀과 상호를 **한 번에** 본다. 예전처럼 핀을 먼저 보고 끝내면, 여유를 준
+         순간 20px 떨어진 내 핀이 2px 옆의 상호를 가로챈다. 고르는 규칙은
+         `tapPick.ts` 한 곳에 있고 — 같은 좌표면 핀이 이긴다(**핀을 앞에 넣는다**). */
+    /* ★ `point` 는 `{x,y}` 가 아니라 **`[x, y]` 튜플**이다(라이브러리 타입).
+       처음에 `pt.x` 로 썼는데 `e` 가 `any` 라 **타입 검사가 못 잡았고**, 상자가
+       통째로 `NaN` 이 되어 아무것도 안 잡혔을 것이다. 조용히 틀리는 모양이다. */
+    const box: [[number, number], [number, number]] = [
+      [pt[0] - TAP_SLOP, pt[1] - TAP_SLOP],
+      [pt[0] + TAP_SLOP, pt[1] + TAP_SLOP],
+    ];
     const hits = await mapRef.current
-      ?.queryRenderedFeatures(pt, { layers: ["pin-dot"] })
+      ?.queryRenderedFeatures(box, { layers: ["pin-dot", "place-label", "place-dot"] })
       .catch(() => [] as any[]);
-    const id = hits?.[0]?.properties?.pinId;
-    if (id) { setOpen(pins.find((p) => p.id === id) ?? null); return; }
-    setOpen(null);
 
-    /* ★ **핀을 먼저 본다.** 내 기록이 배경에 묻히면 안 된다 — 상호를 핀보다 뒤에
-       그리는 것과 같은 이유다(위 `placeFc` 주석). 핀을 노린 손가락을 상호가
-       가로채면, 지도에서 내 기록을 여는 일이 제일 어려워진다.
-       ★ 이름 레이어도 같이 받는다. 점은 반지름 2.5px 라 손가락으로 겨눌 수 없다 —
-         실제로 누르게 되는 것은 **글자**다. */
-    const ph = await mapRef.current
-      ?.queryRenderedFeatures(pt, { layers: ["place-label", "place-dot"] })
-      .catch(() => [] as any[]);
-    const pid = ph?.[0]?.properties?.id;
-    if (pid) setOpenPlace({ id: pid, name: ph?.[0]?.properties?.name ?? "장소" });
+    const cands: Cand[] = [];
+    const seen = new Set<string>();
+    for (const f of hits ?? []) {
+      const c = (f.geometry as any)?.coordinates;
+      if (!Array.isArray(c)) continue;
+      const pid = f.properties?.pinId;
+      const plid = f.properties?.id;
+      /* 점과 글자가 같은 장소를 두 번 낸다 — 한 번만 센다 */
+      const key = pid ? `n:${pid}` : plid ? `p:${plid}` : null;
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      if (pid) cands.push({ kind: "pin", id: pid, lng: c[0], lat: c[1] });
+      else if (plid) cands.push({ kind: "place", id: plid, lng: c[0], lat: c[1] });
+    }
+    /* ★ 핀을 **앞에** 둔다 — 동점(그 장소에 꽂은 내 기록)에서 핀이 이기게 하는
+       규칙이 여기 한 줄로만 표현된다. */
+    cands.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "pin" ? -1 : 1));
+
+    const hit = pickNearest(cands, ll?.[0] ?? 0, ll?.[1] ?? 0);
+    if (!hit) { setOpen(null); return; }
+    if (hit.kind === "pin") {
+      setOpen(pins.find((p) => p.id === hit.id) ?? null);
+      return;
+    }
+    setOpen(null);
+    const nm = (hits ?? []).find((f) => f.properties?.id === hit.id)?.properties?.name;
+    setOpenPlace({ id: hit.id, name: nm ?? "장소" });
   };
 
   const changeScope = (v: API.Scope) => {
@@ -1059,12 +1093,25 @@ export function MapTab(
         ))}
 
         <GeoJSONSource id="places" data={placeFc as any}>
+          {/* ★ **누를 수 있는 크기**로 키운다(§13.98 · §13.97 의 ①).
+              반지름이 **2.5px** 이었다 — 46만 곳을 그려 놓고 손가락으로는 한 곳도
+              겨눌 수가 없었다. §13.91 에서 *"실제로 누르게 되는 것은 글자"* 라고
+              적고 넘어갔는데, 그건 처방이 아니라 **증상을 적어 둔 것**이다.
+              ★ 테두리를 준다. 색만으로는 숲 위·바다 위·도시 위에서 다 다르게 보인다 —
+                §13.95 로 배경이 풍부해진 만큼 점도 그 위에서 버텨야 한다.
+              ★ 색은 카테고리다(`CAT`) — 네이버가 작은 장소를 색점으로 그리는 것과
+                같은 층이다. 그림 아이콘은 그보다 윗층이고, 그건 자산이 있어야 한다. */}
           <Layer id="place-dot" type="circle"
                  paint={{
-                   "circle-radius": 2.5,
+                   "circle-radius": [
+                     "interpolate", ["linear"], ["zoom"],
+                     Z_PLACES, 4.5, 16, 6, 18, 7.5,
+                   ],
                    "circle-color": ["get", "color"] as any,
-                   "circle-opacity": 0.85,
-                 }} />
+                   "circle-opacity": 0.95,
+                   "circle-stroke-width": 1.2,
+                   "circle-stroke-color": "rgba(10,12,16,0.85)",
+                 } as any} />
           <Layer id="place-label" type="symbol"
                  layout={{
                    "text-field": ["get", "name"] as any,
