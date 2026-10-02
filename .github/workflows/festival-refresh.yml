@@ -70,7 +70,16 @@ jobs:
           set -euo pipefail
           FROM="${FROM:-$(date -u +%Y)0101}"
           echo "▶ $FROM 부터"
-          python3 db/import/06_festival_dates.py --from "$FROM"
+          # ★ **한 번 더 시도한다**(§13.88). 첫 실행이 러너에서 `URLError` 로 죽었고
+          #   두 번째는 44초에 끝났다 — 일시적 오류다. 스크립트 안에도 3회 재시도가
+          #   있지만 그 셋이 한꺼번에 실패하는 창이 있었다.
+          #   ★ 주 1회짜리 일에서 한 번 놓치면 **일주일이 묵는다.** 그게 이 작업이
+          #     막으려던 바로 그것이라, 2분 기다렸다 한 번 더 거는 값이 싸다.
+          python3 db/import/06_festival_dates.py --from "$FROM" || {
+            echo "::warning::첫 시도 실패 — 2분 뒤 한 번 더"
+            sleep 120
+            python3 db/import/06_festival_dates.py --from "$FROM"
+          }
 
       - name: 결과 요약
         if: steps.has.outputs.ok == 'yes'
