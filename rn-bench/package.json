@@ -40,7 +40,8 @@
     "test:savenote": "tsc src/saveNote.ts --ignoreConfig --outDir build-test --module commonjs --target es2020 --skipLibCheck && node test/saveNote.test.cjs",
     "test:mapsaves": "tsc src/mapSaves.ts --ignoreConfig --outDir build-test --module commonjs --target es2020 --skipLibCheck && node test/mapSaves.test.cjs",
     "test:zoom": "tsc src/zoomStep.ts --ignoreConfig --outDir build-test --module commonjs --target es2020 --skipLibCheck && node test/zoom.test.cjs",
-    "test:singleflight": "tsc src/singleFlight.ts --ignoreConfig --outDir build-test --module commonjs --target es2020 --skipLibCheck && node test/singleflight.test.cjs"
+    "test:singleflight": "tsc src/singleFlight.ts --ignoreConfig --outDir build-test --module commonjs --target es2020 --skipLibCheck && node test/singleflight.test.cjs",
+    "test:invite": "tsc src/inviteBase.ts --ignoreConfig --outDir build-test --module commonjs --target es2020 --skipLibCheck && node test/invite.test.cjs"
   },
   "private": true
 }

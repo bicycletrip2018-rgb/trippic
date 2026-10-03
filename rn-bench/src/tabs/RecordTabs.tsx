@@ -12,6 +12,8 @@ import {
 import * as API from "../api";
 import { C, CAT } from "../theme";
 import { DayCourse } from "../DayCourse";
+import { INVITE_BASE } from "../config";
+import { inviteWhy } from "../inviteBase";
 import { openSocial } from "../oauth";
 import { isAvailable as appleAvailable, signInWithApple } from "../appleAuth";
 import { Alert } from "react-native";
@@ -81,9 +83,16 @@ export function NewsTab() {
 /* ★ 카카오톡으로 보내는 데 **카카오 SDK 도 로그인도 필요 없다**(§13.43).
    코어 `Share` 가 OS 공유 시트를 열고, 카카오톡은 거기 이미 들어 있다.
    ★ 받는 사람이 열 주소는 **웹**이어야 한다 — 앱을 안 깐 사람도 열어야 초대가 초대다. */
-const INVITE_BASE = "http://localhost:3012/index.html";   // 배포되면 실제 주소로 바꾼다
-
+/* ★ 주소는 **설정으로 옮겼다**(§13.113). 여기 박아 두면 배포할 때 코드를 고쳐야 하고,
+   실제로 **`http://localhost:3012`** 가 박힌 채 남아 있었다 — 친구에게 보낸 링크가
+   내 컴퓨터 주소였고, 앱은 그걸 **아무 말 없이 보냈다.** */
 export async function shareInvite(spaceId: string) {
+  /* ★ **보내기 전에 막는다.** 죽은 링크를 보내면 받는 사람이 우리 앱을 한 번
+     믿었다가 실망하고, 보낸 사람은 그 사실조차 모른다 — 실패를 **보낸 뒤에**
+     알게 되는 구조는 고칠 수가 없다. */
+  const why = inviteWhy(INVITE_BASE);
+  if (why) return { ok: false, why };
+
   const r = await API.inviteLink(spaceId, INVITE_BASE);
   if (!r.ok) return { ok: false, why: r.why };
   try {
