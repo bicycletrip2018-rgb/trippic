@@ -15,10 +15,12 @@
  *   거기에 또 하나를 얹으면 둘이 같은 바닥을 다툰다(§13.66 에서 겪었다).
  *   그리고 표지 사진 + 사진 격자는 시트 높이에 들어가지 않는다.
  *
- * ★ **`저장` 이 없다.** 웹 시안의 alert 는 `· 저장` 을 약속하지만
- *   `place_saves` 표가 없다 — 눌러도 아무 일이 안 나고, 다시 열어도 저장한 표시가
- *   없다. `PinSheet` 에 적어 둔 규칙 그대로다: *"죽은 버튼을 만들지 않는다."*
- *   표가 생기는 날 같이 붙인다.
+ * ★ **`저장` 이 생겼다**(§13.102). §13.91 에서 *"담을 표가 없다"* 며 안 만들었는데
+ *   **그 판단의 근거가 틀렸다** — 표는 `reactions` 라는 이름으로 처음부터 있었고
+ *   `reaction_target` 에 `place` 까지 들어 있었다. 진짜로 비어 있던 것은
+ *   **집계가 장소 저장을 안 세는 것**이었고, 063 이 그 한 줄을 채웠다.
+ *   (죽은 버튼을 안 만든 판단은 맞았다. 이름으로 표를 못 찾은 것을 *"없다"* 로
+ *    적은 것이 틀렸다.)
  *
  * ★ **거리를 다시 재지 않는다.** 부른 쪽이 알고 있으면(`distM`) 그걸 그대로 쓴다 —
  *   서버가 준 숫자와 앱이 센 숫자가 갈라지면 같은 곳을 두 화면이 다르게 말한다(§13.34).
@@ -60,14 +62,22 @@ export function PlaceSheet(
   /* 격자를 눌렀을 때 **그 자리에서** 크게 본다. 사진 뷰어를 따로 만들지 않는다 —
      지금 필요한 것은 *"작아서 안 보인다"* 를 푸는 일이지 새 화면이 아니다. */
   const [big, setBig] = useState<API.PlaceMedia | null>(null);
+  /* ★ 저장은 **눌리자마자** 바뀐다(낙관적). 서버를 기다리면 한 박자 늦게 켜져
+     *"안 눌렸나"* 하고 두 번 누르게 된다. 실패하면 되돌리고 이유를 적는다. */
+  const [saved, setSaved] = useState<boolean | null>(null);
+  const [saveN, setSaveN] = useState(0);
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [saveWhy, setSaveWhy] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
     setD(null); setShots(null); setFail(false); setBroken(false); setBig(null);
+    setSaved(null); setSaveN(0); setSaveWhy(null);
     void API.placeDetail(placeId).then((r) => {
       if (!alive) return;
       if (!r) { setFail(true); return; }
       setD(r);
+      setSaved(r.saved); setSaveN(r.save_count);
     });
     /* ★ 사진은 **따로** 받는다. 상세 한 줄이 사진 스물넷을 기다릴 이유가 없다 —
        이름과 주소가 먼저 뜨고 격자가 뒤따라 채워지는 편이 빠르게 느껴진다. */
@@ -185,6 +195,33 @@ export function PlaceSheet(
             </>
           ) : null}
 
+          {/* ── 저장 (§13.97 ④) ──
+              ★ 숫자를 **같이** 보여 준다. 별 하나만 있으면 *"나만 눌렀나"* 를 알 수 없다.
+              ★ 0 일 때는 숫자를 안 적는다 — `저장 0` 은 *"아무도 안 했다"* 를
+                굳이 광고하는 것이고, 첫 사람에게 그건 말릴 이유가 된다. */}
+          <Pressable
+            style={[s.save, saved && s.saveOn]}
+            disabled={saveBusy}
+            onPress={() => {
+              const next = !saved;
+              setSaved(next); setSaveN((n) => n + (next ? 1 : -1));
+              setSaveWhy(null); setSaveBusy(true);
+              void API.savePlace(d.place_id, next).then((r) => {
+                setSaveBusy(false);
+                if (r.ok) return;
+                /* ★ 되돌린다. 화면만 켜 두면 다시 열었을 때 꺼져 있어
+                   *"저장이 안 된다"* 가 아니라 *"앱이 이상하다"* 가 된다. */
+                setSaved(!next); setSaveN((n) => n + (next ? -1 : 1));
+                setSaveWhy(r.why === "need_login"
+                  ? "로그인 뒤에 저장할 수 있습니다" : "저장하지 못했습니다");
+              });
+            }}>
+            <Text style={[s.saveT, saved && s.saveTOn]}>
+              {saved ? "★ 저장함" : "☆ 저장"}{saveN > 0 ? `  ${saveN}` : ""}
+            </Text>
+          </Pressable>
+          {saveWhy ? <Text style={s.saveWhy}>{saveWhy}</Text> : null}
+
           {/* ── 지도에서 보기 ── */}
           {onOpenMap ? (
             <Pressable style={s.cta}
@@ -257,6 +294,15 @@ const s = StyleSheet.create({
   cell: { width: "31.5%" },
   cellImg: { width: "100%", aspectRatio: 1, borderRadius: 9, backgroundColor: C.surface },
   cellBy: { color: C.muted, fontSize: 10, marginTop: 3 },
+  save: {
+    marginTop: 16, borderRadius: 12, paddingVertical: 11,
+    alignItems: "center", borderWidth: 1, borderColor: C.line,
+    backgroundColor: C.surface,
+  },
+  saveOn: { borderColor: C.warn, backgroundColor: "rgba(224,169,74,0.14)" },
+  saveT: { color: C.muted, fontSize: 14, fontWeight: "600" },
+  saveTOn: { color: C.warn },
+  saveWhy: { color: C.warn, fontSize: 12, marginTop: 6, textAlign: "center" },
   cta: {
     marginTop: 26, backgroundColor: C.accent, borderRadius: 12,
     paddingVertical: 13, alignItems: "center",

@@ -98,6 +98,11 @@ export const select = <T>(table: string, query: string) =>
 /* ★ `Prefer: return=representation` 이 없으면 PostgREST 는 **본문 없이 201** 을 준다.
    그러면 방금 만든 행의 id 를 못 받고, 사진을 어느 핀에 붙일지 알 수 없다.
    (웹판은 이 헤더를 갖고 있었는데 이식하면서 빠졌다 — 등록 플로우가 여기서 멈춘다) */
+/** 지운다. PostgREST 는 질의로 대상을 고르므로 **where 가 비면 표를 비운다** —
+    부르는 쪽이 반드시 조건을 붙인다. */
+export const del = <T>(path: string) =>
+  req<T>(`/rest/v1/${path}`, { method: "DELETE" });
+
 export const insert = <T>(table: string, row: any) =>
   req<T>(`/rest/v1/${table}`, {
     method: "POST", body: JSON.stringify(row),
@@ -643,7 +648,37 @@ export type PlaceDetail = {
   pin_count: number; visitor_count: number; media_count: number;
   /* ★ 상세에서 가장 값나가는 두 칸 — **내가 가 봤는가.** 나만 보기도 센다 */
   mine_count: number; mine_last_at: string | null;
+  /** 이 장소를 저장한 **사람 수** (핀 저장과 다른 칸이다 — §13.102) */
+  save_count: number;
+  /** **내가** 저장했는가. RLS 가 내 것만 주므로 남의 저장 여부는 안 온다 */
+  saved: boolean;
 };
+
+/**
+ * 장소를 **저장한다 / 푼다** (§13.97 ④ · §13.102)
+ *
+ * ★ RPC 를 따로 안 만든다. `reactions` 에 **RLS 가 이미 서 있다**
+ *   (`reactions_write`: `user_id = auth.uid()`) — 서버 함수를 하나 더 두면
+ *   같은 규칙을 두 곳에서 지키게 된다(§13.37 이 금한 것).
+ * ★ 같은 저장을 두 번 넣으면 **기본키가 막는다**(409). 그건 고장이 아니라
+ *   *"이미 저장돼 있다"* 는 뜻이므로 성공으로 친다.
+ */
+export async function savePlace(placeId: string, on: boolean) {
+  await ensureSession();
+  const uid = SESSION.user_id;
+  if (!uid) return { ok: false, why: "need_login" };
+  if (on) {
+    const r = await insert("reactions", {
+      user_id: uid, target_type: "place", target_id: placeId, kind: "save",
+    });
+    /* 23505 = unique_violation. 이미 저장돼 있다 = 원하던 상태다 */
+    return r.ok || /23505|duplicate key/.test(r.error ?? "")
+      ? { ok: true } : { ok: false, why: r.error };
+  }
+  const r = await del(
+    `reactions?target_type=eq.place&target_id=eq.${placeId}&kind=eq.save&user_id=eq.${uid}`);
+  return r.ok ? { ok: true } : { ok: false, why: r.error };
+}
 
 export const placeDetail = (id: string) =>
   rpc<PlaceDetail[]>("api_place_detail", { p_place: id })

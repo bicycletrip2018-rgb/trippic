@@ -1899,6 +1899,83 @@ select pg_temp.ok(
   '★ 비로그인도 장소를 찾는다 — 검색은 로그인 앞에 있다');
 reset role; set role authenticated;
 
+-- ── 063 저장 — 표는 처음부터 있었다 (§13.102) ────────────────────────
+-- ★ §13.91·§13.92 에서 *"담을 표가 없다"* 며 버튼을 안 만들었는데 **틀렸다.**
+--   표 이름이 `reactions` 였고(`kind = like|save`), `reaction_target` 에 `place`
+--   까지 있었다. 진짜로 빠져 있던 것은 **집계가 장소 저장을 안 세는 것**이었다.
+\echo ''
+\echo '── 24. 장소 저장 (063) ──'
+reset role;   -- 픽스처는 세션 사용자로
+insert into public.places (id, name, category, geom, source, is_ground) values
+  ('aaaaaaaa-0000-0000-0000-0000000000f1', '저장시험 전망대', 'nature',
+   ST_SetSRID(ST_MakePoint(129.8100, 35.1600), 4326), 'public_data', true);
+set role authenticated; select pg_temp.login('11111111-1111-1111-1111-111111111111');
+
+create or replace function pg_temp.sv(c text) returns text language sql as $$
+  select case c
+    when 'count' then (select save_count::text from public.api_place_detail('aaaaaaaa-0000-0000-0000-0000000000f1'))
+    when 'mine'  then (select saved::text      from public.api_place_detail('aaaaaaaa-0000-0000-0000-0000000000f1'))
+    when 'pin'   then (select coalesce(save_count::text,'0') from public.place_stats where place_id='aaaaaaaa-0000-0000-0000-0000000000f1')
+  end $$;
+
+select pg_temp.ok(pg_temp.sv('count') = '0' and pg_temp.sv('mine') = 'false',
+  '처음에는 0 · 안 저장함');
+
+-- ① 저장한다 (클라이언트가 직접 쓴다 — RLS 가 내 것만 허락한다)
+insert into public.reactions (user_id, target_type, target_id, kind)
+values (auth.uid(), 'place', 'aaaaaaaa-0000-0000-0000-0000000000f1', 'save');
+select pg_temp.ok(pg_temp.sv('count') = '1' and pg_temp.sv('mine') = 'true',
+  '★ 저장하면 숫자가 오르고 내 버튼이 켜진다 — 예전에는 트리거가 돌아도 **아무 숫자도 안 움직였다**');
+
+-- ② 같은 것을 두 번 저장할 수 없다 (기본키가 규칙이다)
+do $$ begin
+  begin
+    insert into public.reactions (user_id, target_type, target_id, kind)
+    values (auth.uid(), 'place', 'aaaaaaaa-0000-0000-0000-0000000000f1', 'save');
+    raise exception 'FAIL  ★ 같은 저장이 두 번 들어갔다';
+  exception when unique_violation then
+    raise notice '  OK   ★ 두 번 저장해도 한 번이다 — 기본키가 그 규칙이라 코드가 새도 막힌다';
+  end;
+end $$;
+
+-- ③ **핀 저장과 다른 칸이다** — 섞으면 "무엇이 저장됐나"를 되물을 수 없다
+select pg_temp.ok(pg_temp.sv('pin') = '0',
+  '★ 장소 저장은 `save_count`(핀 저장)를 건드리지 않는다 — 둘은 다른 뜻이다');
+
+-- ④ 남의 저장은 **내 버튼을 켜지 않는다** (숫자는 오른다)
+reset role;
+insert into public.reactions (user_id, target_type, target_id, kind)
+values ('22222222-2222-2222-2222-222222222222', 'place',
+        'aaaaaaaa-0000-0000-0000-0000000000f1', 'save');
+set role authenticated; select pg_temp.login('11111111-1111-1111-1111-111111111111');
+select pg_temp.ok(pg_temp.sv('count') = '2',
+  '★ 남이 저장하면 **숫자는** 오른다 (몇 명이 저장했나)');
+select pg_temp.login('33333333-3333-3333-3333-333333333333');
+select pg_temp.ok(pg_temp.sv('count') = '2' and pg_temp.sv('mine') = 'false',
+  '★ 남남에게는 숫자만 보이고 버튼은 꺼져 있다 — 누가 저장했는지는 안 샌다');
+select pg_temp.ok((select count(*) from public.reactions) = 0,
+  '★ 남의 저장은 **한 줄도 안 읽힌다** (RLS reactions_read_own)');
+
+-- ⑤ 남의 이름으로는 못 쓴다
+do $$ begin
+  begin
+    insert into public.reactions (user_id, target_type, target_id, kind)
+    values ('11111111-1111-1111-1111-111111111111', 'place',
+            'aaaaaaaa-0000-0000-0000-0000000000f1', 'save');
+    raise exception 'FAIL  ★ 남의 이름으로 저장했다';
+  exception when insufficient_privilege then
+    raise notice '  OK   ★ 남의 이름으로는 저장할 수 없다';
+  end;
+end $$;
+
+-- ⑥ 풀면 되돌아간다
+select pg_temp.login('11111111-1111-1111-1111-111111111111');
+delete from public.reactions
+ where target_type='place' and target_id='aaaaaaaa-0000-0000-0000-0000000000f1'
+   and kind='save';
+select pg_temp.ok(pg_temp.sv('count') = '1' and pg_temp.sv('mine') = 'false',
+  '★ 풀면 숫자가 내려가고 버튼이 꺼진다 — 되돌릴 수 없는 토글은 만들지 않는다');
+
 -- ── 038 초대 링크로 합류 ─────────────────────────────────────────────
 -- ★ §3 이 "초대 수락률이 핵심 지표"라고 적어 뒀는데 수락 경로가 없었다.
 --   여기서 지킬 것: ① 무엇을 수락하는지 먼저 보인다 ② 여러 링크가 한 계정에 쌓인다
