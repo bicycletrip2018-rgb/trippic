@@ -38,6 +38,7 @@ import { sawCover, openedCover, researchedCover, flushCovers } from "../coverLog
 import { MapSearch, type Hit } from "../MapSearch";
 import { dur, ymd } from "../course";
 import { C, CAT } from "../theme";
+import { splitMapSaves } from "../mapSaves";
 import { zoomForBBox, padPinBox, unionBox, fitView } from "../fitBox";
 import { pickNearest, TAP_SLOP, type Cand } from "../tapPick";
 import { metersPerPx, pickScale } from "../scaleBar";
@@ -346,6 +347,10 @@ export function MapTab(
   const [space, setSpace] = useState<string | null>(null);
   const [spaces, setSpaces] = useState<API.SpaceRow[]>([]);
   const [places, setPlaces] = useState<API.PlaceRow[]>([]);
+  /* ★ 저장한 곳(§13.104). **뷰포트를 따라다니지 않는다** — 상호(`places`)는
+     *"이 화면에 뭐가 있나"* 라 화면이 바뀌면 다시 묻지만, 저장은 *"내가 어디를
+     찜해 뒀나"* 라 화면과 무관하다. 한 번 읽고, 저장이 바뀔 때만 다시 읽는다. */
+  const [saves, setSaves] = useState<API.SaveRow[]>([]);
   const [here, setHere] = useState<Here | null>(null);
   const [locating, setLocating] = useState(false);
   const [snap, setSnap] = useState<Snap>("peek");
@@ -490,6 +495,17 @@ export function MapTab(
     setPlaces(r.data ?? []);
   }, []);
 
+  /* 저장한 곳. ★ **좌표를 안 준다** — 지도는 거리를 모르고, 여기서 새로 재면
+     `갈 곳` 카드와 같은 곳을 다르게 말한다(§13.34). 서버는 거리를 비워서 준다.
+     ★ 한도를 넉넉히 준다. 묶음(24개)은 *"최근에 찜한 것"* 을 보여 주는 자리지만
+       지도는 **빠진 것이 보이면 안 된다** — 한 곳이라도 안 그려지면 사용자는
+       *"저장이 안 됐나"* 로 읽는다. */
+  const loadSaves = useCallback(async () => {
+    const r = await API.mySaves(null, null, 500);
+    if (r.ok) setSaves(r.data ?? []);
+  }, []);
+  useEffect(() => { void loadSaves(); }, [loadSaves]);
+
   /* ★ 집계는 **스코프가 바뀔 때만** 읽는다. 화면을 밀어도 다시 읽지 않는다 —
      숫자가 뷰포트와 무관하니 다시 읽을 이유가 없다(042). */
   /* ★ **늦게 온 답이 새 답을 덮는다.** 열자마자 `mine_all` 집계가 나가는데, 그
@@ -623,7 +639,12 @@ export function MapTab(
       [pt[0] + TAP_SLOP, pt[1] + TAP_SLOP],
     ];
     const hits = await mapRef.current
-      ?.queryRenderedFeatures(box, { layers: ["pin-dot", "place-label", "place-dot"] })
+      ?.queryRenderedFeatures(box, {
+        /* ★ 저장한 곳도 **눌리는 것**이어야 한다(§13.104). 안 넣으면 금테 점이
+           화면에만 있고 손가락에는 없는, §13.98 이 고친 그 상태로 되돌아간다. */
+        layers: ["pin-dot", "place-label", "place-dot",
+                 "save-dot", "save-label"],
+      })
       .catch(() => [] as any[]);
 
     const cands: Cand[] = [];
@@ -794,10 +815,41 @@ export function MapTab(
     for (const c of cards) sawCover(c.place_id);
   }, [cards.map((c) => c.id).join(",")]);
 
-  /* 상호. ★ 핀보다 **뒤에** 그린다 — 내 기록이 배경에 묻히면 안 된다. */
+  /* ── 저장한 곳 (§13.104) ────────────────────────────────────────
+     ★ **갈래 칩을 탄다.** `맛집` 만 보겠다고 눌렀는데 찜해 둔 산이 남아 있으면
+       필터가 약속을 깬다 — 지도 전체에 **규칙 하나**다(§13.37).
+       반면 `나의 여행`·`모두의 지도` 같은 **스코프 칩은 안 탄다**: 그건 *"누구의
+       기록인가"* 를 고르는 것이고, 저장은 기록이 아니라 **가 보려는 표시**다.
+     ★ 줌과 무관하게 **늘 그린다.** 상호는 14 줌 아래에서 걷어내는데(46만 곳이라
+       안 걷으면 화면이 죽는다), 저장한 곳은 많아야 수십 개이고 무엇보다
+       **멀리서 볼 때 가장 쓸모 있다** — 찜한 것들이 어디에 몰려 있는지가 곧
+       다음 여행의 윤곽이다. */
+  /* ★ 가르는 규칙은 `splitMapSaves` 한 곳에 있다 — 두 규칙(갈래 타기 · 상호에서
+     빼기)이 **서로 맞물려** 있어서, JSX 에 흩어 두면 한쪽을 고칠 때 다른 쪽이
+     따라 틀어지는 것을 아무도 못 본다. */
+  const { saveShown, placeShown } = splitMapSaves(places, saves, cat);
+  const saveFc: GeoJSON.FeatureCollection = {
+    type: "FeatureCollection",
+    features: saveShown.map((q) => ({
+      type: "Feature" as const,
+      geometry: { type: "Point" as const, coordinates: [q.lng, q.lat] },
+      properties: {
+        id: q.place_id,
+        name: q.name,
+        color: CAT[q.category ?? "etc"]?.c ?? CAT.etc.c,
+        /* 문 닫은 곳은 **흐리게** 둔다. 지우지는 않는다 — 내가 찜한 것이
+           말없이 사라지면 *"저장이 풀렸나"* 가 된다(051 이 장소를 안 지우는 것과 같다). */
+        closed: q.closed ? 1 : 0,
+      },
+    })),
+  };
+
+  /* 상호. ★ 핀보다 **뒤에** 그린다 — 내 기록이 배경에 묻히면 안 된다.
+     ★ 저장한 곳은 **뺀다.** 같은 자리에 점이 둘이면 테두리가 겹쳐 지저분해지고,
+       무엇보다 **위에 뭐가 그려졌는지**를 코드만 보고 알 수 없게 된다. */
   const placeFc: GeoJSON.FeatureCollection = {
     type: "FeatureCollection",
-    features: places.map((q) => ({
+    features: placeShown.map((q) => ({
       type: "Feature" as const,
       geometry: { type: "Point" as const, coordinates: [q.lng, q.lat] },
       properties: {
@@ -1188,6 +1240,58 @@ export function MapTab(
                  }} />
         </GeoJSONSource>
 
+        {/* ── 저장한 곳 (§13.104) ──
+            ★ **상호 위, 핀 아래**다. 핀은 *"내가 다녀왔다"* 는 증거고 저장은
+              *"가 보려 한다"* 는 표시다 — 증거가 위다(§13.69 가 핀을 맨 위에 둔 이유).
+            ★ 금색은 상세의 `★ 저장함` 버튼과 **같은 색**(`C.warn`)이다. 같은 뜻에
+              다른 색을 쓰면 두 화면이 같은 것을 말하는지 알 수 없다. */}
+        <GeoJSONSource id="saves" data={saveFc as any}>
+          {/* 둘레의 옅은 금빛. ★ 멀리서 **눈에 걸리라고** 둔다 — 전국을 보는 줌에서
+              점 하나는 배경에 묻히는데, 저장한 곳은 그 줌에서 가장 쓸모 있다. */}
+          <Layer id="save-halo" type="circle"
+                 paint={{
+                   "circle-radius": [
+                     "interpolate", ["linear"], ["zoom"], 5, 7, 12, 9, 18, 13,
+                   ],
+                   "circle-color": C.warn,
+                   "circle-opacity": 0.22,
+                 } as any} />
+          {/* 가운데는 **갈래 색** 그대로다 — 금테만 있고 속이 금색이면
+              *"무엇을 저장했는지"* 가 사라진다. 저장은 덧붙은 표시지 갈래를 덮지 않는다. */}
+          <Layer id="save-dot" type="circle"
+                 paint={{
+                   "circle-radius": [
+                     "interpolate", ["linear"], ["zoom"], 5, 4, 12, 5.5, 18, 8,
+                   ],
+                   "circle-color": ["get", "color"] as any,
+                   /* 문 닫은 곳은 흐리게. **지우지는 않는다** — 찜해 둔 것이 말없이
+                      사라지면 "저장이 풀렸나"가 된다(051 이 장소를 안 지우는 것과 같다). */
+                   "circle-opacity": ["case", ["==", ["get", "closed"], 1], 0.45, 1] as any,
+                   "circle-stroke-width": 2,
+                   "circle-stroke-color": C.warn,
+                   "circle-stroke-opacity":
+                     ["case", ["==", ["get", "closed"], 1], 0.45, 1] as any,
+                 } as any} />
+          {/* 이름은 **상호와 같은 줌부터**(14). 전국 줌에서 이름을 다 적으면
+              찜한 것들이 어디 몰려 있는지를 보려는 그 화면이 글자로 덮인다. */}
+          <Layer id="save-label" type="symbol" minzoom={Z_PLACES}
+                 layout={{
+                   "text-field": ["get", "name"] as any,
+                   "text-font": ["Noto Sans Regular"],
+                   "text-size": 11,
+                   "text-offset": [0, 1],
+                   "text-anchor": "top",
+                   "text-max-width": 7,
+                   "text-padding": 3,
+                 } as any}
+                 paint={{
+                   /* 글자도 금빛이다 — 점만 금색이고 이름이 흰색이면 **다른 것**으로 읽힌다 */
+                   "text-color": C.warn,
+                   "text-halo-color": "rgba(0,0,0,0.85)",
+                   "text-halo-width": 1.2,
+                 }} />
+        </GeoJSONSource>
+
         <GeoJSONSource id="pins" data={(region ? EMPTY_FC : fc) as any}>
           {/* ★ 밀린 핀을 **지우지 않는다.** 지우면 "이 동네엔 이것뿐"으로 읽히는데
               사실이 아니다 — 작고 흐리게 두면 *"더 있다, 확대하면 보인다"* 가 된다.
@@ -1311,7 +1415,10 @@ export function MapTab(
       {openPlace && (
         <PlaceSheet
           placeId={openPlace.id} fallbackName={openPlace.name}
-          onClose={() => setOpenPlace(null)} />
+          onClose={() => setOpenPlace(null)}
+          /* ★ 저장을 켜면 **지도에 바로 금테가 생긴다**(§13.104). 닫을 때 읽게 하면
+             시트를 연 채로 누른 사람에게는 아무 일도 안 난 것처럼 보인다. */
+          onSaveChanged={() => { void loadSaves(); }} />
       )}
     </View>
   );

@@ -33,8 +33,11 @@ const BUDGETS: [number, string][] = [[120, "2시간"], [240, "반나절"], [480,
 const THIS_MONTH = new Date().getMonth() + 1;
 
 /* 서버 행에 **화면에서만 쓰는 한 줄**을 더한 모양. 서버 타입을 더럽히지 않는다. */
-type FeedItem = Omit<API.FeedRow, "rail"> & {
+type FeedItem = Omit<API.FeedRow, "rail" | "dist_m"> & {
   rail: API.FeedRow["rail"] | "again" | "sponsor" | "saved"; note?: string;
+  /* ★ 거리를 **모를 수 있다.** 지도에서 온 줄은 좌표를 안 주고 묻기 때문이다
+     (§13.104). 모르면 그 줄을 비운다 — 0 을 적으면 읽는 사람이 그걸 믿는다. */
+  dist_m: number | null;
   /* ★ `다시 가보기` 는 **장소에 안 붙은 핀**도 담는다 — `RevisitRow.place_id` 가
      null 일 수 있어 거기서는 합성 키를 쓴다(아래). 그 카드로 장소 상세를 열면
      서버가 *"그런 장소 없다"* 로 빈 화면을 준다. 그런 카드는 지도로 보낸다. */
@@ -429,7 +432,9 @@ function Card(
       </Text>
       {/* ★ 거리는 **서버가 준 것**을 쓴다. 앱에서 다시 재면 같은 곳을 두 화면이
           다르게 말한다(§13.34 에서 합쳐 놓은 것을 되돌리지 않는다). */}
-      <Text style={s.dist}>{courseDriveText(x.dist_m)}</Text>
+      {x.dist_m == null
+        ? null
+        : <Text style={s.dist}>{courseDriveText(x.dist_m)}</Text>}
       {/* ★ 출처를 적는 것이 §12.25-A 의 **절반**이다. */}
       {x.note
         /* 내 기록 줄은 출처가 아니라 **언제 갔는지**를 말한다 */

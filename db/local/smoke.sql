@@ -2094,6 +2094,20 @@ select pg_temp.ok((select count(*) from public.api_my_saves(129.0500, 35.0500, 2
 select pg_temp.ok((select count(*) from public.api_my_saves(129.0500, 35.0500, 0)) = 1,
   '0 을 줘도 한 줄은 온다 — 0 이 "무제한"이 되지 않게');
 
+-- ⑨-A ★ **좌표 없이도 부른다** — 지도가 그렇게 부른다(§13.104)
+--   지도는 거리를 모르고, 거기서 새로 재면 `갈 곳` 카드와 같은 곳을 다르게 말한다(§13.34).
+--   이때 거리는 **비어서** 오고 목록과 순서는 그대로여야 한다.
+select pg_temp.ok(
+  (select count(*) from public.api_my_saves(null, null, 24)) = 3,
+  '★ 좌표 없이 불러도 목록은 그대로다 — 지도는 거리를 모른 채 묻는다');
+select pg_temp.ok(
+  (select bool_and(dist_m is null) from public.api_my_saves(null, null, 24)),
+  '★ 좌표가 없으면 거리는 **비어서** 온다 — 0 을 주면 "바로 여기"라는 거짓말이 된다');
+select pg_temp.ok(
+  (select name from public.api_my_saves(null, null, 24) limit 1)
+    = (select name from saves limit 1),
+  '좌표 유무가 **순서를 바꾸지 않는다** — 저장한 차례지 거리순이 아니니까');
+
 -- ⑩ 풀면 **목록에서 사라진다** (저장 버튼과 목록이 같은 사실을 본다)
 delete from public.reactions
  where target_type='place' and target_id='aaaaaaaa-0000-0000-0000-0000000000f3' and kind='save';

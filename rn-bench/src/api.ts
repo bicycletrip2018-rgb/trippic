@@ -603,7 +603,9 @@ export const myRevisit = (lat: number, lng: number, limit = 12) =>
      는 표시라 내가 찜한 차례가 곧 그 사람의 생각 순서다. 거리는 카드가 적는다. */
 export type SaveRow = {
   place_id: string; name: string; category: string;
-  lng: number; lat: number; dist_m: number;
+  lng: number; lat: number;
+  /** 좌표를 안 주고 불렀으면 **비어 있다** — 지도가 그렇게 부른다 */
+  dist_m: number | null;
   saved_at: string;
   image_url: string | null; thumb_url: string | null; region_name: string | null;
   event_start: string | null; event_end: string | null;
@@ -613,8 +615,13 @@ export type SaveRow = {
   closed: boolean;
 };
 
-export const mySaves = (lat: number, lng: number, limit = 24) =>
-  rpc<SaveRow[]>("api_my_saves", { p_lng: lng, p_lat: lat, p_limit: limit });
+/* ★ 좌표는 **없어도 된다.** 지도는 거리를 모르고(§13.103 의 상세 시트와 같은 이유),
+   거기서 새로 재면 `갈 곳` 카드와 같은 곳을 다르게 말한다(§13.34). 좌표를 안 주면
+   `dist_m` 이 비어서 오고, 순서는 저장한 차례라 **거리와 무관하게 그대로**다.
+   모르면 비우는 것이 지어내는 것보다 낫다. */
+export const mySaves = (
+  lat: number | null, lng: number | null, limit = 24,
+) => rpc<SaveRow[]>("api_my_saves", { p_lng: lng, p_lat: lat, p_limit: limit });
 
 /* ── 장소의 표지 (§12.25-A · §13.74) ─────────────────────────────────
    ★ **표지를 여기서 고르지 않는다.** 029 가 `place_stats.top_media_id` 에
