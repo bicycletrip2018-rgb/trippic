@@ -167,7 +167,10 @@ export default function App() {
                    onOpenMap={(p) => { setJumpTo(p); setTab("map"); }} />
         </View>
       )}
-      {ready && tab === "news" && <NewsTab />}
+      {/* ★ 소식도 **지도에서 보던 자리**를 받는다(§13.115) — 거리를 적으려면
+          기준점이 필요하고, 그 기준은 `갈 곳` 과 **같은 것**이어야 한다.
+          둘이 다른 자리를 기준 삼으면 같은 곳을 다르게 말한다(§13.34). */}
+      {ready && tab === "news" && <NewsTab center={center} />}
       {ready && tab === "my" && <MyTab authTick={authTick} />}
       {/* ★ (+) 는 지도 위에 둔다 — §12.27: 등록은 별도 탭이 아니라
           "보고 있는 지도에 한 점을 더하는 일"이다. 탭을 새로 만들면 탭1과 겹친다. */}

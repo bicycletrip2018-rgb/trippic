@@ -40,6 +40,7 @@ import { dur, ymd } from "../course";
 import { C, CAT } from "../theme";
 import { splitMapSaves } from "../mapSaves";
 import { shareInvite } from "../invite";
+import { regionInfo } from "../regionName";
 import { zoomIn, zoomOut, canZoomIn, canZoomOut } from "../zoomStep";
 import { zoomForBBox, padPinBox, unionBox, fitView } from "../fitBox";
 import { pickNearest, TAP_SLOP, type Cand } from "../tapPick";
@@ -566,7 +567,7 @@ export function MapTab(
    */
   const pickHit = async (h: Hit) => {
     if (h.kind === "region") {
-      const r = NAME[h.id];
+      const r = regionInfo(h.id);
       const box = r?.bbox;
       if (!box) return;
       const v = fitView(box, size.current.w, size.current.h,
@@ -645,7 +646,7 @@ export function MapTab(
         ?.queryRenderedFeatures(pt, { layers: ["region-base"] })
         .catch(() => [] as any[]);
       const code = hit?.[0]?.properties?.code;
-      const r = code ? NAME[code] : null;
+      const r = regionInfo(code);
       if (!r?.bbox) return;                       // 바다를 눌렀다 — 아무 일도 안 한다
       setInto(r.name);
 
@@ -984,21 +985,19 @@ export function MapTab(
   })();
 
   /* 라벨. ★ 0곳까지 숫자를 찍으면 화면이 0으로 덮인다 — 서버가 아예 안 준다(042).
-     많은 곳부터 40개만 — 전국 화면에 251개를 겹쳐 찍으면 읽을 수 없는 죽이 된다. */
-  const NAME: Record<string, { name: string; cx: number; cy: number; bbox: number[] }> = (() => {
-    const m: any = {};
-    for (const f of SGG.features as any[]) {
-      m[f.properties.code] = {
-        name: f.properties.name, cx: f.properties.cx, cy: f.properties.cy,
-        bbox: f.properties.bbox as number[],
-      };
-    }
-    return m;
-  })();
+     많은 곳부터 40개만 — 전국 화면에 251개를 겹쳐 찍으면 읽을 수 없는 죽이 된다.
+     ★ 표는 `regionName.ts` 가 **한 번만** 만든다(§13.115). 예전에는 여기서
+       렌더마다 251개를 다시 세웠고, `소식` 도 같은 표가 필요해졌다. */
+  /* ★ **표에 없는 코드는 버린다**(§13.115). 예전에는 `...NAME[code]` 를 그대로 폈는데,
+     없는 코드면 `cx`·`cy` 가 **undefined** 가 되어 마커가 좌표 없이 그려졌다 —
+     타입이 *"항상 있다"* 고 되어 있어서 **타입 검사가 못 잡던 자리**다.
+     표를 떼어 내자 `null` 이 될 수 있다고 적히면서 비로소 드러났다. */
   const labels = region
     ? [...agg].sort((a, b) => b.n - a.n).slice(0, 40)
-        .map((a) => ({ ...a, ...NAME[a.region_code] }))
-        .filter((a) => Number.isFinite(a.cx) && Number.isFinite(a.cy))
+        .flatMap((a) => {
+          const r = regionInfo(a.region_code);
+          return r ? [{ ...a, ...r }] : [];
+        })
     : [];
 
   const catLabel = cat ? `${CAT[cat]?.k ?? cat} · ` : "";

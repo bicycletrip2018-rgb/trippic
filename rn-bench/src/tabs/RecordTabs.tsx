@@ -12,6 +12,9 @@ import {
 import * as API from "../api";
 import { C, CAT } from "../theme";
 import { DayCourse } from "../DayCourse";
+import { regionName } from "../regionName";
+import { distM } from "../course";
+import { useSkeletonPulse, SkelBar, SkelBox } from "../Skeleton";
 import { openSocial } from "../oauth";
 import { isAvailable as appleAvailable, signInWithApple } from "../appleAuth";
 import { Alert } from "react-native";
@@ -21,6 +24,9 @@ type Pin = {
   places?: { name?: string | null } | null;
   id: string; category: string; visited_at: string; memo: string | null;
   verification: string; is_public: boolean; comment_count: number;
+  /* ★ `PIN_COLS` 가 **처음부터 받아 오던 것**인데 타입에 없어서 아무도 못 썼다
+     (§13.115). 소식이 *"어디인지"* 를 못 적던 이유가 여기였다. */
+  region_code: string | null;
   geom: { coordinates: [number, number] } | null;
   media: { url: string; is_main: boolean; sort_order: number }[];
 };
@@ -45,32 +51,86 @@ function useRecords(which: "public" | "mine") {
 }
 
 /* ── 탭3 소식 ─────────────────────────────────────────────────
-   ★ 포스트마다 **왜 내게 보이는지** 한 줄이 붙는다. 팔로우 그래프를 만들지 않으므로
-     *"팔로우해서"* 라고 말할 수 없고, 그게 오히려 규칙이 됐다 —
-     한 줄로 설명할 수 없으면 띄우지 않는다. */
-export function NewsTab() {
+   ★ **먼저 틀린 것을 바로잡는다**(§13.115). 머리글이 *"포스트마다 **왜 내게 보이는지**
+     적혀 있습니다"* 라고 약속했는데, 실제로 적힌 것은 `공개된 기록입니다 · 맛집`
+     하나였다. 그건 **이유가 아니라 같은 말 반복**이다 — 공개된 기록을 모아 놓고
+     "공개된 기록이라서 보입니다"라고 적은 것이다.
+
+   ★ 왜 그랬나 — **이유가 하나뿐이기 때문**이다. 팔로우 그래프가 없으니 고르는
+     규칙이 *"전국에서 최근 순"* 하나고, 포스트마다 다른 이유가 있을 수가 없다.
+     → **규칙은 머리글에서 한 번 말한다.** 줄마다 같은 말을 반복하면 그 자리가
+       아깝고, 무엇보다 **고르고 있다는 착각**을 준다.
+
+   ★ 그 자리에 들어갈 것은 따로 있었다: **어디인지.** `region_code` 와
+     `places(name)` 과 `geom` 을 **처음부터 받아 오면서 하나도 안 쓰고 있었다.**
+     읽는 사람이 묻는 것은 *"왜 보이나"* 가 아니라 *"어디야, 나한테서 얼마나 머나"* 다. */
+export function NewsTab({ center }: { center?: { lat: number; lng: number } }) {
   const { rows, busy, load } = useRecords("public");
+  const first = busy && !rows.length;
+
   return (
     <ScrollView style={s.wrap} contentContainerStyle={{ paddingBottom: 110 }}
       refreshControl={<RefreshControl refreshing={busy} onRefresh={load} tintColor={C.muted} />}>
       <Text style={s.h1}>소식</Text>
-      <Text style={s.sub}>포스트마다 <Text style={s.b}>왜 내게 보이는지</Text> 적혀 있습니다.
-        {" "}댓글은 없습니다 — 운영할 수 있는 만큼만 엽니다.</Text>
+      {/* ★ **고르는 규칙을 그대로 적는다.** 아직 고르지 않는다는 것까지 적는 게
+          맞다 — 숨기면 다음에 고르기 시작할 때 사용자는 그 변화를 모른다. */}
+      <Text style={s.sub}>
+        전국에서 <Text style={s.b}>최근에 공개된 순서</Text>입니다 — 아직 고르지 않습니다.
+        {" "}거리는 <Text style={s.b}>지도에서 보던 자리</Text> 기준입니다.
+        {" "}댓글은 없습니다 — 운영할 수 있는 만큼만 엽니다.
+      </Text>
+
+      {/* 기다리는 동안 — §13.110 과 같은 이유로 동그라미 대신 뼈대 */}
+      {first && <><PostSkeleton /><PostSkeleton /></>}
+
       {!rows.length && !busy && <Empty text="아직 공개된 기록이 없습니다." />}
-      {rows.map((p) => (
-        <View key={p.id} style={s.post}>
-          <Text style={s.why}>공개된 기록입니다 · {(CAT[p.category] ?? CAT.etc).k}</Text>
-          {cover(p) ? <Image source={{ uri: cover(p) }} style={s.postImg} /> : null}
-          <View style={s.postFoot}>
-            <Text style={s.date}>{ymd(p.visited_at)}</Text>
-            <Text style={[s.badge, p.verification === "live" && s.badgeLive]}>
-              {p.verification === "live" ? "현장 인증" : "사진 정보"}
+      {rows.map((p) => {
+        const place = p.places?.name ?? undefined;
+        const rname = regionName(p.region_code);
+        const c = p.geom?.coordinates;
+        /* ★ 거리는 **둘 다 있을 때만** 적는다. 하나라도 없으면 그 조각을 비운다 —
+             `0km` 는 "바로 여기"라는 거짓말이다(§13.32 가 체류에서 정한 것과 같다). */
+        const km = center && Array.isArray(c)
+          ? distM({ lng: c[0], lat: c[1] }, center) / 1000
+          : null;
+        /* 어디인지를 **왼쪽부터** 적는다: 장소 · 지역 · 거리. 셋 다 없으면 갈래만. */
+        const parts = [
+          place,
+          rname,
+          km == null ? null : km < 1 ? "여기서 1km 안" : `여기서 ${Math.round(km)}km`,
+        ].filter(Boolean) as string[];
+        return (
+          <View key={p.id} style={s.post}>
+            <Text style={s.why}>
+              {parts.length ? parts.join(" · ") : (CAT[p.category] ?? CAT.etc).k}
             </Text>
+            {cover(p) ? <Image source={{ uri: cover(p) }} style={s.postImg} /> : null}
+            <View style={s.postFoot}>
+              <Text style={s.date}>{ymd(p.visited_at)} · {(CAT[p.category] ?? CAT.etc).k}</Text>
+              <Text style={[s.badge, p.verification === "live" && s.badgeLive]}>
+                {p.verification === "live" ? "현장 인증" : "사진 정보"}
+              </Text>
+            </View>
+            {p.memo ? <Text style={s.memo}>{p.memo}</Text> : null}
           </View>
-          {p.memo ? <Text style={s.memo}>{p.memo}</Text> : null}
-        </View>
-      ))}
+        );
+      })}
     </ScrollView>
+  );
+}
+
+/* 포스트가 들어올 자리 — 치수는 `s.post`·`s.postImg` 에서 그대로 빌린다 */
+function PostSkeleton() {
+  const o = useSkeletonPulse();
+  return (
+    <View style={s.post} pointerEvents="none">
+      <SkelBar pulse={o} style={{ width: 170, marginBottom: 10 }} />
+      <SkelBox pulse={o} style={{ width: "100%", height: 200, borderRadius: 12 }} />
+      <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 10 }}>
+        <SkelBar pulse={o} style={{ width: 96, height: 9 }} />
+        <SkelBar pulse={o} style={{ width: 54, height: 9 }} />
+      </View>
+    </View>
   );
 }
 
