@@ -39,6 +39,7 @@ import { MapSearch, type Hit } from "../MapSearch";
 import { dur, ymd } from "../course";
 import { C, CAT } from "../theme";
 import { splitMapSaves } from "../mapSaves";
+import { zoomIn, zoomOut, canZoomIn, canZoomOut } from "../zoomStep";
 import { zoomForBBox, padPinBox, unionBox, fitView } from "../fitBox";
 import { pickNearest, TAP_SLOP, type Cand } from "../tapPick";
 import { metersPerPx, pickScale } from "../scaleBar";
@@ -392,6 +393,13 @@ export function MapTab(
   const [agg, setAgg] = useState<API.RegionAgg[]>([]);
   const [into, setInto] = useState<string | null>(null);   // 들어온 지역 이름
   const camRef = useRef<CameraRef>(null);
+  /* ★ **연타를 삼키지 않는다**(§13.105). `zoom` 은 지도가 움직이면서 알려 주는
+     값이라 **한 박자 늦는다.** + 를 빠르게 세 번 누르면 세 번 다 같은 옛 값에서
+     출발해 **한 단계밖에 안 간다** — 두 번은 씹힌 것처럼 보인다.
+     → 날아가는 중에는 **마지막으로 노린 곳**에서 다음 단계를 센다. 움직임이 끝나면
+       비운다(`onRegionDidChange`) — 그 뒤에 핀치로 옮겼을 수 있으니 옛 목표를
+       붙들고 있으면 안 된다. */
+  const zoomTarget = useRef<number | null>(null);
   const size = useRef({ w: 402, h: 700 });
   /* ★ 장소 상세도 (+) 를 감춰야 한다. 전면 화면이라 안 감추면 (+) 가 **상세
      위에** 떠서 닫기 버튼 옆에 엉뚱한 버튼이 하나 더 있는 모양이 된다. */
@@ -1096,6 +1104,7 @@ export function MapTab(
              if (Array.isArray(c) && typeof c[1] === "number") setAtLat(c[1]);
            }}
            onRegionDidChange={(e) => {
+             zoomTarget.current = null;   // 다 왔다 — 다음 눌림은 실제 줌에서 센다
              const b = (e as any)?.nativeEvent?.bearing;
              if (typeof b === "number") setBearing(b);
              const z = (e as any)?.nativeEvent?.zoom;
@@ -1350,6 +1359,54 @@ export function MapTab(
                  }} />
         </GeoJSONSource>
       </Map>
+      )}
+
+      {/* ── 줌 버튼 (§13.97 ⑤ · §13.105) ──
+          ★ 근거를 분명히 해 둔다. *"한 손 조작에 좋다"* 는 여전히 **추측**이다 —
+            한 손으로 쓰는 사람이 얼마나 되는지 우리는 안 세어 봤다.
+            추측이 아닌 것은 둘이다: ① **축소에는 한 손 길이 아예 없다**(핀치든
+            두손가락탭이든 손가락이 둘이다) ② **핀치는 겨냥이 안 된다** — 이 세션에서
+            길거리 줌에서 전국으로 나가려다 전국을 지나쳐 500km 까지 갔다.
+          ★ **내 위치 위**에 둔다. 오른쪽 기둥은 아래부터 `(+)` · 내 위치 · 줌이다 —
+            자주 쓰는 것이 엄지에 가깝다.
+          ★ 둘을 **한 덩어리**로 묶는다. 동그라미 두 개를 더 띄우면 오른쪽 가장자리가
+            버튼 네 개로 어수선해진다.
+          ★ 끝에 닿으면 **흐려진다**. 눌러도 아무 일 없는 버튼을 멀쩡한 얼굴로
+            두지 않는다(§13.67 의 *"죽은 버튼"*). */}
+      {!open && !openPlace && !!style && sheetH < SHEET_HALF + 40 && (
+        <View style={[st.zoom,
+                      { bottom: SHEET_BOTTOM + Math.min(sheetH, SHEET_HALF) + 118 }]}>
+          <Pressable
+            style={st.zoomBtn}
+            disabled={!canZoomIn(zoom)}
+            onPress={() => {
+              /* ★ **어디서 셀지와 어떻게 보일지를 가른다.** 흐림(`disabled`)은
+                 화면에 보이는 `zoom` 으로 판단하고, 다음 단계는 **노린 곳**에서
+                 센다 — ref 를 그리기에 쓰면 바뀌어도 다시 그려지지 않는다. */
+              const from = zoomTarget.current ?? zoom;
+              const to = zoomIn(from);
+              zoomTarget.current = to;
+              camRef.current?.zoomTo(to, { duration: 220 });
+            }}>
+            <Text style={[st.zoomT, !canZoomIn(zoom) && st.zoomOff]}>
+              +
+            </Text>
+          </Pressable>
+          <View style={st.zoomLine} />
+          <Pressable
+            style={st.zoomBtn}
+            disabled={!canZoomOut(zoom)}
+            onPress={() => {
+              const from = zoomTarget.current ?? zoom;
+              const to = zoomOut(from);
+              zoomTarget.current = to;
+              camRef.current?.zoomTo(to, { duration: 220 });
+            }}>
+            <Text style={[st.zoomT, !canZoomOut(zoom) && st.zoomOff]}>
+              −
+            </Text>
+          </Pressable>
+        </View>
       )}
 
       {/* ★ 내 위치 버튼. `(+)` 위에 둔다 — `(+)` 는 App 이 지도 위에 띄우므로
@@ -1675,6 +1732,20 @@ const st = StyleSheet.create({
     borderWidth: 1, borderColor: C.line,
   },
   locateT: { color: C.text, fontSize: 20, lineHeight: 24 },
+  /* 줌 버튼 — 내 위치와 **같은 폭·같은 바탕**이다. 오른쪽 기둥이 한 줄로 보여야 한다 */
+  zoom: {
+    position: "absolute", right: 22,   /* bottom 은 시트 높이를 따라간다 */
+    width: 44, borderRadius: 14, overflow: "hidden",
+    backgroundColor: "rgba(22,24,31,0.92)",
+    borderWidth: 1, borderColor: C.line,
+  },
+  /* ★ 44pt 는 애플 최소 타깃이다. 둘을 붙여 88pt 기둥이 된다 */
+  zoomBtn: { width: 42, height: 42, alignItems: "center", justifyContent: "center" },
+  zoomT: { color: C.text, fontSize: 22, lineHeight: 26, fontWeight: "300" },
+  /* 끝에 닿았다 — 글자만 흐려진다. 버튼을 **지우지는 않는다**: 사라지면 아래 버튼이
+     위로 올라와 방금 누르던 자리가 바뀐다 */
+  zoomOff: { color: C.muted, opacity: 0.35 },
+  zoomLine: { height: 1, backgroundColor: C.line },
   /* 표지 카드 — 사진이 주인공이라 테두리는 얇게, 배경은 거의 안 보이게 */
   card: { alignItems: "center", width: 96 },
   cardImg: {
