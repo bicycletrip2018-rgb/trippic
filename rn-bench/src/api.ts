@@ -10,6 +10,7 @@
  */
 import * as FileSystem from "expo-file-system/legacy";
 import { measurePhoto } from "./photoQuality";
+import { singleFlight } from "./singleFlight";
 
 export const CFG = {
   url: "",        // app.json extra 또는 아래 setConfig 로 주입
@@ -73,16 +74,48 @@ function headers(): Record<string, string> {
   return h;
 }
 
-export const STATE = { calls: 0, fails: 0, lastError: null as string | null };
+export const STATE = {
+  calls: 0, fails: 0, lastError: null as string | null,
+  /** 401 을 받고 토큰을 갈아 끼운 횟수 — 검증에서 "정말 갱신을 거쳤나"를 본다 */
+  refreshed: 0,
+};
+
+/* ── 갱신을 **한 번만** 한다 (§13.106) ─────────────────────────────
+   ★ 지도를 열면 핀·상호·저장·집계가 **동시에** 나간다. 토큰이 만료돼 있으면
+     넷이 한꺼번에 401 을 받는데, 각자 갱신하면 네 번 갱신을 부른다. 그냥 낭비가
+     아니라 **망가진다**: Supabase 는 `refresh_token` 을 **한 번 쓰면 바꿔 준다.**
+     첫 갱신이 옛 표를 무효로 만들어, 뒤따르는 셋은 이미 죽은 표로 물어보고
+     실패한다 — 운이 나쁘면 세션 자체가 끊긴다.
+   → 날아가고 있는 갱신이 있으면 **그 약속을 같이 기다린다.** */
+const refreshOnce = singleFlight(async () => {
+  const ok = await refreshSession();
+  if (ok) STATE.refreshed++;
+  return ok;
+});
 
 type R<T> = { ok: boolean; via: "server" | "local" | "off"; data: T | null; error?: string };
 
-async function req<T>(path: string, init?: RequestInit): Promise<R<T>> {
+async function req<T>(path: string, init?: RequestInit, retried = false): Promise<R<T>> {
   if (!isOn()) return { ok: false, via: "off", data: null };
   STATE.calls++;
   try {
     const r = await fetch(`${CFG.url}${path}`,
       { ...init, headers: { ...headers(), ...(init?.headers as any) } });
+    /* ★ **토큰이 만료되면 갈아 끼우고 다시 묻는다**(§13.106).
+       액세스 토큰은 한 시간이면 죽는다. `refreshSession()` 은 **처음부터 있었는데**
+       `ensureSession()` 만 불렀고, 그건 **앱을 켤 때와 쓰기 직전**에만 돈다 —
+       읽기(`rpc`·`select`)는 아무도 갱신하지 않았다. 그래서 앱을 한 시간쯤 열어 두면
+       지도·피드가 전부 401 이 되고 **다시 켜기 전까지 안 돌아왔다**(§13.105 에서 잡았다).
+       ★ **한 번만** 다시 묻는다(`retried`). 갱신이 실패했는데 계속 되물으면
+         못 고치는 오류로 무한히 왕복한다.
+       ★ **내 토큰으로 보냈을 때만** 뜻이 있다. 토큰이 없으면 anon 키로 보낸 것이고,
+         그 401 은 갱신으로 고쳐질 일이 아니다(키나 정책 문제다).
+       ★ 갱신이 실패해도 **계정을 새로 만들지 않는다.** 익명 계정은 되찾을 길이
+         없어서, 조용히 갈아 끼우면 그때까지의 기록이 **영영 고아**가 된다
+         (`ensureSession` 이 같은 이유로 버리기 전에 갱신을 먼저 한다). */
+    if (r.status === 401 && !retried && SESSION.access_token) {
+      if (await refreshOnce()) return req<T>(path, init, true);
+    }
     if (!r.ok) throw new Error(`${path} ${r.status} ${(await r.text()).slice(0, 120)}`);
     /* ★ **본문이 없을 수 있다.** PostgREST 는 `Prefer: return=representation` 이
        없는 DELETE·PATCH 에 **204 No Content** 를 준다 — 빈 몸통이다. 그때

@@ -71,6 +71,11 @@ type Unit = "region" | "top" | "all";
 const unitOf = (z: number): Unit => (z < Z_REGION ? "region" : z < Z_ALL ? "top" : "all");
 const isRegionZoom = (z: number) => z < Z_REGION;
 
+/* ★ 실패한 뒤 다시 묻기까지. 너무 짧으면 끊긴 망을 두드리기만 하고, 너무 길면
+   *"잠시 뒤"* 가 아니다. 토큰 만료는 `req()` 가 안에서 갈아 끼우므로(§13.106)
+   여기까지 오는 것은 대개 **망**이다. */
+const RETRY_MS = 2500;
+
 /* 가운데 단계에서 몇 개를 세울까. 웹이 실측으로 고른 값을 그대로 쓴다. */
 const topN = (z: number) => (z < 12 ? 10 : z < 14 ? 16 : 24);
 
@@ -367,7 +372,11 @@ export function MapTab(
      카드 자리에는 핀 점이 없어서(카드로 뽑힌 핀은 점을 끈다) 빈 곳을 누른 것으로
      읽히기 때문이다. 방금 카드를 눌렀으면 지도 쪽은 **아무것도 하지 않는다.** */
   const cardTapAt = useRef(0);
-  useEffect(() => () => { stopWatch.current?.(); stopHeading.current?.(); }, []);
+  useEffect(() => () => {
+    stopWatch.current?.(); stopHeading.current?.();
+    /* 화면을 떠나면 걸어 둔 재시도도 끈다 — 없는 화면에 setState 하면 샌다 */
+    if (retryT.current) clearTimeout(retryT.current);
+  }, []);
   const [pickSpace, setPickSpace] = useState(false);
   const [pins, setPins] = useState<Pin[]>([]);
   const [busy, setBusy] = useState(false);
@@ -430,6 +439,16 @@ export function MapTab(
                           cat: string | null; space: string | null }>(
     { box: null, scope: "mine_all", cat: null, space: null });
   const inflight = useRef(false);
+  /* ★ **실패를 기억한다**(§13.106). 실패하면 `loaded.current` 를 안 바꾸는데,
+     그 상자가 **예전 성공** 때 것이라 다음 이동이 *"이미 덮인 상자다"* 로 통째로
+     건너뛴다 — 그러면 *"잠시 뒤 다시 시도합니다"* 를 띄워 놓고 **아무도 다시
+     시도하지 않는다.** 화면에 오류가 눌어붙는다(§13.105 에서 실제로 그랬다).
+     → 실패한 뒤 첫 호출은 **상자 검사를 건너뛴다.** */
+  const failed = useRef(false);
+  /* ★ 지도를 안 움직이는 사람에게도 다시 시도한다. 움직여야만 낫는다면
+     *"잠시 뒤"* 는 여전히 거짓말이다. **한 번만** 건다 — 안 되는 오류를
+     무한히 두드리면 비행기 모드에서 배터리만 먹는다. */
+  const retryT = useRef<ReturnType<typeof setTimeout> | null>(null);
   /* ★ `load` 는 의존성이 비어 있어 **처음 값에 얼어붙는다.** 스코프는 인자로 받아
      피했는데 카테고리까지 인자로 늘리면 호출부마다 둘을 다 실어야 한다 —
      `onRegionDidChange` 는 그때의 최신 값을 알아야 하므로 ref 로 들고 본다. */
@@ -457,7 +476,8 @@ export function MapTab(
     const view: API.BBox = { w: b[0], s: b[1], e: b[2], n: b[3] };
     /* 카테고리가 바뀌면 이 상자는 소용없다 — 서버가 **다른 집합**을 준다.
        스코프와 같은 이유다(§13.37). */
-    if (!force && loaded.current.scope === sc && loaded.current.cat === ct
+    if (!force && !failed.current
+        && loaded.current.scope === sc && loaded.current.cat === ct
         && loaded.current.space === sp && inside(view, loaded.current.box)) return;
 
     inflight.current = true;
@@ -467,7 +487,20 @@ export function MapTab(
     inflight.current = false;
     setBusy(false);
 
-    if (!r.ok) { setWhy("지도를 불러오지 못했습니다 — 잠시 뒤 다시 시도합니다"); return; }
+    if (!r.ok) {
+      failed.current = true;
+      setWhy("지도를 불러오지 못했습니다 — 잠시 뒤 다시 시도합니다");
+      /* 이미 걸어 둔 것이 있으면 또 걸지 않는다 — 실패가 이어져도 타이머는 하나다 */
+      if (!retryT.current) {
+        retryT.current = setTimeout(() => {
+          retryT.current = null;
+          void load(true, sc);
+        }, RETRY_MS);
+      }
+      return;
+    }
+    failed.current = false;
+    if (retryT.current) { clearTimeout(retryT.current); retryT.current = null; }
     setWhy(null);
     loaded.current = { box, scope: sc, cat: ct, space: sp };
     setMore(r.more);
