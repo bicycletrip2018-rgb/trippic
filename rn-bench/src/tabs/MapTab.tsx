@@ -19,7 +19,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View,
+  ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from "react-native";
 import {
   Camera,
@@ -39,6 +39,7 @@ import { MapSearch, type Hit } from "../MapSearch";
 import { dur, ymd } from "../course";
 import { C, CAT } from "../theme";
 import { splitMapSaves } from "../mapSaves";
+import { shareInvite } from "../invite";
 import { zoomIn, zoomOut, canZoomIn, canZoomOut } from "../zoomStep";
 import { zoomForBBox, padPinBox, unionBox, fitView } from "../fitBox";
 import { pickNearest, TAP_SLOP, type Cand } from "../tapPick";
@@ -325,7 +326,7 @@ const inside = (inner: API.BBox, outer: API.BBox | null) =>
 /** ★ 시트가 열린 것을 App 에 알린다. `(+)` 는 App 이 지도 **위에** 띄우므로
     MapTab 안에서는 가릴 수 없다 — 그대로 두면 닫기(✕)를 덮는다. */
 export function MapTab(
-  { ready, onSheet, onAdd, onSheetHeight, jumpSpace, onJumped,
+  { ready, onSheet, onAdd, onSheetHeight,
     onCenter, jumpTo, onJumpedTo }: {
     ready?: boolean;
     onSheet?: (open: boolean) => void;
@@ -334,8 +335,6 @@ export function MapTab(
     /** 바텀시트가 지금 몇 pt 인가 — (+) 가 그 위에 앉는다(§13.66 A안) */
     onSheetHeight?: (h: number) => void;
     /** 스페이스 탭에서 *"지도 ›"* 를 눌렀다 — 그 방으로 맞춘다(§13.67) */
-    jumpSpace?: string | null;
-    onJumped?: () => void;
     /** ★ 지금 보고 있는 자리. `갈 곳` 의 *"여기서 가까운"* 이 이 값을 쓴다(§13.74) */
     onCenter?: (c: { lng: number; lat: number }) => void;
     /** `갈 곳` 에서 카드를 눌렀다 — 그 장소로 날아간다 */
@@ -753,7 +752,12 @@ export function MapTab(
     loaded.current = { box: null, scope: "shared", cat, space: id };
     setAgg([]);
     void load(true, "shared");
-    void loadAgg("shared", cat, id);
+    /* ★ **그 방의 자리로 날아간다**(§13.114). 예전에는 스페이스 탭의 `지도 ›` 가
+       이 일을 했는데(`jumpSpace`), 탭이 없어졌으니 **고르는 순간** 해야 한다.
+       안 그러면 강릉을 채운 방을 골랐는데 해운대를 보고 있어 **빈 화면**이다 —
+       §13.67 이 적은 *"전국 화면에 떨어뜨리면 함께 채운 지도가 아니라 그냥 지도다"*.
+       ★ 집계가 온 **뒤에** 날아간다 — 상자를 모르면 어디로 갈지 알 수 없다. */
+    void loadAgg("shared", cat, id, flyToAgg);
   };
 
   /* 카테고리를 바꾼다. 스코프와 **같은 절차다** — 이전 것을 걷어내지 않으면
@@ -930,24 +934,9 @@ export function MapTab(
     }
   };
 
-  /* ★ 스페이스 탭에서 온 요청. 스코프를 `공유 스페이스` 로 바꾸고 그 방만 남긴 뒤,
-     **기록이 있는 곳으로 날아간다**(§13.61 의 상자를 그대로 쓴다).
-     ★ 한 번 처리하면 **지운다.** 안 지우면 지도 탭으로 돌아올 때마다 다시 날아가
-       사용자가 보던 자리를 빼앗는다. */
-  useEffect(() => {
-    if (!jumpSpace || !ready) return;
-    setPickSpace(false);
-    setOpen(null);
-    setScope("shared");
-    setSpace(jumpSpace);
-    spaceRef.current = jumpSpace;
-    setPins([]); setMore(false); setAgg([]);
-    loaded.current = { box: null, scope: "shared", cat, space: jumpSpace };
-    void load(true, "shared");
-    /* ★ 집계가 온 **뒤에** 날아간다 — 상자를 모르면 어디로 갈지 알 수 없다 */
-    void loadAgg("shared", cat, jumpSpace, flyToAgg);
-    onJumped?.();
-  }, [jumpSpace, ready]);
+  /* ★ 스페이스 탭에서 오던 길(`jumpSpace`)은 **없어졌다**(§13.114). 그 탭이
+     사라졌고, 날아가는 일은 이제 `changeSpace` 가 한다 — 방을 고르는 바로 그 자리다.
+     같은 일을 두 길로 하면 언젠가 둘이 갈라진다(§13.37). */
 
   /* `갈 곳` 카드 → 그 장소로. ★ `jumpSpace` 와 **같은 모양**으로 둔다 —
      한 번 처리하면 지운다. 안 지우면 지도로 돌아올 때마다 다시 날아가
@@ -1473,7 +1462,11 @@ export function MapTab(
           onPick={changeSpace}
           onClose={() => setPickSpace(false)}
           onLeave={(sp) => { void doLeave(sp); }}
-          onAdd={() => { setPickSpace(false); onAdd?.(); }} />
+          onAdd={() => { setPickSpace(false); onAdd?.(); }}
+          /* 이름이 바뀌면 목록을 다시 읽는다 — 안 읽으면 창에 옛 이름이 남는다 */
+          onRenamed={() => {
+            void API.mySpaces().then((r) => setSpaces(r.ok ? (r.data ?? []) : []));
+          }} />
       )}
 
       {open && <PinSheet pin={open} onClose={() => setOpen(null)} />}
@@ -1575,18 +1568,43 @@ function PinSheet({ pin, onClose }: { pin: Pin; onClose: () => void }) {
      거기 붙은 드롭다운은 한 손으로 닿지 않는다. 그리고 방은 **이름만으로는
      못 고른다** — 멤버 수·기록 수·나가기가 한 줄에 같이 있어야 한다.
      드롭다운에는 그 자리가 없다. */
+/**
+ * 방 고르는 창 — §13.114 에서 **스페이스 탭의 일까지 받았다**
+ *
+ * 보는 일(나 / 지인 공유 / 전체)은 칩이 처음부터 했고, 지도도 탭1 이 그렸다.
+ * 탭4 에만 있던 것은 **방 관리** 셋뿐이라 여기로 옮겼다:
+ *   · 함께 채운 숫자(성적표) · 초대 보내기 · 이름 바꾸기
+ * ★ 단계가 **안 늘어야** 한다. §3 이 초대 수락률을 핵심 지표로 잡았는데
+ *   초대를 더 깊이 묻으면 탭을 아낀 값보다 잃는 게 크다 — 그래서 방마다
+ *   **그 줄에서 바로** 누르게 뒀다(칩 → 재탭 → 그 줄).
+ */
 function SpacePicker(
-  { spaces, current, onPick, onClose, onLeave, onAdd }: {
+  { spaces, current, onPick, onClose, onLeave, onAdd, onRenamed }: {
     spaces: API.SpaceRow[];
     current: string | null;
     onPick: (id: string) => void;
     onClose: () => void;
     onLeave: (sp: API.SpaceRow) => void;
     onAdd: () => void;
+    /** 이름이 바뀌었다 — 목록을 다시 읽는다 */
+    onRenamed: () => void;
   },
 ) {
   /* 어느 방의 나가기를 묻는 중인가. 한 번에 하나만 열린다. */
   const [confirm, setConfirm] = useState<string | null>(null);
+  /* 이름을 고치는 중인 방. 역시 한 번에 하나만. */
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const rename = async (sp: API.SpaceRow) => {
+    const next = draft.trim();
+    setEditing(null);
+    if (next === sp.title) return;
+    const r: any = await API.renameSpace(sp.id, next);
+    if (!r?.ok) { setMsg(r?.why ?? "바꾸지 못했습니다"); return; }
+    onRenamed();
+  };
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={st.spDim} onPress={onClose}>
@@ -1621,10 +1639,29 @@ function SpacePicker(
                         <Pressable style={{ flex: 1 }}
                                    onPress={() => (asking ? setConfirm(null) : onPick(sp.id))}>
                           <Text style={[st.spRowT, on && st.spRowTOn]}>{sp.title}</Text>
-                          {/* 빈 방과 쌓인 방은 다른 것이다 — **고르기 전에** 말한다 */}
+                          {/* 빈 방과 쌓인 방은 다른 것이다 — **고르기 전에** 말한다.
+                              ★ `함께 채운 N곳` 은 **지역(합집합)** 이다. 기록 수를 그
+                                이름으로 부르면 셋이 같은 카페에 꽂아도 "3곳"이 된다(§13.94). */}
                           <Text style={st.spRowS}>
-                            멤버 {sp.members}명 · {sp.pins ? `기록 ${sp.pins}곳` : "아직 기록 없음"}
+                            멤버 {sp.members}명
+                            {sp.regions
+                              ? ` · 함께 채운 ${sp.regions}곳 / ${sp.region_total} 시·군·구`
+                              : sp.pins ? " · 아직 지역이 잡힌 기록이 없습니다" : " · 아직 기록 없음"}
+                            {sp.pins ? ` · 기록 ${sp.pins}개` : ""}
                           </Text>
+                          {/* ★ **이게 '함께'의 실체다**(§13.16 ②). 혼자 다 채운 방과
+                              셋이 나눠 채운 방은 완전히 다른 관계인데 총량만 보면 같다.
+                              ★ `같이 간 곳` 이 0 이면 **아예 안 적는다** — 없는 것을 0 으로
+                                적으면 "같이 간 적 없다"는 판정처럼 읽힌다. */}
+                          {sp.regions ? (
+                            <Text style={st.spRowSplit}>
+                              {sp.together
+                                ? <Text style={st.spTogether}>같이 간 곳 {sp.together}</Text>
+                                : null}
+                              {sp.together && sp.alone ? " · " : ""}
+                              {sp.alone ? `혼자 다녀온 곳 ${sp.alone}` : ""}
+                            </Text>
+                          ) : null}
                         </Pressable>
                         {!asking && (
                           /* ★ 글자에 `hitSlop` 만 주면 **48pt 최소 터치 영역**에 못 미치고,
@@ -1636,6 +1673,43 @@ function SpacePicker(
                           </Pressable>
                         )}
                       </View>
+
+                      {/* ── 방 관리 (§13.114) — 스페이스 탭에서 옮겨 왔다 ──
+                          ★ 고르기(위 줄)와 **다른 줄**에 둔다. 같은 줄에 섞으면
+                            방을 보려고 누르다 초대가 눌린다. */}
+                      {!asking && (editing === sp.id ? (
+                        <View style={st.spRenameRow}>
+                          <TextInput
+                            style={st.spRenameIn} value={draft} onChangeText={setDraft}
+                            autoFocus maxLength={40} returnKeyType="done"
+                            onSubmitEditing={() => { void rename(sp); }}
+                            placeholder="비우면 멤버 이름으로 돌아갑니다"
+                            placeholderTextColor={C.muted} />
+                          <Pressable style={st.spManageBtn} onPress={() => { void rename(sp); }}>
+                            <Text style={st.spManageT}>확인</Text>
+                          </Pressable>
+                        </View>
+                      ) : (
+                        <View style={st.spManage}>
+                          {/* ★ 이름 바꾸기는 **멤버 누구나**(§13.56) */}
+                          <Pressable style={st.spManageBtn}
+                                     onPress={() => {
+                                       setMsg(null);
+                                       setEditing(sp.id);
+                                       setDraft(sp.auto_title ? "" : sp.title);
+                                     }}>
+                            <Text style={st.spManageT}>이름 바꾸기</Text>
+                          </Pressable>
+                          <Pressable style={st.spManageBtn}
+                                     onPress={async () => {
+                                       setMsg(null);
+                                       const r = await shareInvite(sp.id);
+                                       if (!r.ok) setMsg(r.why ?? "보내지 못했습니다");
+                                     }}>
+                            <Text style={st.spManageT}>초대</Text>
+                          </Pressable>
+                        </View>
+                      ))}
 
                       {/* ★ 확인을 **시트 안에서** 받는다. `Alert` 는 `Modal` 안에서
                           모달 뒤에 가려 안 보인다(실제로 안 떴다). 그리고 여기서
@@ -1666,6 +1740,9 @@ function SpacePicker(
               </ScrollView>
             </>
           )}
+
+          {/* ★ 이유는 **시트 안에서** 말한다 — 닫고 나서 뒤에 뜨면 아무도 못 본다 */}
+          {!!msg && <Text style={st.spWarn}>{msg}</Text>}
 
           <Pressable style={st.spCancel} onPress={onClose}>
             <Text style={st.spCancelT}>닫기</Text>
@@ -1720,6 +1797,19 @@ const st = StyleSheet.create({
   spRowT: { color: C.text, fontSize: 15 },
   spRowTOn: { fontWeight: "700" },
   spRowS: { color: C.muted, fontSize: 12, marginTop: 3 },
+  spRowSplit: { color: C.muted, fontSize: 11.5, marginTop: 3 },
+  /* 함께 간 것은 **보조색**으로 — '다녀온 것'에 쓰는 색이다(theme.ts) */
+  spTogether: { color: C.visited, fontWeight: "700" },
+  /* 방 관리 줄 — 나가기와 **같은 크기**(48pt 최소 터치)로 둔다 */
+  spManage: { flexDirection: "row", gap: 4, marginTop: 6 },
+  spManageBtn: { paddingVertical: 8, paddingHorizontal: 10 },
+  spManageT: { color: C.accent, fontSize: 12.5, fontWeight: "600" },
+  spRenameRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 },
+  spRenameIn: {
+    flex: 1, color: C.text, fontSize: 14, paddingVertical: 8, paddingHorizontal: 10,
+    backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 8,
+  },
+  spWarn: { color: C.warn, fontSize: 12, paddingHorizontal: 16, paddingTop: 8 },
   spCancel: { alignItems: "center", paddingVertical: 12 },
   spCancelT: { color: C.muted, fontSize: 14 },
   spEmpty: { color: C.muted, fontSize: 13, lineHeight: 21, paddingVertical: 6 },

@@ -1,10 +1,12 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { C } from "./theme";
 
-export type Tab = "map" | "feed" | "news" | "space" | "my";
+/* ★ `space` 를 **내렸다**(§13.114). 보는 일은 탭1 의 `공유 스페이스` 칩이 이미
+   하고 있었고, 방 관리(초대·이름·숫자)는 그 칩의 고르는 창으로 옮겼다. */
+export type Tab = "map" | "feed" | "news" | "my";
 const TABS: [Tab, string, string][] = [
-  ["map", "🗺️", "지도"], ["feed", "🧭", "갈 곳"], ["news", "📰", "소식"],
-  ["space", "👥", "스페이스"], ["my", "👤", "마이"],
+  ["map", "🗺️", "지도"], ["feed", "🧭", "갈 곳"],
+  ["news", "📰", "소식"], ["my", "👤", "마이"],
 ];
 
 export function TabBar({ tab, onChange }: { tab: Tab; onChange: (t: Tab) => void }) {

@@ -13,7 +13,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { TabBar, type Tab } from "./src/TabBar";
 import { MapTab } from "./src/tabs/MapTab";
 import { FeedTab } from "./src/tabs/FeedTab";
-import { NewsTab, SpaceTab, MyTab } from "./src/tabs/RecordTabs";
+import { NewsTab, MyTab } from "./src/tabs/RecordTabs";
 import { RegisterFlow } from "./src/RegisterFlow";
 import { LiveCapture } from "./src/LiveCapture";
 import { SHEET_BOTTOM, SHEET_HALF } from "./src/MapSheet";
@@ -51,10 +51,9 @@ export default function App() {
   /* ★ (+) 는 시트 **위에** 앉는다(§13.66 A안). 숨기지 않는다 — (+) 는 지도를
      보는 내내 닿아야 하는 버튼이고, 시트를 올렸다고 등록을 못 하면 안 된다. */
   const [sheetH, setSheetH] = useState(104);
-  /* ★ 스페이스 탭에서 **지도로 데려간다**(§12.13 · §13.67). 지도를 한 벌 더
-     그리지 않고, 탭1 의 `공유 스페이스` 스코프를 그 방으로 맞춰 준다 —
-     같은 것을 두 곳에서 그리면 언젠가 둘이 갈라진다(§13.37). */
-  const [jumpSpace, setJumpSpace] = useState<string | null>(null);
+  /* ★ `jumpSpace` 를 **걷어냈다**(§13.114). 스페이스 탭이 없어져 세우는 쪽이
+     사라졌고, 방을 고르면 **고르는 창이 그 자리로 날아간다** — 같은 일을 두 길로
+     하지 않는다(§13.37). */
   /* ★ 남은 일 배지 (§12.27 · §13.93). **RN 에는 배지가 아예 없었다** — 웹은
      §12.27·§13.83 에서 두 번이나 고쳤는데 이쪽은 한 번도 붙은 적이 없어서,
      앱이 찾아 놓은 일을 알 길이 `+` 를 눌러 들어가 보는 것과 주 1회 알림뿐이었다.
@@ -149,7 +148,6 @@ export default function App() {
       <View style={[s.page, tab !== "map" && s.hidden]} pointerEvents={tab === "map" ? "auto" : "none"}>
         <MapTab ready={ready} onSheet={setSheet} onAdd={() => setAdd(true)}
                 onSheetHeight={setSheetH}
-                jumpSpace={jumpSpace} onJumped={() => setJumpSpace(null)}
                 onCenter={setCenter}
                 jumpTo={jumpTo} onJumpedTo={() => setJumpTo(null)} />
       </View>
@@ -170,9 +168,6 @@ export default function App() {
         </View>
       )}
       {ready && tab === "news" && <NewsTab />}
-      {ready && tab === "space" && (
-        <SpaceTab onOpenMap={(id) => { setJumpSpace(id); setTab("map"); }} />
-      )}
       {ready && tab === "my" && <MyTab authTick={authTick} />}
       {/* ★ (+) 는 지도 위에 둔다 — §12.27: 등록은 별도 탭이 아니라
           "보고 있는 지도에 한 점을 더하는 일"이다. 탭을 새로 만들면 탭1과 겹친다. */}

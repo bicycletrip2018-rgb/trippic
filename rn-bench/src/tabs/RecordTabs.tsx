@@ -6,14 +6,12 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import {
-  ActivityIndicator, Image, Pressable, RefreshControl, ScrollView, Share,
-  StyleSheet, Text, TextInput, View,
+  ActivityIndicator, Image, Pressable, RefreshControl, ScrollView,
+  StyleSheet, Text, View,
 } from "react-native";
 import * as API from "../api";
 import { C, CAT } from "../theme";
 import { DayCourse } from "../DayCourse";
-import { INVITE_BASE } from "../config";
-import { inviteWhy } from "../inviteBase";
 import { openSocial } from "../oauth";
 import { isAvailable as appleAvailable, signInWithApple } from "../appleAuth";
 import { Alert } from "react-native";
@@ -76,145 +74,12 @@ export function NewsTab() {
   );
 }
 
-/* ── 탭4 스페이스 ──────────────────────────────────────────────
-   ★ 목록·초대만 있으면 파일 탐색기다. 스페이스의 화면은 **지도**여야 한다(§12.13).
-     RN 에서는 아직 합산 지도를 못 그리므로 **숫자만** 먼저 옮긴다 —
-     `함께 채운 N곳`은 합계가 아니라 **합집합**이다. */
-/* ★ 카카오톡으로 보내는 데 **카카오 SDK 도 로그인도 필요 없다**(§13.43).
-   코어 `Share` 가 OS 공유 시트를 열고, 카카오톡은 거기 이미 들어 있다.
-   ★ 받는 사람이 열 주소는 **웹**이어야 한다 — 앱을 안 깐 사람도 열어야 초대가 초대다. */
-/* ★ 주소는 **설정으로 옮겼다**(§13.113). 여기 박아 두면 배포할 때 코드를 고쳐야 하고,
-   실제로 **`http://localhost:3012`** 가 박힌 채 남아 있었다 — 친구에게 보낸 링크가
-   내 컴퓨터 주소였고, 앱은 그걸 **아무 말 없이 보냈다.** */
-export async function shareInvite(spaceId: string) {
-  /* ★ **보내기 전에 막는다.** 죽은 링크를 보내면 받는 사람이 우리 앱을 한 번
-     믿었다가 실망하고, 보낸 사람은 그 사실조차 모른다 — 실패를 **보낸 뒤에**
-     알게 되는 구조는 고칠 수가 없다. */
-  const why = inviteWhy(INVITE_BASE);
-  if (why) return { ok: false, why };
+/* ★ **탭4 스페이스는 없어졌다**(§13.114). 보는 일(나 / 지인 공유 / 전체)은 탭1 의
+   스코프 칩이 처음부터 하고 있었고, §12.13 이 *"스페이스의 화면은 지도여야 한다"* 고
+   적은 그 지도도 탭1 이 그리고 있었다. 남은 것은 **방 관리**(초대·이름·함께 채운 숫자)
+   뿐이라 그 칩의 **고르는 창**으로 옮겼다 — 탭 하나를 아꼈고 단계는 안 늘었다.
+   초대 보내기는 `src/invite.ts` 로 갔다. */
 
-  const r = await API.inviteLink(spaceId, INVITE_BASE);
-  if (!r.ok) return { ok: false, why: r.why };
-  try {
-    await Share.share({ message: `${r.title} — 같이 채운 지도를 보내 드립니다.\n${r.url}`,
-                        url: r.url });
-    return { ok: true };            // 어디로 보냈는지는 우리가 알 필요 없다
-  } catch (e: any) {
-    return { ok: false, why: String(e?.message ?? e) };
-  }
-}
-
-export function SpaceTab({ onOpenMap }: { onOpenMap?: (spaceId: string) => void } = {}) {
-  const [rows, setRows] = useState<API.SpaceRow[]>([]);
-  const [busy, setBusy] = useState(true);
-  const [msg, setMsg] = useState<string | null>(null);
-  /* 이름을 고치는 중인 방. 한 번에 하나만 열린다. */
-  const [editing, setEditing] = useState<string | null>(null);
-  const [draft, setDraft] = useState("");
-
-  const load = useCallback(async () => {
-    setBusy(true);
-    const r = await API.mySpaces();
-    setRows(r.ok ? (r.data ?? []) : []);
-    setBusy(false);
-  }, []);
-  useEffect(() => { void load(); }, [load]);
-
-  const rename = async (sp: API.SpaceRow) => {
-    const next = draft.trim();
-    setEditing(null);
-    if (next === sp.title) return;
-    const r: any = await API.renameSpace(sp.id, next);
-    if (!r?.ok) { setMsg(r?.why ?? "바꾸지 못했습니다"); return; }
-    setRows((prev) => prev.map((x) =>
-      x.id === sp.id ? { ...x, title: r.title, auto_title: !!r.auto } : x));
-  };
-
-  return (
-    <ScrollView style={s.wrap} contentContainerStyle={{ paddingBottom: 110 }}
-      refreshControl={<RefreshControl refreshing={busy} onRefresh={load} tintColor={C.muted} />}>
-      <Text style={s.h1}>스페이스</Text>
-      <Text style={s.sub}>스페이스는 <Text style={s.b}>사람</Text>입니다 — 여행마다 새로 만들지 않습니다.</Text>
-
-      {!rows.length && !busy &&
-        <Empty text={"아직 만든 스페이스가 없습니다.\n같이 간 사람과 지도를 함께 채워 보세요."} />}
-
-      {/* ★ **목록이 아니라 성적표다**(§12.13). 제목과 초대 버튼만 있으면
-          파일 탐색기지 *"함께 채운 지도"* 가 아니다. 그래서 줄마다
-          **함께 채운 기록 수와 지역 수**를 적고, 누르면 지도로 데려간다.
-          ★ 지도를 여기 한 벌 더 그리지 않는다 — 지도는 탭1 하나뿐이고,
-            §13.55 의 `공유 스페이스` 스코프가 이미 그 방만 보여 준다.
-            같은 것을 두 곳에서 그리면 언젠가 둘이 갈라진다(§13.37). */}
-      {rows.map((sp) => (
-        <View key={sp.id} style={s.card}>
-          {editing === sp.id ? (
-            <View style={s.renameRow}>
-              <TextInput
-                style={s.renameIn} value={draft} onChangeText={setDraft}
-                autoFocus maxLength={40} returnKeyType="done"
-                onSubmitEditing={() => { void rename(sp); }}
-                placeholder="비우면 멤버 이름으로 돌아갑니다"
-                placeholderTextColor={C.muted} />
-              <Pressable onPress={() => { void rename(sp); }} style={s.renameOk}>
-                <Text style={s.renameOkT}>확인</Text>
-              </Pressable>
-            </View>
-          ) : (
-            <Pressable style={s.spaceRow} onPress={() => onOpenMap?.(sp.id)}>
-              <View style={{ flex: 1 }}>
-                <Text style={s.cardT}>{sp.title}</Text>
-                {/* ★ `함께 채운 N곳` 은 **지역(합집합)** 이다. 예전에는 `pins`(기록 수)를
-                    그 이름으로 불렀다 — 셋이 같은 카페에 꽂으면 "3곳"이 됐다(§13.94).
-                    기록 수는 기록 수라고 적는다. */}
-                <Text style={s.cardS}>
-                  멤버 {sp.members}명
-                  {sp.regions
-                    ? ` · 함께 채운 ${sp.regions}곳 / ${sp.region_total} 시·군·구`
-                    : sp.pins ? " · 아직 지역이 잡힌 기록이 없습니다" : " · 아직 기록 없음"}
-                  {sp.pins ? ` · 기록 ${sp.pins}개` : ""}
-                </Text>
-                {/* ★ **이게 '함께'의 실체다**(§13.16 ②). 혼자 다 채운 방과 셋이 나눠
-                    채운 방은 완전히 다른 관계인데 총량만 보면 똑같아 보인다.
-                    ★ `같이 간 곳` 은 *"둘 이상이 남긴 곳"* 이다 — 같은 날 같이 갔다는
-                      증명이 아니라서, 0일 때는 아예 적지 않는다(없는 것을 0으로 적으면
-                      "같이 간 적 없다"는 판정처럼 읽힌다). */}
-                {sp.regions ? (
-                  <Text style={s.cardSplit}>
-                    {sp.together
-                      ? <Text style={s.cardTogether}>같이 간 곳 {sp.together}</Text>
-                      : null}
-                    {sp.together && sp.alone ? " · " : ""}
-                    {sp.alone ? `혼자 다녀온 곳 ${sp.alone}` : ""}
-                  </Text>
-                ) : null}
-              </View>
-              <Text style={s.spaceGo}>지도 ›</Text>
-            </Pressable>
-          )}
-
-          <View style={s.spaceActs}>
-            {/* ★ 이름 바꾸기는 **멤버 누구나**(§13.56). 서버에 문은 있었는데
-                여기 손잡이가 없어서 아무도 못 썼다. */}
-            <Pressable onPress={() => { setEditing(sp.id); setDraft(sp.auto_title ? "" : sp.title); }}>
-              <Text style={s.spaceAct}>이름 바꾸기</Text>
-            </Pressable>
-            <Pressable onPress={async () => {
-              const r = await shareInvite(sp.id);
-              if (!r.ok) setMsg(r.why ?? "보내지 못했습니다");
-            }}>
-              <Text style={s.spaceAct}>초대</Text>
-            </Pressable>
-          </View>
-        </View>
-      ))}
-      {!!msg && <Text style={s.warn}>{msg}</Text>}
-    </ScrollView>
-  );
-}
-
-/* ── 탭5 마이 ─────────────────────────────────────────────────
-   ★ 익명 계정은 **기기에 묶인다.** 그걸 화면이 말해야 한다 —
-     말 안 하면 사용자는 **잃고 나서야** 안다. */
 export function MyTab({ authTick = 0 }: { authTick?: number }) {
   const { rows, busy, load } = useRecords("mine");
   const [trips, setTrips] = useState<any[]>([]);
@@ -453,7 +318,6 @@ const s = StyleSheet.create({
            borderRadius: 99, paddingHorizontal: 7, paddingVertical: 2 },
   badgeLive: { color: C.visited, borderColor: C.visited },
   memo: { color: C.text, fontSize: 13, lineHeight: 21, paddingHorizontal: 18, paddingTop: 6 },
-  card: { marginHorizontal: 18, marginTop: 8, padding: 13, borderRadius: 14, borderWidth: 1, borderColor: C.line },
   covRow: { flexDirection: "row", alignItems: "baseline", gap: 8, marginTop: 2 },
   covPct: { color: C.visited, fontSize: 30, fontWeight: "800" },
   covOf: { color: C.muted, fontSize: 13 },
@@ -462,26 +326,9 @@ const s = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.08)", overflow: "hidden",
   },
   covFill: { height: "100%", borderRadius: 3, backgroundColor: C.visited },
-  spaceRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  cardSplit: { color: C.muted, fontSize: 11.5, marginTop: 3 },
   /* 함께 간 것은 **보조색**으로 — '다녀온 것'에 쓰는 색이다(theme.ts) */
-  cardTogether: { color: C.visited, fontWeight: "700" },
-  spaceGo: { color: C.accent, fontSize: 13, fontWeight: "600" },
   /* 부차 동작은 **아래 줄로 내린다** — 카드를 누르는 것(지도로 가기)이
      주 동작이라, 같은 줄에 두면 어느 것이 본론인지 흐려진다. */
-  spaceActs: { flexDirection: "row", gap: 16, marginTop: 10,
-               borderTopWidth: 1, borderTopColor: C.line, paddingTop: 10 },
-  spaceAct: { color: C.muted, fontSize: 12.5 },
-  renameRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  renameIn: {
-    flex: 1, backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 10,
-    paddingHorizontal: 12, paddingVertical: 10, color: C.text, fontSize: 15,
-  },
-  renameOk: { paddingHorizontal: 12, paddingVertical: 10 },
-  renameOkT: { color: C.accent, fontSize: 14, fontWeight: "700" },
-  invite: { paddingHorizontal: 13, paddingVertical: 8, borderRadius: 10,
-           backgroundColor: "rgba(255,255,255,0.10)" },
-  inviteT: { color: C.text, fontSize: 12.5, fontWeight: "700" },
   cardT: { color: C.text, fontSize: 13.5, fontWeight: "650" as any },
   cardS: { color: C.muted, fontSize: 11, marginTop: 3 },
   box: { marginHorizontal: 18, marginTop: 10, padding: 15, borderRadius: 16, borderWidth: 1,
