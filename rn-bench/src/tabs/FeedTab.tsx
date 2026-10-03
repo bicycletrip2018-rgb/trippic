@@ -61,8 +61,12 @@ const RAILS: { k: API.FeedRow["rail"]; t: string; why: string }[] = [
 ];
 
 export function FeedTab(
-  { center, onOpenMap }: {
+  { center, visible = true, onOpenMap }: {
     center: { lat: number; lng: number };
+    /* ★ 지금 **보이고 있는가**(§13.111). 이 탭은 이제 떠나도 안 지워지므로,
+       숨어 있는 동안 지도를 밀면 그때마다 묶음을 다시 받게 된다 — 보이지도 않는
+       화면 때문에 **가장 비싼 질의**가 반복해 나간다. 보일 때만 따라간다. */
+    visible?: boolean;
     /* ★ 카드 탭의 끝이 **더 이상 지도가 아니다**(§13.91). 예전에는 여기서 바로
        지도로 날아갔는데, 내 핀이 없는 장소면 도착해서 **열 것이 없었다.**
        이제 장소 상세가 먼저 열리고, 지도로 가는 것은 그 안의 버튼이 한다 —
@@ -72,6 +76,19 @@ export function FeedTab(
 ) {
   /* 상세로 넘길 것: id 와, **이미 알고 있는** 이름·거리. 거리를 상세에서 다시
      재면 카드와 상세가 같은 곳을 다르게 말한다(§13.34). */
+  /* ★ **보이는 동안에만 따라가는 자리**(§13.111).
+     효과를 여섯 개나 손대는 대신 **들어오는 값 하나를 얼린다** — 그러면
+     `[center.lat, center.lng]` 로 걸린 것들이 전부 저절로 멈춘다. 고칠 곳이
+     하나면 다음에 효과가 하나 더 늘어도 **빠뜨릴 수가 없다**(§13.37).
+     ★ 같은 자리면 **같은 객체**를 돌려준다 — 새 객체를 주면 값이 안 바뀌었는데도
+       효과가 다시 돈다. */
+  const [shownCenter, setShownCenter] = useState(center);
+  useEffect(() => {
+    if (!visible) return;
+    setShownCenter((p) => (p.lat === center.lat && p.lng === center.lng ? p : center));
+  }, [visible, center.lat, center.lng]);
+  const at = shownCenter;
+
   const [open, setOpen] = useState<{ id: string; name: string; distM: number | null } | null>(null);
   const [rows, setRows] = useState<API.FeedRow[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -94,37 +111,37 @@ export function FeedTab(
   useEffect(() => {
     let live = true;
     setRows(null); setErr(null);
-    void API.feedRails(center.lat, center.lng).then((r) => {
+    void API.feedRails(at.lat, at.lng).then((r) => {
       if (!live) return;
       if (r.ok) setRows(r.data ?? []);
       else setErr(r.error ?? "불러오지 못했습니다");
     });
     return () => { live = false; };
-  }, [center.lat, center.lng]);
+  }, [at.lat, at.lng]);
 
   useEffect(() => {
     let live = true;
-    void API.myRevisit(center.lat, center.lng).then((r) => {
+    void API.myRevisit(at.lat, at.lng).then((r) => {
       if (live && r.ok) setRevisit(r.data ?? []);
     });
     return () => { live = false; };
-  }, [center.lat, center.lng]);
+  }, [at.lat, at.lng]);
 
   useEffect(() => {
     let live = true;
-    void API.sponsorRail(center.lat, center.lng).then((r) => {
+    void API.sponsorRail(at.lat, at.lng).then((r) => {
       if (live) setSponsor(r.ok ? (r.data ?? []) : []);
     });
     return () => { live = false; };
-  }, [center.lat, center.lng]);
+  }, [at.lat, at.lng]);
 
   /* ★ 좌표가 바뀌면 다시 읽는다 — **목록 자체는 안 바뀌고 거리만 바뀐다.**
      저장 순서는 좌표와 무관하지만, 카드가 적는 거리는 지금 보는 자리 기준이라야
      쓸모가 있다("여기서 12km"). */
   const loadSaves = useCallback(() => {
-    void API.mySaves(center.lat, center.lng)
+    void API.mySaves(at.lat, at.lng)
       .then((r) => { if (r.ok) setSaves(r.data ?? []); });
-  }, [center.lat, center.lng]);
+  }, [at.lat, at.lng]);
   useEffect(() => { loadSaves(); }, [loadSaves]);
 
   const rails = useMemo(() => {
@@ -172,19 +189,19 @@ export function FeedTab(
     if (budget == null) { setBudgetRows(null); return; }
     let live = true;
     setBudgetRows(null);
-    void API.placesInBudget(center.lat, center.lng, budget, { limit: 24 })
+    void API.placesInBudget(at.lat, at.lng, budget, { limit: 24 })
       .then((r) => { if (live) setBudgetRows(r.data ?? []); });
     return () => { live = false; };
-  }, [budget, center.lat, center.lng]);
+  }, [budget, at.lat, at.lng]);
 
   useEffect(() => {
     if (!season) { setSeasonRows(null); return; }
     let live = true;
     setSeasonRows(null);
-    void API.placesByMonth(center.lat, center.lng, THIS_MONTH, { limit: 24 })
+    void API.placesByMonth(at.lat, at.lng, THIS_MONTH, { limit: 24 })
       .then((r) => { if (live) setSeasonRows(r.data ?? []); });
     return () => { live = false; };
-  }, [season, center.lat, center.lng]);
+  }, [season, at.lat, at.lng]);
 
   /* ★ 카드 하나를 여는 **단 한 곳**. 두 군데에서 결정하면 `다시 가보기` 의
      장소 없는 카드 처리가 한쪽에서만 빠진다. */
@@ -252,7 +269,7 @@ export function FeedTab(
       <SponsorRail rows={sponsor} covers={covers} onOpen={openCard}
                    onClaimed={() => {
                      /* 받고 나면 줄을 다시 읽는다 — `claimed` 가 바뀌어야 버튼이 사라진다 */
-                     void API.sponsorRail(center.lat, center.lng)
+                     void API.sponsorRail(at.lat, at.lng)
                        .then((r) => { if (r.ok) setSponsor(r.data ?? []); });
                    }} />
 

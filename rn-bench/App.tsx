@@ -62,6 +62,10 @@ export default function App() {
      ★ 탭을 새로 만들지 않는다 — §12.27 이 세 번째로 같은 실수를 하고 접은 자리다. */
   const [pending, setPending] = useState<Pending | null>(null);
   const [more, setMore] = useState(0);        // 마지막으로 잰 뒤에 새로 찍힌 사진 수
+  /* ★ `갈 곳` 을 **한 번 연 적이 있는가**(§13.111). 그 뒤로는 감추기만 하고
+     안 지운다. 열기 전에는 안 만든다 — 위 주석 참고. */
+  const [feedBorn, setFeedBorn] = useState(false);
+  useEffect(() => { if (tab === "feed") setFeedBorn(true); }, [tab]);
 
   useEffect(() => {
     API.setConfig(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -149,9 +153,21 @@ export default function App() {
                 onCenter={setCenter}
                 jumpTo={jumpTo} onJumpedTo={() => setJumpTo(null)} />
       </View>
-      {ready && tab === "feed" && (
-        <FeedTab center={center}
-                 onOpenMap={(p) => { setJumpTo(p); setTab("map"); }} />
+      {/* ★ `갈 곳` 도 **감춘다**(§13.111). 예전에는 조건부 렌더라 탭을 떠나면
+          언마운트됐고, 돌아올 때마다 **처음부터 다시 받았다** — §13.109 에서
+          열 번 드나들어 열 번 다 요청이 나가는 것을 쟀다. 평소 250ms 라 티가
+          안 나지만 서버가 식으면 **그때마다** 2초 빈 화면이고, 보던 자리(스크롤)도
+          매번 잃는다.
+          ★ 다만 지도와 **다른 점이 하나** 있다: **처음 열기 전까지는 아예 안 만든다.**
+            앱을 켜자마자 만들어 두면 사용자가 **한 번도 안 본 화면**이 묶음을 받고,
+            그 표지들이 노출로 세어진다 — §13.9 가 못 박은 *"노출은 '그려졌다'가
+            아니라 '보였다'다"* 를 정면으로 어긴다. 한 번 열고 나서야 산다. */}
+      {ready && (tab === "feed" || feedBorn) && (
+        <View style={[s.page, tab !== "feed" && s.hidden]}
+              pointerEvents={tab === "feed" ? "auto" : "none"}>
+          <FeedTab center={center} visible={tab === "feed"}
+                   onOpenMap={(p) => { setJumpTo(p); setTab("map"); }} />
+        </View>
       )}
       {ready && tab === "news" && <NewsTab />}
       {ready && tab === "space" && (
