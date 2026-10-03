@@ -46,13 +46,17 @@ function eventState(s: string | null, e: string | null) {
 }
 
 export function PlaceSheet(
-  { placeId, fallbackName, distM, onClose, onOpenMap }: {
+  { placeId, fallbackName, distM, onClose, onOpenMap, onSaveChanged }: {
     placeId: string;
     /** 받아오기 전에도 **이름은 보여 준다** — 빈 화면이 깜빡이면 잘못 누른 줄 안다 */
     fallbackName?: string;
     distM?: number | null;
     onClose: () => void;
     onOpenMap?: (p: { lng: number; lat: number; name: string }) => void;
+    /** 저장이 **서버에 실제로 박힌 뒤** 한 번 부른다 — `저장한 곳` 줄이 이걸 듣고
+        다시 읽는다(§13.103). 낙관적으로 켜진 순간에 부르면 실패했을 때
+        목록과 버튼이 어긋난다. */
+    onSaveChanged?: (on: boolean) => void;
   },
 ) {
   const [d, setD] = useState<API.PlaceDetail | null>(null);
@@ -208,7 +212,7 @@ export function PlaceSheet(
               setSaveWhy(null); setSaveBusy(true);
               void API.savePlace(d.place_id, next).then((r) => {
                 setSaveBusy(false);
-                if (r.ok) return;
+                if (r.ok) { onSaveChanged?.(next); return; }
                 /* ★ 되돌린다. 화면만 켜 두면 다시 열었을 때 꺼져 있어
                    *"저장이 안 된다"* 가 아니라 *"앱이 이상하다"* 가 된다. */
                 setSaved(!next); setSaveN((n) => n + (next ? -1 : 1));

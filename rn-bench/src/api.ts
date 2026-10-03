@@ -84,7 +84,21 @@ async function req<T>(path: string, init?: RequestInit): Promise<R<T>> {
     const r = await fetch(`${CFG.url}${path}`,
       { ...init, headers: { ...headers(), ...(init?.headers as any) } });
     if (!r.ok) throw new Error(`${path} ${r.status} ${(await r.text()).slice(0, 120)}`);
-    return { ok: true, via: "server", data: (await r.json()) as T };
+    /* ★ **본문이 없을 수 있다.** PostgREST 는 `Prefer: return=representation` 이
+       없는 DELETE·PATCH 에 **204 No Content** 를 준다 — 빈 몸통이다. 그때
+       `r.json()` 은 *"Unexpected end of input"* 으로 터지고, 아래 catch 가
+       그걸 **실패로 적는다.**
+       실제로 그랬다(§13.103): 저장을 풀면 서버에서는 **지워졌는데** 앱은
+       *"저장하지 못했습니다"* 라며 버튼을 `저장함` 으로 되돌렸다. 되돌리기는
+       제 할 일을 한 것이고, 틀린 것은 **성공을 실패로 읽은 쪽**이다.
+       되돌림이 있어서 더 나빴다 — 화면은 `저장함 1`, 서버는 0. 버튼이 거짓말을 한다.
+       ★ 204 만 보지 않고 **빈 글자도** 본다. 200 에 빈 몸통을 주는 길이 있고
+         (`Content-Length: 0`), 그것도 실패가 아니다. */
+    const body = await r.text();
+    if (r.status === 204 || body === "") {
+      return { ok: true, via: "server", data: null };
+    }
+    return { ok: true, via: "server", data: JSON.parse(body) as T };
   } catch (e: any) {
     STATE.fails++; STATE.lastError = String(e?.message ?? e);
     return { ok: false, via: "local", data: null, error: STATE.lastError };
@@ -579,6 +593,28 @@ export const myRevisit = (lat: number, lng: number, limit = 12) =>
   rpc<RevisitRow[]>("api_my_revisit", {
     p_lng: lng, p_lat: lat, p_limit: limit, p_old_days: 300,
   });
+
+/* ── 저장한 곳 (§13.103 · 064) ───────────────────────────────────────
+   ★ `다시 가보기` 와 **일부러 같은 칸 모양**이다 — 같은 `Rail`/`Card` 가 그린다.
+     줄마다 다른 모양을 주면 화면이 줄 수만큼 갈라진다(§13.37).
+   ★ **탭이 아니다.** `갈 곳` 의 묶음 하나로 서고, 비면 줄이 아예 안 뜬다 —
+     §12.4·§12.26-A 가 두 번 거절한 *"빈 탭"* 을 또 만들지 않는다.
+   ★ 순서는 **저장한 차례**(최신 먼저)다. 거리순이 아니다 — 저장은 *"여기 가 보자"*
+     는 표시라 내가 찜한 차례가 곧 그 사람의 생각 순서다. 거리는 카드가 적는다. */
+export type SaveRow = {
+  place_id: string; name: string; category: string;
+  lng: number; lat: number; dist_m: number;
+  saved_at: string;
+  image_url: string | null; thumb_url: string | null; region_name: string | null;
+  event_start: string | null; event_end: string | null;
+  /** 내가 가 본 곳인가 — 저장만 해 둔 곳과 다녀온 곳은 다른 할 일이다 */
+  been: boolean;
+  /** 저장해 둔 사이에 문을 닫았다고 신고됐는가(051) */
+  closed: boolean;
+};
+
+export const mySaves = (lat: number, lng: number, limit = 24) =>
+  rpc<SaveRow[]>("api_my_saves", { p_lng: lng, p_lat: lat, p_limit: limit });
 
 /* ── 장소의 표지 (§12.25-A · §13.74) ─────────────────────────────────
    ★ **표지를 여기서 고르지 않는다.** 029 가 `place_stats.top_media_id` 에

@@ -36,7 +36,8 @@
     "test:fit": "tsc src/fitBox.ts --ignoreConfig --outDir build-test --module commonjs --target es2020 --skipLibCheck && node test/fit.test.cjs",
     "test:tap": "tsc src/tapPick.ts --ignoreConfig --outDir build-test --module commonjs --target es2020 --skipLibCheck && node test/tap.test.cjs",
     "test:scale": "tsc src/scaleBar.ts --ignoreConfig --outDir build-test --module commonjs --target es2020 --skipLibCheck && node test/scale.test.cjs",
-    "test:research": "tsc src/researchRule.ts --ignoreConfig --outDir build-test --module commonjs --target es2020 --skipLibCheck && node test/research.test.cjs"
+    "test:research": "tsc src/researchRule.ts --ignoreConfig --outDir build-test --module commonjs --target es2020 --skipLibCheck && node test/research.test.cjs",
+    "test:savenote": "tsc src/saveNote.ts --ignoreConfig --outDir build-test --module commonjs --target es2020 --skipLibCheck && node test/saveNote.test.cjs"
   },
   "private": true
 }

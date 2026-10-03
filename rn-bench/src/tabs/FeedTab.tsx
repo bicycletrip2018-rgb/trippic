@@ -10,13 +10,14 @@
  *   출시하면 안 도는 화면을 고도화하고 있었던 셈이다.
  *   이제 `api_feed_rails` 가 답한다 — 장소도 9,696곳에서 **465,914곳**으로 늘었다.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View,
 } from "react-native";
 import { C, CAT } from "../theme";
 import { driveText as courseDriveText } from "../course";
 import * as API from "../api";
+import { saveNote } from "../saveNote";
 import { sawCover, openedCover, flushCovers } from "../coverLog";
 import { PlaceSheet } from "../PlaceSheet";
 
@@ -33,7 +34,7 @@ const THIS_MONTH = new Date().getMonth() + 1;
 
 /* 서버 행에 **화면에서만 쓰는 한 줄**을 더한 모양. 서버 타입을 더럽히지 않는다. */
 type FeedItem = Omit<API.FeedRow, "rail"> & {
-  rail: API.FeedRow["rail"] | "again" | "sponsor"; note?: string;
+  rail: API.FeedRow["rail"] | "again" | "sponsor" | "saved"; note?: string;
   /* ★ `다시 가보기` 는 **장소에 안 붙은 핀**도 담는다 — `RevisitRow.place_id` 가
      null 일 수 있어 거기서는 합성 키를 쓴다(아래). 그 카드로 장소 상세를 열면
      서버가 *"그런 장소 없다"* 로 빈 화면을 준다. 그런 카드는 지도로 보낸다. */
@@ -81,6 +82,9 @@ export function FeedTab(
      광고 줄은 광고가 없을 때 비어 있는 것이 정상이다. 지금은 계약이 0건이라
      **실제로 늘 비어 있다.** 그게 맞는 모습이다. */
   const [sponsor, setSponsor] = useState<API.SponsorRow[]>([]);
+  /* ★ 저장한 곳(§13.103). `다시 가보기` 와 같이 **내 데이터로 서는 줄**이고,
+     비면 줄이 안 뜬다 — 그래서 탭을 만들지 않았다. */
+  const [saves, setSaves] = useState<API.SaveRow[]>([]);
 
   /* ★ 보던 자리가 바뀌면 다시 묻는다. `center` 는 지도의 실제 중심이다(§13.74). */
   useEffect(() => {
@@ -110,6 +114,15 @@ export function FeedTab(
     return () => { live = false; };
   }, [center.lat, center.lng]);
 
+  /* ★ 좌표가 바뀌면 다시 읽는다 — **목록 자체는 안 바뀌고 거리만 바뀐다.**
+     저장 순서는 좌표와 무관하지만, 카드가 적는 거리는 지금 보는 자리 기준이라야
+     쓸모가 있다("여기서 12km"). */
+  const loadSaves = useCallback(() => {
+    void API.mySaves(center.lat, center.lng)
+      .then((r) => { if (r.ok) setSaves(r.data ?? []); });
+  }, [center.lat, center.lng]);
+  useEffect(() => { loadSaves(); }, [loadSaves]);
+
   const rails = useMemo(() => {
     if (!rows) return [];
     return RAILS
@@ -125,7 +138,12 @@ export function FeedTab(
     () => [...new Set([
       ...rails.flatMap((r) => r.items.map((x) => x.place_id)),
       ...sponsor.map((x) => x.place_id),
-    ])], [rails, sponsor]);
+      /* ★ 저장한 곳도 **같은 호출로** 표지를 받는다(§13.103). 따로 부르면 왕복이
+         하나 늘고, 무엇보다 표지를 고르는 곳이 둘이 된다 — §12.25-A 가 금한 것.
+         표지를 **받는** 것과 표지 경쟁에 **참가하는** 것은 다른 일이다:
+         받되(`covers`) 세지는 않는다(`rank={false}`). */
+      ...saves.map((x) => x.place_id),
+    ])], [rails, sponsor, saves]);
 
   const [covers, setCovers] = useState<Record<string, API.PlaceCover>>({});
   useEffect(() => {
@@ -217,6 +235,36 @@ export function FeedTab(
                        .then((r) => { if (r.ok) setSponsor(r.data ?? []); });
                    }} />
 
+      {/* ── 저장한 곳 (§13.103) ──
+          ★ **스폰서 아래, `다시 가보기` 위**다. 여기부터가 *"내 것"* 무리고,
+            그 안에서는 **아직 안 간 곳이 이미 간 곳보다 먼저**다 — 저장은
+            *"가 보자"* 는 할 일이고 `다시 가보기` 는 *"또 갈까"* 라는 회상이다.
+          ★ **비면 안 그린다.** 이게 탭을 안 만든 이유다 — 제목만 있는 빈 줄이
+            §12.4·§12.26-A 가 두 번 거절한 그 화면이다. */}
+      {!!saves.length && (
+        <Rail
+          title="저장한 곳" why="★ 눌러 둔 곳 — 최근에 저장한 것부터입니다"
+          items={saves.map((x) => ({
+            rail: "saved" as const,
+            place_id: x.place_id,
+            name: x.name, category: x.category,
+            lng: x.lng, lat: x.lat, dist_m: x.dist_m,
+            image_url: x.image_url, thumb_url: x.thumb_url,
+            event_start: x.event_start, event_end: x.event_end,
+            region_name: x.region_name,
+            /* ★ 무슨 말을 할지는 `saveNote` 가 정한다 — **순서가 규칙**이라
+                 떼어 놨다(닫힘 > 다녀옴 > 저장한 날). 여기 삼항으로 두면
+                 누가 줄을 바꿔 써도 아무 일도 안 일어난다. */
+            note: saveNote(x),
+          }))}
+          covers={covers}
+          /* ★ 표지 경쟁에 **참가하지 않는다** — `다시 가보기` 와 같은 이유다(§13.86).
+             분모는 *"남들이 보고 고르는 것"* 인데, 내가 이미 찜해 둔 것을 다시
+             보는 것은 고르는 행동이 아니다. 노출도 열림도 둘 다 끈다(§13.92). */
+          rank={false}
+          onOpen={openCard} />
+      )}
+
       {/* ★ **맨 아래에 둔다.** 위 넷은 *"어디 갈까"* 에 답하고, 이건 *"거기 또 갈까"* 다.
           묻는 것이 달라서 섞으면 둘 다 흐려진다. */}
       {!!revisit.length && (
@@ -258,7 +306,10 @@ export function FeedTab(
           onClose={() => setOpen(null)}
           /* 지도로 가는 것은 **상세 안의 버튼**이 한다. 가면 상세는 닫는다 —
              돌아왔을 때 지도를 덮고 있으면 방금 날아간 자리를 못 본다. */
-          onOpenMap={(p) => { setOpen(null); onOpenMap?.(p); }} />
+          onOpenMap={(p) => { setOpen(null); onOpenMap?.(p); }}
+          /* ★ 상세에서 저장을 켜면 **줄이 바로 바뀐다.** 닫을 때 다시 읽게 하면
+             사용자가 저장해 놓고 시트를 안 닫는 동안 줄과 버튼이 어긋난다. */
+          onSaveChanged={loadSaves} />
       )}
     </View>
   );

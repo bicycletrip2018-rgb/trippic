@@ -1976,6 +1976,132 @@ delete from public.reactions
 select pg_temp.ok(pg_temp.sv('count') = '1' and pg_temp.sv('mine') = 'false',
   '★ 풀면 숫자가 내려가고 버튼이 꺼진다 — 되돌릴 수 없는 토글은 만들지 않는다');
 
+-- ── 064 저장한 곳 목록 (§13.103) ─────────────────────────────────────
+-- ★ **탭을 안 만든다.** `갈 곳` 의 묶음 하나로 서고, 비면 줄이 아예 안 뜬다 —
+--   §12.4·§12.26-A 가 두 번 거절한 *"빈 탭"* 을 또 만들지 않기 위해서다.
+--   그래서 여기서 **"없으면 빈 목록"** 을 맨 먼저 못 박는다. 이게 깨지면
+--   저장한 적 없는 사람 화면에 제목만 있는 줄이 뜬다.
+\echo ''
+\echo '── 25. 저장한 곳 목록 (064) ──'
+reset role;
+-- ★ 지역은 **픽스처 TT1** 을 쓴다. 실제 코드('26350' 해운대구)를 박았더니
+--   로컬 스텁에는 그 지역이 없어 FK 로 막혔다 — §13.94 와 같은 실수다.
+--   픽스처가 만든 것만 쓰면 두 곳에서 똑같이 선다. 좌표도 TT1 안으로 넣었다.
+insert into public.places (id, name, category, geom, source, is_ground, region_code) values
+  ('aaaaaaaa-0000-0000-0000-0000000000f2', '저장목록 먼저 저장한 곳', 'cafe',
+   ST_SetSRID(ST_MakePoint(129.0500, 35.0500), 4326), 'public_data', true, 'TT1'),
+  ('aaaaaaaa-0000-0000-0000-0000000000f3', '저장목록 나중 저장한 곳', 'nature',
+   ST_SetSRID(ST_MakePoint(129.0900, 35.0900), 4326), 'public_data', true, 'TT1'),
+  ('aaaaaaaa-0000-0000-0000-0000000000f4', '저장목록 문닫은 곳', 'food',
+   ST_SetSRID(ST_MakePoint(129.0510, 35.0501), 4326), 'public_data', true, 'TT1');
+update public.places set closed_at = now()
+ where id = 'aaaaaaaa-0000-0000-0000-0000000000f4';
+set role authenticated; select pg_temp.login('11111111-1111-1111-1111-111111111111');
+
+-- ★ **임시 뷰**로 둔다. 함수 반환형은 이름이 없어 `setof public.api_my_saves`
+--   같은 걸 쓸 수 없고, 뷰라야 데이터가 바뀔 때마다 **다시 세어** 준다.
+create temp view saves as select * from public.api_my_saves(129.0500, 35.0500, 24);
+
+-- ① 저장한 적 없으면 **빈 목록** — 줄을 안 그리는 근거가 여기다
+select pg_temp.ok((select count(*) from saves) = 0,
+  '★ 저장한 적 없으면 빈 목록이다 — 이게 깨지면 제목만 있는 빈 줄이 뜬다(§12.4 가 거절한 그것)');
+
+-- ② 저장하면 온다. 이름·지역·거리가 **카드가 그릴 만큼** 채워져 있다
+insert into public.reactions (user_id, target_type, target_id, kind)
+values (auth.uid(), 'place', 'aaaaaaaa-0000-0000-0000-0000000000f2', 'save');
+select pg_temp.ok(
+  (select count(*) from saves) = 1
+  and (select name from saves) = '저장목록 먼저 저장한 곳'
+  and (select region_name from saves) is not null
+  and (select dist_m from saves) < 100,
+  '★ 저장하면 목록에 온다 — 이름·지역·거리가 함께 온다 (카드가 한 번에 그린다)');
+
+-- ③ 카테고리가 **칸 이름 그대로** 온다 (§13.101 에서 `food` 가 화면에 샜다)
+select pg_temp.ok((select category from saves) = 'cafe',
+  '카테고리는 pin_category 로 온다 — 화면에서 한글로 바꾼다');
+
+-- ④ **저장한 순서**(최신 먼저)다. 거리순이 아니다
+--    ★ 일부러 **가까운 것을 먼저 저장하고 먼 것을 나중에** 저장했다.
+--      거리순으로 잘못 짜면 둘이 똑같이 나와서 **빗장이 안 걸린다.**
+insert into public.reactions (user_id, target_type, target_id, kind, created_at)
+values (auth.uid(), 'place', 'aaaaaaaa-0000-0000-0000-0000000000f3', 'save',
+        now() + interval '1 minute');
+select pg_temp.ok(
+  (select array_agg(name order by saved_at desc) from saves)
+    = array['저장목록 나중 저장한 곳','저장목록 먼저 저장한 곳'],
+  '순서 재료는 saved_at 이다');
+select pg_temp.ok(
+  (select name from saves limit 1) = '저장목록 나중 저장한 곳',
+  '★ 나중에 저장한 것이 맨 앞이다 — **먼 것을 나중에** 저장했으니 거리순이면 뒤로 간다');
+
+-- ⑤ 가 본 곳과 저장만 한 곳을 가른다 — 둘은 **다른 할 일**이다
+select pg_temp.ok((select bool_and(not been) from saves),
+  '저장만 한 곳은 been=false');
+reset role;
+-- ★ **남의 핀을 먼저 심는다.** 처음엔 내 핀만 심고 `been` 을 봤는데,
+--   함수에서 `mp.user_id = auth.uid()` 를 **빼도 그대로 통과했다** — 빗장이
+--   걸려 있는지 확인하려고 빼 봤더니 안 잡혔다(§13.103). 남이 다녀온 곳이
+--   "내가 가 봤다"로 보이면 저장 목록이 남의 발자국을 내 것으로 말한다.
+--   그 남의 핀은 **공개**라야 뜻이 있다 — 비공개면 RLS 가 먼저 가려서
+--   `auth.uid()` 조건이 있으나 없으나 똑같다.
+insert into public.pins (id, user_id, place_id, geom, category, visited_at, is_public, verification)
+values ('77770000-0000-0000-0000-0000000000f3', '22222222-2222-2222-2222-222222222222',
+        'aaaaaaaa-0000-0000-0000-0000000000f3',
+        ST_SetSRID(ST_MakePoint(129.0900, 35.0900), 4326), 'nature',
+        '2026-05-01 10:00+09', true, 'exif');
+insert into public.pins (id, user_id, place_id, geom, category, visited_at, is_public, verification)
+values ('77770000-0000-0000-0000-0000000000f2', '11111111-1111-1111-1111-111111111111',
+        'aaaaaaaa-0000-0000-0000-0000000000f2',
+        ST_SetSRID(ST_MakePoint(129.0500, 35.0500), 4326), 'cafe',
+        '2026-05-01 10:00+09', false, 'exif');
+set role authenticated; select pg_temp.login('11111111-1111-1111-1111-111111111111');
+select pg_temp.ok(
+  (select been from saves where place_id='aaaaaaaa-0000-0000-0000-0000000000f2'),
+  '★ 다녀온 곳은 been=true — "가 볼 곳"과 "다녀온 곳"을 한 줄에서 가린다');
+select pg_temp.ok(
+  not (select been from saves where place_id='aaaaaaaa-0000-0000-0000-0000000000f3'),
+  '★ **남이** 다녀온 곳은 been=false — 남의 공개 핀이 내 발자국으로 세어지면 안 된다');
+
+-- ⑥ 저장해 둔 사이에 **문을 닫았으면** 그렇다고 말한다 (051)
+insert into public.reactions (user_id, target_type, target_id, kind)
+values (auth.uid(), 'place', 'aaaaaaaa-0000-0000-0000-0000000000f4', 'save');
+select pg_temp.ok(
+  (select closed from saves where place_id='aaaaaaaa-0000-0000-0000-0000000000f4')
+  and not (select closed from saves where place_id='aaaaaaaa-0000-0000-0000-0000000000f3'),
+  '★ 저장한 뒤 닫힌 곳은 closed=true — 모르고 찾아가면 그날 하루가 날아간다');
+
+-- ⑦ 남의 저장은 **한 줄도** 안 온다 (RLS reactions_read_own 이 유일한 빗장이다)
+reset role;
+insert into public.reactions (user_id, target_type, target_id, kind)
+values ('22222222-2222-2222-2222-222222222222', 'place',
+        'aaaaaaaa-0000-0000-0000-0000000000f3', 'save');
+set role authenticated; select pg_temp.login('33333333-3333-3333-3333-333333333333');
+select pg_temp.ok((select count(*) from saves) = 0,
+  '★ 남남에게는 아무것도 안 보인다 — 남이 저장한 곳이 내 목록에 섞이면 내 계획이 아니다');
+select pg_temp.login('11111111-1111-1111-1111-111111111111');
+select pg_temp.ok((select count(*) from saves) = 3,
+  '★ 내 것 셋만 온다 — 2번이 같은 장소를 저장했어도 내 목록 길이는 안 바뀐다');
+
+-- ⑧ 비로그인은 빈 목록 — 터지지 않는다 (웹 뷰어가 같은 화면을 그린다)
+reset role; set role anon; select pg_temp.login(null);
+select pg_temp.ok((select count(*) from public.api_my_saves(129.0500, 35.0500, 24)) = 0,
+  '★ 비로그인은 빈 목록이다 — 에러가 아니라 빈 줄이라 화면이 안 깨진다');
+reset role; set role authenticated; select pg_temp.login('11111111-1111-1111-1111-111111111111');
+
+-- ⑨ 개수 제한을 지킨다
+select pg_temp.ok((select count(*) from public.api_my_saves(129.0500, 35.0500, 2)) = 2,
+  '한도를 지킨다');
+select pg_temp.ok((select count(*) from public.api_my_saves(129.0500, 35.0500, 0)) = 1,
+  '0 을 줘도 한 줄은 온다 — 0 이 "무제한"이 되지 않게');
+
+-- ⑩ 풀면 **목록에서 사라진다** (저장 버튼과 목록이 같은 사실을 본다)
+delete from public.reactions
+ where target_type='place' and target_id='aaaaaaaa-0000-0000-0000-0000000000f3' and kind='save';
+select pg_temp.ok(
+  (select count(*) from saves) = 2
+  and not exists (select 1 from saves where place_id='aaaaaaaa-0000-0000-0000-0000000000f3'),
+  '★ 풀면 목록에서 빠진다 — 버튼과 목록이 **같은 표**를 보니까 어긋날 수 없다');
+
 -- ── 038 초대 링크로 합류 ─────────────────────────────────────────────
 -- ★ §3 이 "초대 수락률이 핵심 지표"라고 적어 뒀는데 수락 경로가 없었다.
 --   여기서 지킬 것: ① 무엇을 수락하는지 먼저 보인다 ② 여러 링크가 한 계정에 쌓인다
