@@ -12,8 +12,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Animated, Easing, Image, Linking, Pressable, ScrollView,
-  StyleSheet, Text, View,
+  Image, Linking, Pressable, ScrollView, StyleSheet, Text, View,
 } from "react-native";
 import { C, CAT } from "../theme";
 import { driveText as courseDriveText } from "../course";
@@ -21,6 +20,7 @@ import * as API from "../api";
 import { saveNote } from "../saveNote";
 import { sawCover, openedCover, flushCovers } from "../coverLog";
 import { PlaceSheet } from "../PlaceSheet";
+import { useSkeletonPulse, SkelBar, SkelBox } from "../Skeleton";
 
 /* ★ 카드 치수를 상수로 올린다 — 아래 `Rail` 이 **무엇이 보이는지** 계산하는 데
    쓴다. 스타일에만 적어 두면 둘이 조용히 어긋난다. */
@@ -361,26 +361,16 @@ export function FeedTab(
    ★ 카드는 **셋**이다. 화면에 두 장 반이 걸치므로 그만큼만 그린다 — 안 보이는
      것을 그리는 값은 기다리는 동안에도 값이다. */
 function RailSkeleton() {
-  const pulse = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    const loop = Animated.loop(Animated.sequence([
-      Animated.timing(pulse, { toValue: 1, duration: 700, easing: Easing.inOut(Easing.quad),
-                               useNativeDriver: true }),
-      Animated.timing(pulse, { toValue: 0, duration: 700, easing: Easing.inOut(Easing.quad),
-                               useNativeDriver: true }),
-    ]));
-    loop.start();
-    return () => loop.stop();
-  }, []);
-  const o = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.7] });
+  /* ★ 숨 쉬는 규칙은 `Skeleton.tsx` 한 곳에 있다(§13.112) — `내 하루` 도 같은 것을
+     쓴다. 이유가 하나인데 구현이 둘이면 한쪽만 고치고 모른 채 지나간다(§13.37). */
+  const o = useSkeletonPulse();
 
   return (
     <View style={s.rail} pointerEvents="none">
       {/* 제목·설명 자리 — 글자가 아니라 막대다 */}
-      <Animated.View style={[s.skBar, { width: 112, marginHorizontal: 18, opacity: o }]} />
-      <Animated.View
-        style={[s.skBar, { width: 168, height: 9, marginHorizontal: 18,
-                           marginTop: 6, marginBottom: 9, opacity: o }]} />
+      <SkelBar pulse={o} style={{ width: 112, marginHorizontal: 18 }} />
+      <SkelBar pulse={o} style={{ width: 168, height: 9, marginHorizontal: 18,
+                                  marginTop: 6, marginBottom: 9 }} />
       {/* ★ **가로로** 세운다. `s.row` 는 진짜 묶음에서 **가로 ScrollView 의
           contentContainerStyle** 로 쓰여서 방향이 거기서 온다 — 그냥 `View` 에
           얹으면 세로로 쌓인다(실제로 그렇게 나왔다). 치수를 빌려 쓸 때는
@@ -393,17 +383,14 @@ function RailSkeleton() {
              주석에 "치수를 맞췄다"고 적어 놓고 안 맞춰 두면 그 주석이 거짓말이다.
              ★ 거리 줄은 **오른쪽**이다(진짜 카드가 `textAlign: "right"`). */
           <View key={i} style={s.card}>
-            <Animated.View style={[s.img, { opacity: o }]} />
-            <Animated.View style={[s.skBar, { width: 104, marginHorizontal: 10,
-                                              marginTop: 11, opacity: o }]} />
-            <Animated.View style={[s.skBar, { width: 68, height: 9, marginHorizontal: 10,
-                                              marginTop: 7, opacity: o }]} />
-            <Animated.View style={[s.skBar, { width: 52, height: 9, marginHorizontal: 10,
-                                              marginTop: 9, alignSelf: "flex-end",
-                                              opacity: o }]} />
-            <Animated.View style={[s.skBar, { width: 88, height: 8, marginHorizontal: 10,
-                                              marginTop: 8, marginBottom: 17,
-                                              opacity: o }]} />
+            <SkelBox pulse={o} style={{ width: "100%", height: 108 }} />
+            <SkelBar pulse={o} style={{ width: 104, marginHorizontal: 10, marginTop: 11 }} />
+            <SkelBar pulse={o} style={{ width: 68, height: 9, marginHorizontal: 10,
+                                        marginTop: 7 }} />
+            <SkelBar pulse={o} style={{ width: 52, height: 9, marginHorizontal: 10,
+                                        marginTop: 9, alignSelf: "flex-end" }} />
+            <SkelBar pulse={o} style={{ width: 88, height: 8, marginHorizontal: 10,
+                                        marginTop: 8, marginBottom: 17 }} />
           </View>
         ))}
       </View>
@@ -761,7 +748,4 @@ const s = StyleSheet.create({
   dist: { color: C.muted, fontSize: 10.5, paddingHorizontal: 10, paddingVertical: 7, textAlign: "right" },
   credit: { color: C.muted, fontSize: 10, lineHeight: 16, padding: 18, marginTop: 10 },
   dim: { color: C.muted, fontSize: 12, textAlign: "center" },
-  /* 뼈대 막대 — 카드 바탕(`rgba(255,255,255,0.03)`)보다 **한 단만** 밝다.
-     너무 밝으면 글자가 있는 줄 알고 읽으려 든다 */
-  skBar: { height: 11, borderRadius: 5, backgroundColor: "rgba(255,255,255,0.11)" },
 });

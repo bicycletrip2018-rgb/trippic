@@ -10,22 +10,30 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator, Image, Modal, Pressable, ScrollView, Share, StyleSheet, Text, View,
+  Image, Modal, Pressable, ScrollView, Share, StyleSheet, Text, View,
 } from "react-native";
 import * as API from "./api";
 import { buildCourses, courseText, dur, hhmm, ymd, type Course, type CoursePin } from "./course";
 import { C, CAT } from "./theme";
 import { NextPlaces } from "./NextPlaces";
+import { useSkeletonPulse, SkelBar, SkelBox } from "./Skeleton";
 
 export function DayCourse({ onClose }: { onClose: () => void }) {
   const [rows, setRows] = useState<any[] | null>(null);
 
   const [land, setLand] = useState(0);   // 표를 받으면 다시 계산한다
   useEffect(() => {
+    /* ★ **나란히 부른다**(§13.112). 예전에는 `await loadLandmass()` 를 먼저 하고
+       그다음 `myRecords()` 였는데, 둘은 **서로 아무 관계가 없다** — 육로 덩어리 표는
+       기록을 받는 데 필요하지 않고, 기록은 표를 채우는 데 필요하지 않다.
+       줄줄이 기다릴 이유가 없었다(실측: 표 553ms + 기록 126ms → 553ms).
+       ★ 순서가 뒤바뀌어도 된다 — `land` 가 오르면 `useMemo` 가 다시 센다. */
     void (async () => {
-      await API.loadLandmass();          // 섬 판정은 서버와 같은 표로 (035)
+      const [, r] = await Promise.all([
+        API.loadLandmass(),              // 섬 판정은 서버와 같은 표로 (035)
+        API.myRecords(300),
+      ]);
       setLand((n) => n + 1);
-      const r = await API.myRecords(300);
       setRows(r.data ?? []);
     })();
   }, []);
@@ -60,7 +68,11 @@ export function DayCourse({ onClose }: { onClose: () => void }) {
         </View>
 
         {rows === null ? (
-          <View style={s.center}><ActivityIndicator color={C.accent} /></View>
+          /* ★ 동그라미 하나 대신 **뼈대**를 둔다(§13.110 과 같은 이유).
+             다만 여기는 `갈 곳` 과 사정이 다르다 — 머리글(`✕ 내 하루`)은 모달이
+             이미 그리고 있어서 **숨겨진 적이 없었다.** 바뀌는 것은 몸통뿐이라
+             얻는 것도 그만큼이다. 솔직히 적어 둔다. */
+          <View style={s.body}><CourseSkeleton /><CourseSkeleton /></View>
         ) : !courses.length ? (
           <View style={s.center}>
             <Text style={s.empty}>아직 코스로 만들 하루가 없습니다</Text>
@@ -84,6 +96,31 @@ export function DayCourse({ onClose }: { onClose: () => void }) {
         )}
       </View>
     </Modal>
+  );
+}
+
+/* 코스 카드가 들어올 자리 — 치수는 `s.card`·`s.cardHead` 에서 그대로 빌린다 */
+function CourseSkeleton() {
+  const o = useSkeletonPulse();
+  return (
+    <View style={s.card} pointerEvents="none">
+      <View style={s.cardHead}>
+        <View style={{ flex: 1 }}>
+          <SkelBar pulse={o} style={{ width: 96 }} />
+          <SkelBar pulse={o} style={{ width: 140, height: 9, marginTop: 7 }} />
+        </View>
+      </View>
+      {[0, 1, 2].map((i) => (
+        <View key={i} style={{ flexDirection: "row", alignItems: "center",
+                               gap: 10, paddingHorizontal: 14, paddingVertical: 9 }}>
+          <SkelBox pulse={o} style={{ width: 44, height: 44, borderRadius: 10 }} />
+          <View style={{ flex: 1 }}>
+            <SkelBar pulse={o} style={{ width: "62%" }} />
+            <SkelBar pulse={o} style={{ width: "38%", height: 9, marginTop: 6 }} />
+          </View>
+        </View>
+      ))}
+    </View>
   );
 }
 
