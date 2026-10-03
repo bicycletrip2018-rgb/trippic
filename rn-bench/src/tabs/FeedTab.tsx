@@ -12,7 +12,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View,
+  Animated, Easing, Image, Linking, Pressable, ScrollView,
+  StyleSheet, Text, View,
 } from "react-native";
 import { C, CAT } from "../theme";
 import { driveText as courseDriveText } from "../course";
@@ -192,8 +193,13 @@ export function FeedTab(
     setOpen({ id: x.place_id, name: x.name, distM: x.dist_m ?? null });
   };
 
-  if (err) return <View style={s.center}><Text style={s.dim}>{err}</Text></View>;
-  if (!rows) return <View style={s.center}><ActivityIndicator color={C.accent} /></View>;
+  /* ★ **화면을 통째로 갈아치우지 않는다**(§13.110).
+     예전에는 여기서 `if (!rows) return <ActivityIndicator/>` 로 **전부** 치웠다.
+     그래서 제목도 `2시간·반나절·하루` 칩도 **서버가 답할 때까지** 안 나왔다 —
+     §13.109 로 재 보니 그것들은 **8ms 면 그릴 수 있는 것**인데 최대 **2.2초** 동안
+     까만 화면이었다. 앱이 이미 가진 것을 숨기고 있었던 것이다.
+     → 머리글과 칩은 **늘 그린다.** 바뀌는 것은 **묶음 자리**뿐이다. */
+  const loading = !rows && !err;
 
   const list = (
     <ScrollView style={s.wrap} contentContainerStyle={{ paddingBottom: 110 }}>
@@ -216,7 +222,19 @@ export function FeedTab(
       {budget != null && <BudgetRail budget={budget} rows={budgetRows} />}
       {season && <SeasonRail rows={seasonRows} />}
 
-      {!rails.length && (
+      {/* ★ 오류도 **머리글을 지우지 않는다.** 예전에는 오류 한 줄만 남기고 화면을
+          비웠는데, 그러면 칩도 못 누르고 할 수 있는 일이 아무것도 없다. */}
+      {err && <Text style={[s.dim, { marginTop: 24 }]}>{err}</Text>}
+
+      {/* ★ 기다리는 동안 **뼈대**를 둔다(§13.110). 치수를 진짜 묶음과 **똑같이**
+          맞췄다 — 안 맞으면 답이 왔을 때 화면이 **덜컥 뛴다.** 뛰는 뼈대는
+          없느니만 못하다.
+          ★ 제목은 **글자가 아니라 회색 막대**다. 네 묶음 중 어느 것이 설지
+            아직 모르는데 `지금 하는 행사` 라고 적어 두면, 비었을 때 그 줄이
+            사라지면서 **방금 한 말을 무르는 꼴**이 된다. */}
+      {loading && <><RailSkeleton /><RailSkeleton /></>}
+
+      {!loading && !err && !rails.length && (
         <Text style={s.dim}>
           이 자리 둘레에는 보여 드릴 곳을 찾지 못했습니다. 지도를 옮겨 보십시오.
         </Text>
@@ -314,6 +332,64 @@ export function FeedTab(
              사용자가 저장해 놓고 시트를 안 닫는 동안 줄과 버튼이 어긋난다. */
           onSaveChanged={loadSaves} />
       )}
+    </View>
+  );
+}
+
+/* ── 기다리는 동안의 뼈대 (§13.110) ───────────────────────────────
+   ★ 치수를 **진짜 묶음에서 그대로 가져온다**(`s.rail`·`s.railT`·`s.row`·`s.card`·`s.img`).
+     따로 적어 두면 한쪽을 고칠 때 다른 쪽이 안 따라와 **답이 올 때 화면이 뛴다.**
+   ★ **숨을 쉰다.** 완전히 멈춰 있으면 고장 난 화면과 구별이 안 된다 — 네이티브
+     드라이버로 투명도만 흔들어, 자바스크립트가 바빠도 끊기지 않게 한다.
+   ★ 카드는 **셋**이다. 화면에 두 장 반이 걸치므로 그만큼만 그린다 — 안 보이는
+     것을 그리는 값은 기다리는 동안에도 값이다. */
+function RailSkeleton() {
+  const pulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(pulse, { toValue: 1, duration: 700, easing: Easing.inOut(Easing.quad),
+                               useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 0, duration: 700, easing: Easing.inOut(Easing.quad),
+                               useNativeDriver: true }),
+    ]));
+    loop.start();
+    return () => loop.stop();
+  }, []);
+  const o = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.7] });
+
+  return (
+    <View style={s.rail} pointerEvents="none">
+      {/* 제목·설명 자리 — 글자가 아니라 막대다 */}
+      <Animated.View style={[s.skBar, { width: 112, marginHorizontal: 18, opacity: o }]} />
+      <Animated.View
+        style={[s.skBar, { width: 168, height: 9, marginHorizontal: 18,
+                           marginTop: 6, marginBottom: 9, opacity: o }]} />
+      {/* ★ **가로로** 세운다. `s.row` 는 진짜 묶음에서 **가로 ScrollView 의
+          contentContainerStyle** 로 쓰여서 방향이 거기서 온다 — 그냥 `View` 에
+          얹으면 세로로 쌓인다(실제로 그렇게 나왔다). 치수를 빌려 쓸 때는
+          **그 치수가 기대는 것까지** 빌려야 한다. */}
+      <View style={[s.row, { flexDirection: "row" }]}>
+        {[0, 1, 2].map((i) => (
+          /* ★ 줄 수를 **진짜 카드와 맞춘다**: 사진 · 이름 · 갈래·지역 · 거리 · 출처.
+             처음엔 막대를 둘만 뒀는데 카드가 **33pt 낮아서**, 답이 왔을 때 아래
+             묶음이 그만큼 **밀려 내려갔다.** 뛰는 뼈대는 없느니만 못하다 —
+             주석에 "치수를 맞췄다"고 적어 놓고 안 맞춰 두면 그 주석이 거짓말이다.
+             ★ 거리 줄은 **오른쪽**이다(진짜 카드가 `textAlign: "right"`). */
+          <View key={i} style={s.card}>
+            <Animated.View style={[s.img, { opacity: o }]} />
+            <Animated.View style={[s.skBar, { width: 104, marginHorizontal: 10,
+                                              marginTop: 11, opacity: o }]} />
+            <Animated.View style={[s.skBar, { width: 68, height: 9, marginHorizontal: 10,
+                                              marginTop: 7, opacity: o }]} />
+            <Animated.View style={[s.skBar, { width: 52, height: 9, marginHorizontal: 10,
+                                              marginTop: 9, alignSelf: "flex-end",
+                                              opacity: o }]} />
+            <Animated.View style={[s.skBar, { width: 88, height: 8, marginHorizontal: 10,
+                                              marginTop: 8, marginBottom: 17,
+                                              opacity: o }]} />
+          </View>
+        ))}
+      </View>
     </View>
   );
 }
@@ -627,7 +703,6 @@ function BudgetRail({ budget, rows }: { budget: number; rows: API.BudgetPlace[] 
 
 const s = StyleSheet.create({
   wrap: { flex: 1, backgroundColor: C.bg },
-  center: { flex: 1, backgroundColor: C.bg, alignItems: "center", justifyContent: "center" },
   h1: { color: C.text, fontSize: 19, fontWeight: "700", paddingHorizontal: 18, paddingTop: 58 },
   sub: { color: C.muted, fontSize: 11.5, lineHeight: 18, paddingHorizontal: 18, paddingTop: 5 },
   chips: { paddingHorizontal: 18, paddingVertical: 12, gap: 6 },
@@ -669,4 +744,7 @@ const s = StyleSheet.create({
   dist: { color: C.muted, fontSize: 10.5, paddingHorizontal: 10, paddingVertical: 7, textAlign: "right" },
   credit: { color: C.muted, fontSize: 10, lineHeight: 16, padding: 18, marginTop: 10 },
   dim: { color: C.muted, fontSize: 12, textAlign: "center" },
+  /* 뼈대 막대 — 카드 바탕(`rgba(255,255,255,0.03)`)보다 **한 단만** 밝다.
+     너무 밝으면 글자가 있는 줄 알고 읽으려 든다 */
+  skBar: { height: 11, borderRadius: 5, backgroundColor: "rgba(255,255,255,0.11)" },
 });
