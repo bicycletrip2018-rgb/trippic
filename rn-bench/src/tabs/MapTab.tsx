@@ -41,6 +41,7 @@ import { C, CAT } from "../theme";
 import { splitMapSaves } from "../mapSaves";
 import { shareInvite } from "../invite";
 import { regionInfo } from "../regionName";
+import { tapLayers, regionFallback } from "../tapRule";
 import { zoomIn, zoomOut, canZoomIn, canZoomOut } from "../zoomStep";
 import { zoomForBBox, padPinBox, unionBox, fitView } from "../fitBox";
 import { pickNearest, TAP_SLOP, type Cand } from "../tapPick";
@@ -545,7 +546,14 @@ export function MapTab(
     const r = await API.mySaves(null, null, 500);
     if (r.ok) setSaves(r.data ?? []);
   }, []);
-  useEffect(() => { void loadSaves(); }, [loadSaves]);
+  /* ★ **`ready` 를 기다린다**(§13.116). 안 기다리면 `ensureSession` 이 끝나기 전에
+     한 번 묻고 마는데, 그때는 토큰이 없어 **RLS 가 아무것도 안 준다** — 그리고
+     다시 묻지 않으므로 **앱을 켜는 내내 금테 점이 없다.**
+     ★ §13.104 에서 이걸 놓친 이유: 그때는 **앱 안에서 저장을 눌러** 확인했고,
+       그 길은 `onSaveChanged` 가 다시 읽어서 세션이 이미 서 있었다. 밖에서 미리
+       저장해 두고 앱을 켜 보니 **한 번도 안 보였다.**
+       같은 화면을 **다른 길로도** 열어 봐야 한다(§13.106 이 쓰기/읽기에서 배운 것). */
+  useEffect(() => { if (ready) void loadSaves(); }, [ready, loadSaves]);
 
   /* ★ 집계는 **스코프가 바뀔 때만** 읽는다. 화면을 밀어도 다시 읽지 않는다 —
      숫자가 뷰포트와 무관하니 다시 읽을 이유가 없다(042). */
@@ -639,33 +647,14 @@ export function MapTab(
     const ll = e?.nativeEvent?.lngLat;
     if (!pt) { setOpen(null); return; }
 
-    /* ★ 집계 줌에서만 지역 탭을 받는다. 확대된 상태에서도 받으면
-       **핀을 노린 손가락을 지역이 가로챈다**(웹에서 정한 규칙). */
-    if (isRegionZoom(zoom)) {
-      const hit = await mapRef.current
-        ?.queryRenderedFeatures(pt, { layers: ["region-base"] })
-        .catch(() => [] as any[]);
-      const code = hit?.[0]?.properties?.code;
-      const r = regionInfo(code);
-      if (!r?.bbox) return;                       // 바다를 눌렀다 — 아무 일도 안 한다
-      setInto(r.name);
-
-      /* ★ **기록이 있는 곳으로 간다**(§13.61). 행정구역 한가운데는 대개 산이다 —
-         해운대구를 누르면 장산 산지에 떨어져 아무것도 없는 화면을 봤다.
-         *"지역을 눌렀다"* 는 *"거기 뭐가 있는지 보자"* 는 뜻이다.
-         ★ 집계를 읽을 때 상자를 **같이** 받아 뒀다(050). 탭할 때 또 물으면
-           그만큼 지도가 늦게 움직인다. */
-      const a = agg.find((x) => x.region_code === code);
-      const box = (a && Number.isFinite(a.bw))
-        ? padPinBox([a.bw, a.bs, a.be, a.bn])
-        : r.bbox;                                 // 기록이 없는 지역은 예전처럼
-
-      /* 지역을 눌러 들어갈 때도 같다 — 들어간 자리가 시트에 가리면 누른 보람이 없다 */
-      const v = fitView(box, size.current.w, size.current.h,
-                        { top: headH, bottom: SHEET_BOTTOM + SHEET_PEEK }, !!a);
-      camRef.current?.flyTo({ center: v.center, zoom: v.zoom, duration: 700 });
-      return;
-    }
+    /* ★ **지역은 이제 배경이고 마커가 앞이다**(§13.116).
+       예전에는 집계 줌이면 **무조건** 지역으로 들어갔다. §13.61 이 그렇게 정한
+       이유는 *"핀을 노린 손가락을 지역이 가로챈다"* 였는데, 그때 집계 줌에는
+       누를 것이 지역밖에 없었다. §13.104 가 **저장한 곳을 그 줌에도 그리면서**
+       깨졌다 — 일부러 눈에 띄게 그려 놓고 누르면 지역으로 들어갔다.
+       → 마커를 **먼저** 보고, 못 맞혔을 때만 지역으로 간다.
+       ★ 무엇을 앞세울지는 `tapRule.ts` 가 **개수를 재서** 정한다(저장 50곳은
+         화면의 27%, 핀 300개는 100%를 가로챈다). */
     /* ★ **손가락만큼 여유를 준다**(§13.98). 예전에는 점 **하나**를 찍어야 했다 —
        반지름 2.5px 짜리를 맞히라는 뜻이었고, 그래서 실제로는 글자를 눌러야만 열렸다.
        이제 누른 자리 둘레 44pt(= 애플 최소 타깃) 안을 보고 **가장 가까운 것**을 연다.
@@ -679,14 +668,13 @@ export function MapTab(
       [pt[0] - TAP_SLOP, pt[1] - TAP_SLOP],
       [pt[0] + TAP_SLOP, pt[1] + TAP_SLOP],
     ];
-    const hits = await mapRef.current
-      ?.queryRenderedFeatures(box, {
-        /* ★ 저장한 곳도 **눌리는 것**이어야 한다(§13.104). 안 넣으면 금테 점이
-           화면에만 있고 손가락에는 없는, §13.98 이 고친 그 상태로 되돌아간다. */
-        layers: ["pin-dot", "place-label", "place-dot",
-                 "save-dot", "save-label"],
-      })
-      .catch(() => [] as any[]);
+    /* ★ 저장한 곳도 **눌리는 것**이어야 한다(§13.104). 집계 줌에서는 그것만 본다. */
+    const layers = tapLayers(zoom, saves.length);
+    const hits = layers.length
+      ? await mapRef.current
+          ?.queryRenderedFeatures(box, { layers })
+          .catch(() => [] as any[])
+      : [];
 
     const cands: Cand[] = [];
     const seen = new Set<string>();
@@ -707,7 +695,13 @@ export function MapTab(
     cands.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "pin" ? -1 : 1));
 
     const hit = pickNearest(cands, ll?.[0] ?? 0, ll?.[1] ?? 0);
-    if (!hit) { setOpen(null); return; }
+    if (!hit) {
+      setOpen(null);
+      /* ★ **못 맞혔으면 지역으로 간다**(§13.116). §13.61 의 규칙은 그대로 살아 있다 —
+         달라진 것은 지역이 **먼저**가 아니라 **나중**이라는 것뿐이다. 지역은 배경이다. */
+      if (regionFallback(zoom)) await goRegion(pt);
+      return;
+    }
     if (hit.kind === "pin") {
       setOpen(pins.find((p) => p.id === hit.id) ?? null);
       return;
@@ -715,6 +709,32 @@ export function MapTab(
     setOpen(null);
     const nm = (hits ?? []).find((f) => f.properties?.id === hit.id)?.properties?.name;
     setOpenPlace({ id: hit.id, name: nm ?? "장소" });
+  };
+
+  /* 지역 하나로 들어간다 — 예전에는 `onMapPress` 안에 섞여 있었다(§13.116 에서 뽑았다) */
+  const goRegion = async (pt: [number, number]) => {
+    const hit = await mapRef.current
+      ?.queryRenderedFeatures(pt, { layers: ["region-base"] })
+      .catch(() => [] as any[]);
+    const code = hit?.[0]?.properties?.code;
+    const r = regionInfo(code);
+    if (!r?.bbox) return;                       // 바다를 눌렀다 — 아무 일도 안 한다
+    setInto(r.name);
+
+    /* ★ **기록이 있는 곳으로 간다**(§13.61). 행정구역 한가운데는 대개 산이다 —
+       해운대구를 누르면 장산 산지에 떨어져 아무것도 없는 화면을 봤다.
+       *"지역을 눌렀다"* 는 *"거기 뭐가 있는지 보자"* 는 뜻이다.
+       ★ 집계를 읽을 때 상자를 **같이** 받아 뒀다(050). 탭할 때 또 물으면
+         그만큼 지도가 늦게 움직인다. */
+    const a = agg.find((x) => x.region_code === code);
+    const box = (a && Number.isFinite(a.bw))
+      ? padPinBox([a.bw, a.bs, a.be, a.bn])
+      : r.bbox;                                 // 기록이 없는 지역은 예전처럼
+
+    /* 지역을 눌러 들어갈 때도 같다 — 들어간 자리가 시트에 가리면 누른 보람이 없다 */
+    const v = fitView(box, size.current.w, size.current.h,
+                      { top: headH, bottom: SHEET_BOTTOM + SHEET_PEEK }, !!a);
+    camRef.current?.flyTo({ center: v.center, zoom: v.zoom, duration: 700 });
   };
 
   const changeScope = (v: API.Scope) => {
