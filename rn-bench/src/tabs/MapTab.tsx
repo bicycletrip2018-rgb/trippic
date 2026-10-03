@@ -34,7 +34,8 @@ import * as API from "../api";
 import { whereAmI, watchHere, watchHeading, type Here } from "../live";
 import { MapSheet, SHEET_PEEK, SHEET_BOTTOM, SHEET_HALF, type Snap } from "../MapSheet";
 import { PlaceSheet } from "../PlaceSheet";
-import { sawCover, openedCover, flushCovers } from "../coverLog";
+import { sawCover, openedCover, researchedCover, flushCovers } from "../coverLog";
+import { MapSearch, type Hit } from "../MapSearch";
 import { dur, ymd } from "../course";
 import { C, CAT } from "../theme";
 import { zoomForBBox, padPinBox, unionBox, fitView } from "../fitBox";
@@ -378,6 +379,10 @@ export function MapTab(
   /* ★ 축척 막대가 쓸 **보고 있는 위도**(§13.99). 메르카토르라 같은 줌이라도
      위도에 따라 1픽셀이 덮는 거리가 다르다 — 제주와 강원이 다르다. */
   const [atLat, setAtLat] = useState(36.3);
+  /* 검색이 펼쳐졌는가 — 결과 목록이 칩 줄을 덮으므로 그동안 칩을 감춘다 */
+  const [searching, setSearching] = useState(false);
+  /* 서버에 보낼 기준점. 반경 안을 먼저 보게 해 빠르고 가까운 것을 준다(§13.100) */
+  const [atLng, setAtLng] = useState(127.8);
   const [zoom, setZoom] = useState(5.6);
   const [agg, setAgg] = useState<API.RegionAgg[]>([]);
   const [into, setInto] = useState<string | null>(null);   // 들어온 지역 이름
@@ -494,6 +499,32 @@ export function MapTab(
      → 요청마다 번호를 붙이고 **마지막 것만** 받는다. 핀 쪽은 `loaded.current` 가
        우연히 막아 주지만 집계에는 그런 것이 없었다. */
   const aggSeq = useRef(0);
+
+  /**
+   * 찾은 것을 **연다** (§13.101)
+   *
+   * ★ 지역과 장소는 가는 곳이 다르다. 지역은 *"거기 뭐가 있나"* 라 **상자로** 가고,
+   *   장소는 *"저기"* 라 **그 점으로** 간 다음 상세를 연다.
+   * ★ 장소를 열 때 **재검색 신호**를 보낸다(§13.9 규칙 3). 그 판정(보여 준 적
+   *   있는가 · 30분 안인가)은 `coverLog` 가 한다 — 여기서 또 판단하지 않는다.
+   */
+  const pickHit = async (h: Hit) => {
+    if (h.kind === "region") {
+      const r = NAME[h.id];
+      const box = r?.bbox;
+      if (!box) return;
+      const v = fitView(box, size.current.w, size.current.h,
+                        { top: headH, bottom: SHEET_BOTTOM + SHEET_PEEK }, false);
+      camRef.current?.flyTo({ center: v.center, zoom: v.zoom, duration: 700 });
+      setInto(r.name);
+      return;
+    }
+    /* ★ **먼저 날아가고** 상세를 연다. 닫았을 때 그 자리에 있어야 *"찾아간 것"* 이다 */
+    camRef.current?.flyTo({ center: [h.lng, h.lat], zoom: Z_CARDS, duration: 700 });
+    researchedCover(h.id);
+    setOpen(null);
+    setOpenPlace({ id: h.id, name: h.name });
+  };
 
   /* ★ 집계가 가진 **상자들을 합쳐** 그 위로 날아간다(§13.67). 스페이스 탭에서
      *"지도 ›"* 를 눌렀을 때 전국 화면에 떨어지면 *"함께 채운 지도"* 가 아니라
@@ -927,6 +958,15 @@ export function MapTab(
     <View style={st.root}>
       <View style={st.head}
             onLayout={(e) => setHeadH(e.nativeEvent.layout.height)}>
+        {/* ★ 찾기 — **칩 위**에 둔다(§13.97 ③). 네이버와 같은 자리이고, 칩은
+            *"지금 보고 있는 것을 좁히는" 것*이라 *"다른 곳으로 가는" 것*보다 뒤다.
+            ★ `headH` 는 재는 값이라(§13.95) 줄이 하나 늘어도 맞춤이 저절로 따라간다. */}
+        <MapSearch
+          at={{ lng: atLng, lat: atLat }}
+          onOpen={setSearching}
+          onPick={(h) => void pickHit(h)} />
+        {/* 검색 결과가 펼쳐지면 칩을 감춘다 — 목록이 칩을 덮으면 둘 다 못 쓴다 */}
+        {!searching && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false}
                     contentContainerStyle={st.chipRow}>
           {SCOPES.map((c) => {
@@ -949,8 +989,10 @@ export function MapTab(
             );
           })}
         </ScrollView>
+        )}
         {/* ★ 두 줄을 **한 줄로 합치지 않는다.** '내 지도'와 '맛집'은 서로 다른 질문이라
             (누구의 것인가 / 무엇인가) 한 줄에 섞으면 둘이 배타적인 것처럼 보인다. */}
+        {!searching && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false}
                     contentContainerStyle={st.chipRow}>
           {CATS.map((c) => {
@@ -965,6 +1007,7 @@ export function MapTab(
             );
           })}
         </ScrollView>
+        )}
       </View>
 
       {!style ? (
@@ -1019,6 +1062,7 @@ export function MapTab(
                if (!b) return;
                onCenter?.({ lng: (b[0] + b[2]) / 2, lat: (b[1] + b[3]) / 2 });
                setAtLat((b[1] + b[3]) / 2);
+               setAtLng((b[0] + b[2]) / 2);
              }).catch(() => {});
            }}>
         {/* ★ 줌 숫자가 아니라 **담을 범위**로 말한다. `zoom: 5.6` 은 벤치마크 화면에서

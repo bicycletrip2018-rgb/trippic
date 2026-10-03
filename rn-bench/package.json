@@ -35,7 +35,8 @@
     "test:pending": "tsc src/pendingCount.ts --ignoreConfig --outDir build-test --module commonjs --target es2020 --skipLibCheck && node test/pending.test.cjs",
     "test:fit": "tsc src/fitBox.ts --ignoreConfig --outDir build-test --module commonjs --target es2020 --skipLibCheck && node test/fit.test.cjs",
     "test:tap": "tsc src/tapPick.ts --ignoreConfig --outDir build-test --module commonjs --target es2020 --skipLibCheck && node test/tap.test.cjs",
-    "test:scale": "tsc src/scaleBar.ts --ignoreConfig --outDir build-test --module commonjs --target es2020 --skipLibCheck && node test/scale.test.cjs"
+    "test:scale": "tsc src/scaleBar.ts --ignoreConfig --outDir build-test --module commonjs --target es2020 --skipLibCheck && node test/scale.test.cjs",
+    "test:research": "tsc src/researchRule.ts --ignoreConfig --outDir build-test --module commonjs --target es2020 --skipLibCheck && node test/research.test.cjs"
   },
   "private": true
 }

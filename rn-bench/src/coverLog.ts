@@ -18,6 +18,7 @@
  *   한 번 센 장소는 `seen` 에 남겨 두고, 전송할 때 같이 비운다.
  */
 import * as API from "./api";
+import { shouldCountResearch, RESEARCH_WINDOW_MS } from "./researchRule";
 
 type Row = { imp: number; opened: number; research: number };
 
@@ -28,9 +29,17 @@ const seen = new Set<string>();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const row = (id: string) => (BUF[id] ??= { imp: 0, opened: 0, research: 0 });
 
+/* ★ 그 장소를 **마지막으로 보여 준 시각**. `BUF` 와 따로 둔다 — 보낸 뒤에도
+   남아야 §13.9 의 *"30분 안에 다시 찾았을 때만"* 을 지킬 수 있다. */
+const shownAt: Record<string, number> = {};
+
 /** 화면에 **보였다**. 같은 묶음 안에서는 한 번만 센다. */
 export function sawCover(placeId: string | null | undefined) {
-  if (!placeId || !UUID.test(placeId) || seen.has(placeId)) return;
+  if (!placeId || !UUID.test(placeId)) return;
+  /* ★ **세는 것과 기억하는 것을 가른다.** 노출은 묶음마다 한 번만 세지만,
+     *"언제 보여 줬나"* 는 다시 그릴 때마다 갱신해야 사실이다. */
+  shownAt[placeId] = Date.now();
+  if (seen.has(placeId)) return;
   seen.add(placeId);
   row(placeId).imp += 1;
 }
@@ -41,10 +50,26 @@ export function openedCover(placeId: string | null | undefined) {
   row(placeId).opened += 1;
 }
 
-/** 검색으로 **다시 찾았다**(§13.9). 아직 RN 에 그 경로가 없어 자리만 둔다. */
+/**
+ * 검색으로 **다시 찾았다**(§13.9 규칙 3 · §13.101).
+ *
+ * ★ **보여 준 적 있을 때만** 센다. 예전에는 무조건 더했는데, 그때는 RN 에 검색
+ *   경로가 없어 아무도 안 불렀다 — 입구를 내면서 규칙도 같이 들여온다.
+ *   처음 찾는 사람까지 감점하면 **새 장소가 영원히 못 올라온다.**
+ * ★ 판정은 `researchRule.ts` 에 있다. 이 신호는 점수에서 **-2** 라 헛나가면
+ *   멀쩡한 표지를 끌어내리는데 화면에는 아무것도 안 보인다.
+ */
 export function researchedCover(placeId: string | null | undefined) {
   if (!placeId || !UUID.test(placeId)) return;
+  if (!shouldCountResearch(shownAt[placeId], Date.now())) return;
   row(placeId).research += 1;
+}
+
+/** 오래된 기억은 버린다 — 창을 넘긴 것은 어차피 안 센다 */
+export function pruneShown(now = Date.now()) {
+  for (const k of Object.keys(shownAt)) {
+    if (now - shownAt[k]! > RESEARCH_WINDOW_MS) delete shownAt[k];
+  }
 }
 
 /**
