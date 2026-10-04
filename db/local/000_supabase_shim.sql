@@ -25,6 +25,10 @@ create table if not exists auth.users (
   created_at         timestamptz not null default now()
 );
 alter table auth.users add column if not exists is_anonymous boolean not null default false;
+/* ★ 정지 기한. 074 가 여기에 찍고, GoTrue 가 이 값이 미래면 **토큰을 안 내준다.**
+   로컬 shim 에 없으면 "운영자가 계정을 정지할 수 있나"를 **로컬에서 못 잰다** —
+   실제로 거기서 멎었다. 진짜 Supabase 에는 원래 있는 칸이다(확인함). */
+alter table auth.users add column if not exists banned_until timestamptz;
 
 -- ★ `auth.identities` — 소셜을 **얹었을 때** 한 줄이 생기는 표다(044·045).
 --   이게 없어서 044 가 트리거 생성에서 죽었고, 같은 파일 뒤쪽의
