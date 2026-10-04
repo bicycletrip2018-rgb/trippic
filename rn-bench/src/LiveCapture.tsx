@@ -10,6 +10,7 @@
  *   우리가 말해야 한다 — 안 하면 사용자는 거절하고, 거절하면 이 기능이 없다.
  */
 import React, { useState } from "react";
+import { useTopPad } from "./safeArea";
 import {
   ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet,
   Text, TextInput, View,
@@ -21,6 +22,7 @@ import { C, CAT } from "./theme";
 type Phase = "intro" | "shooting" | "detail" | "saving" | "done";
 
 export function LiveCapture({ onClose }: { onClose: (saved?: boolean) => void }) {
+  const topPad = useTopPad(0);
   const [phase, setPhase] = useState<Phase>("intro");
   const [shot, setShot] = useState<Shot | null>(null);
   const [place, setPlace] = useState<any | null>(null);
@@ -74,7 +76,7 @@ export function LiveCapture({ onClose }: { onClose: (saved?: boolean) => void })
   return (
     <Modal visible animationType="slide" onRequestClose={() => onClose(false)}>
       <View style={s.root}>
-        <View style={s.head}>
+        <View style={[s.head, { paddingTop: topPad }]}>
           <Pressable onPress={() => onClose(phase === "done")} hitSlop={12}>
             <Text style={s.headBtn}>✕</Text>
           </Pressable>
@@ -237,7 +239,7 @@ const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
   head: {
     flexDirection: "row", alignItems: "center", paddingHorizontal: 12,
-    paddingTop: 56, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.line,
+    paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.line,
   },
   headBtn: { color: C.muted, fontSize: 20, width: 44 },
   headTitle: { flex: 1, color: C.text, fontSize: 16, fontWeight: "700", textAlign: "center" },

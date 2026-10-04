@@ -9,6 +9,7 @@
  *   폰에서는 목록 하나에 한 가지만 물어야 한다.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTopPad } from "./safeArea";
 import {
   ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text,
   TextInput, View,
@@ -38,6 +39,7 @@ import {
 type Step = "intro" | "trips" | "stops" | "place" | "done";
 
 export function RegisterFlow({ onClose }: { onClose: () => void }) {
+  const topPad = useTopPad(0);
   const [step, setStep] = useState<Step>("intro");
   const [busy, setBusy] = useState<string | null>(null);
   const [album, setAlbum] = useState<Photo[]>([]);
@@ -191,7 +193,7 @@ export function RegisterFlow({ onClose }: { onClose: () => void }) {
 
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
-      <View style={s.root}>
+      <View style={[s.root, { paddingTop: topPad }]}>
         <View style={s.head}>
           <Pressable
             onPress={step === "stops"
@@ -480,6 +482,7 @@ function StopList(p: {
 function PlacePicker(
   { stop, onPick, onClose }: { stop: Stop; onPick: (p: any) => void; onClose: () => void },
 ) {
+  const topPad = useTopPad(0);
   const [list, setList] = useState<any[] | null>(null);
   const [q, setQ] = useState("");
   const [err, setErr] = useState<string | null>(null);
@@ -522,7 +525,7 @@ function PlacePicker(
 
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
-      <View style={s.root}>
+      <View style={[s.root, { paddingTop: topPad }]}>
         <View style={s.head}>
           <Pressable onPress={onClose} hitSlop={12}><Text style={s.headBtn}>✕</Text></Pressable>
           <Text style={s.headTitle}>장소 고르기</Text>
@@ -629,7 +632,7 @@ function CardSkeleton() {
 }
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: C.bg, paddingTop: 54 },
+  root: { flex: 1, backgroundColor: C.bg },
   head: {
     flexDirection: "row", alignItems: "center", paddingHorizontal: 14,
     paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.line,

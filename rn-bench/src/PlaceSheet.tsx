@@ -26,6 +26,7 @@
  *   서버가 준 숫자와 앱이 센 숫자가 갈라지면 같은 곳을 두 화면이 다르게 말한다(§13.34).
  */
 import { useEffect, useState } from "react";
+import { useTopPad } from "./safeArea";
 import {
   Image, Pressable, ScrollView, StyleSheet, Text, View,
 } from "react-native";
@@ -61,6 +62,7 @@ export function PlaceSheet(
     onSaveChanged?: (on: boolean) => void;
   },
 ) {
+  const topPad = useTopPad(0);
   const [d, setD] = useState<API.PlaceDetail | null>(null);
   const [shots, setShots] = useState<API.PlaceMedia[] | null>(null);
   const [fail, setFail] = useState(false);
@@ -106,7 +108,7 @@ export function PlaceSheet(
 
   return (
     <View style={s.root}>
-      <View style={s.head}>
+      <View style={[s.head, { paddingTop: topPad }]}>
         <Text style={s.headT} numberOfLines={1}>{d?.name ?? fallbackName ?? "장소"}</Text>
         <Pressable onPress={onClose} hitSlop={12} style={s.close}>
           <Text style={s.closeT}>✕</Text>
@@ -325,7 +327,7 @@ const s = StyleSheet.create({
   },
   head: {
     flexDirection: "row", alignItems: "center", gap: 10,
-    paddingTop: 54, paddingHorizontal: 16, paddingBottom: 10,
+    paddingHorizontal: 16, paddingBottom: 10,
     borderBottomWidth: 1, borderBottomColor: C.line,
   },
   headT: { flex: 1, color: C.text, fontSize: 16, fontWeight: "600" },

@@ -13,6 +13,7 @@
  *   기준은 반드시 또 바뀐다.
  */
 import { useState } from "react";
+import { useTopPad } from "../safeArea";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
 import { measurePhoto } from "../photoQuality";
@@ -22,6 +23,7 @@ const HOST = "http://localhost:5173";     // prototype/ 를 서빙하는 서버
 const SINK = "http://localhost:5199";     // db/analysis/collect.py
 
 export function QualityCalib() {
+  const topPad = useTopPad(12);
   const [log, setLog] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const say = (s: string) => setLog((l) => [...l.slice(-14), s]);
@@ -62,7 +64,7 @@ export function QualityCalib() {
   }
 
   return (
-    <View style={s.root}>
+    <View style={[s.root, { paddingTop: topPad }]}>
       <Text style={s.h1}>화질 기준 재측정</Text>
       <Text style={s.sub}>
         앱이 실제로 쓰는 경로(expo-image-manipulator + Skia)로 표본을 잰다.
@@ -79,7 +81,7 @@ export function QualityCalib() {
 }
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: C.bg, paddingTop: 70, paddingHorizontal: 20 },
+  root: { flex: 1, backgroundColor: C.bg, paddingHorizontal: 20 },
   h1: { color: C.text, fontSize: 22, fontWeight: "700" },
   sub: { color: C.muted, fontSize: 12.5, marginTop: 6, lineHeight: 18 },
   btn: { backgroundColor: C.accent, borderRadius: 14, paddingVertical: 15, marginTop: 18 },

@@ -9,7 +9,7 @@
  */
 import { useEffect, useState } from "react";
 import { StatusBar } from "expo-status-bar";
-import { Platform, Pressable, StatusBar as RNStatusBar, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { TabBar, type Tab } from "./src/TabBar";
 import { installErrorLog, logError } from "./src/errorLog";
 import { TermsGate } from "./src/TermsGate";
@@ -32,20 +32,26 @@ import { readPending, type Pending } from "./src/pending";
 import { newPhotosSince } from "./src/album";
 import { C } from "./src/theme";
 import { QualityCalib } from "./src/dev/QualityCalib";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+import { useStatusBarHeight } from "./src/safeArea";
 
-/* ★ 안드로이드는 화면이 **상태바 밑까지** 그려진다(edge-to-edge). 그래서 스크롤하면
-   화면 제목이 시계와 **겹친다** — §13.142 에서 에뮬레이터로 직접 봤다.
-   상태바 높이만큼 바탕색을 덮어 두면 글자가 그 밑으로 지나간다.
-   ★ iOS 는 **건드리지 않는다.** 노치 높이를 알아낼 방법이 지금 없고
-     (`react-native-safe-area-context` 미설치), 모르는 값을 지어내면
-     기기마다 틀린다. 보이지도 않은 문제를 추측으로 고치지 않는다. */
-const STATUS_H = Platform.OS === "android" ? (RNStatusBar.currentHeight ?? 0) : 0;
 
 /* ★ 화질 기준 재측정 도구(§13.77). **평소에는 꺼 둔다** — 출시 경로에 없다.
    기준은 반드시 또 바뀌므로 도구는 남긴다(010 이 image_quality.py 를 남긴 것과 같다). */
 const CALIB = false;
 
+/* ★ `SafeAreaProvider` 가 **훅보다 위**에 있어야 한다. 없으면 inset 이 전부 0 으로
+   나와서 — 오류 없이 — 옛날처럼 노치에 붙는다. 조용히 틀리는 쪽이라 감싸는 것을
+   따로 둔다. */
 export default function App() {
+  return (
+    <SafeAreaProvider>
+      <AppInner />
+    </SafeAreaProvider>
+  );
+}
+
+function AppInner() {
   if (CALIB) return <QualityCalib />;
   const [tab, setTab] = useState<Tab>("map");
   const [ready, setReady] = useState(false);
@@ -237,10 +243,13 @@ export default function App() {
   );
 }
 
-/** 상태바 자리를 바탕색으로 덮는다. 안드로이드에서만 높이가 0 이 아니다. */
+/* ★ 안전영역을 지켜도 **스크롤한 내용은 상태바 위로 지나간다**(§13.142).
+   띠를 덮어야 글자가 그 밑으로 숨는다. 이제 기기에게 높이를 물으므로
+   iOS·안드로이드 **양쪽 다** 맞다. */
 function StatusScrim() {
-  if (STATUS_H <= 0) return null;
-  return <View style={[s.statusScrim, { height: STATUS_H }]} pointerEvents="none" />;
+  const h = useStatusBarHeight();
+  if (h <= 0) return null;
+  return <View style={[s.statusScrim, { height: h }]} pointerEvents="none" />;
 }
 
 const s = StyleSheet.create({

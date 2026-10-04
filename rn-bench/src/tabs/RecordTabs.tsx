@@ -5,6 +5,7 @@
  * 여기서는 실제 `pins` 로 채운다 — 이식하면서 씨앗을 같이 들고 올 이유가 없다.
  */
 import { useCallback, useEffect, useState } from "react";
+import { useTopPad } from "../safeArea";
 import {
   ActivityIndicator, Image, Pressable, RefreshControl, ScrollView,
   StyleSheet, Text, View,
@@ -74,6 +75,7 @@ function useRecords(which: "public" | "mine") {
      `places(name)` 과 `geom` 을 **처음부터 받아 오면서 하나도 안 쓰고 있었다.**
      읽는 사람이 묻는 것은 *"왜 보이나"* 가 아니라 *"어디야, 나한테서 얼마나 머나"* 다. */
 export function NewsTab({ center }: { center?: { lat: number; lng: number } }) {
+  const topPad = useTopPad(0);
   const { rows, busy, load } = useRecords("public");
   const first = busy && !rows.length;
   /* ★ 남의 기록이 보이는 화면에는 **신고·차단이 있어야 한다**(§13.135).
@@ -84,7 +86,7 @@ export function NewsTab({ center }: { center?: { lat: number; lng: number } }) {
   return (
     <ScrollView style={s.wrap} contentContainerStyle={{ paddingBottom: 110 }}
       refreshControl={<RefreshControl refreshing={busy} onRefresh={load} tintColor={C.muted} />}>
-      <Text style={s.h1}>소식</Text>
+      <Text style={[s.h1, { paddingTop: topPad }]}>소식</Text>
       {/* ★ **고르는 규칙을 그대로 적는다.** 아직 고르지 않는다는 것까지 적는 게
           맞다 — 숨기면 다음에 고르기 시작할 때 사용자는 그 변화를 모른다. */}
       <Text style={s.sub}>
@@ -169,6 +171,7 @@ function PostSkeleton() {
    초대 보내기는 `src/invite.ts` 로 갔다. */
 
 export function MyTab({ authTick = 0 }: { authTick?: number }) {
+  const topPad = useTopPad(0);
   const { rows, busy, load } = useRecords("mine");
   const [trips, setTrips] = useState<any[]>([]);
   const [signing, setSigning] = useState(false);
@@ -229,7 +232,7 @@ export function MyTab({ authTick = 0 }: { authTick?: number }) {
   return (
     <ScrollView style={s.wrap} contentContainerStyle={{ paddingBottom: 110 }}
       refreshControl={<RefreshControl refreshing={busy} onRefresh={load} tintColor={C.muted} />}>
-      <Text style={s.h1}>마이</Text>
+      <Text style={[s.h1, { paddingTop: topPad }]}>마이</Text>
 
       {/* ★ 정복률 (§13.68). 원본 기획 §1 의 한 줄 정의가 *"공간 정복 쾌감"* 인데
           서버(`api_coverage`)만 있고 **화면이 한 번도 안 불렀다.**
@@ -485,7 +488,7 @@ const s = StyleSheet.create({
   siteLink: { color: C.muted, fontSize: 12.5, textDecorationLine: "underline" },
   erase: { color: C.muted, fontSize: 12.5, paddingHorizontal: 4 },
   wrap: { flex: 1, backgroundColor: C.bg },
-  h1: { color: C.text, fontSize: 19, fontWeight: "700", paddingHorizontal: 18, paddingTop: 58 },
+  h1: { color: C.text, fontSize: 19, fontWeight: "700", paddingHorizontal: 18 },
   sub: { color: C.muted, fontSize: 11.5, lineHeight: 18, paddingHorizontal: 18, paddingTop: 5, paddingBottom: 8 },
   b: { color: C.text, fontWeight: "700" },
   empty: { padding: 40, alignItems: "center" },
