@@ -2116,6 +2116,71 @@ select pg_temp.ok(
   and not exists (select 1 from saves where place_id='aaaaaaaa-0000-0000-0000-0000000000f3'),
   '★ 풀면 목록에서 빠진다 — 버튼과 목록이 **같은 표**를 보니까 어긋날 수 없다');
 
+-- ── 066 앱 오류 로그 (§13.120) ───────────────────────────────────────
+-- ★ 이 표의 값어치는 **테스터가 "좀 이상해요"라고만 말할 때 우리가 볼 수 있는
+--   유일한 것**이라는 데 있다. 그래서 두 가지가 지켜져야 한다:
+--   ① 로그인 전에도 쓸 수 있다(세션이 안 서는 것 자체가 오류다)
+--   ② **아무나 못 읽는다** — 메시지에 사용자가 뭘 하다 터졌는지가 들어간다
+\echo ''
+\echo '── 26. 앱 오류 로그 (066) ──'
+select pg_temp.login('11111111-1111-1111-1111-111111111111');
+select public.api_log_client_error('js', '지도에서 터졌습니다', 'stack...', '1.0.0', 'ios');
+select pg_temp.ok(
+  (select count(*) from public.client_errors where message = '지도에서 터졌습니다') = 0,
+  '★ 쓴 사람도 **못 읽는다** — 이건 화면에 띄우는 것이 아니라 우리가 보는 것이다');
+
+-- ① 로그인 전에도 쓴다
+reset role; set role anon; select pg_temp.login(null);
+select public.api_log_client_error('boot', '세션이 안 섭니다');
+select pg_temp.ok(true, '★ 로그인 전에도 쓸 수 있다 — 세션이 안 서는 것 자체가 오류다');
+reset role; set role authenticated;
+
+-- ② 운영자는 읽는다
+reset role;
+insert into public.operators (user_id, granted_by)
+  values ('11111111-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111')
+  on conflict do nothing;
+set role authenticated; select pg_temp.login('11111111-1111-1111-1111-111111111111');
+select pg_temp.ok(
+  (select count(*) from public.client_errors) >= 2,
+  '★ 운영자는 읽는다 — 안 그러면 쌓아 놓고 아무도 못 본다');
+select pg_temp.ok(
+  (select user_id is null from public.client_errors where kind = 'boot' limit 1),
+  '로그인 전에 쓴 줄은 **사람이 비어 있다** — 지어내지 않는다');
+
+-- ③ 남은 여전히 못 읽는다
+select pg_temp.login('33333333-3333-3333-3333-333333333333');
+select pg_temp.ok(
+  (select count(*) from public.client_errors) = 0,
+  '★ 운영자가 아니면 한 줄도 못 읽는다');
+
+-- ④ ★ 쏟아지는 것을 막는다 — 고리에 빠지면 진짜 신호가 묻힌다
+select pg_temp.login('22222222-2222-2222-2222-222222222222');
+do $$ begin
+  for i in 1..40 loop
+    perform public.api_log_client_error('js', '고리 ' || i);
+  end loop;
+end $$;
+reset role; set role authenticated; select pg_temp.login('11111111-1111-1111-1111-111111111111');
+select pg_temp.ok(
+  (select count(*) from public.client_errors
+    where user_id = '22222222-2222-2222-2222-222222222222') <= 20,
+  '★ 1분에 20줄을 넘기면 버린다 — 한 화면이 고리에 빠지면 초당 수십 줄이 들어온다');
+
+-- ⑤ 모르는 갈래는 안 받는다
+select (select count(*) from public.client_errors) as before \gset
+select public.api_log_client_error('아무거나', '이건 안 들어가야 한다');
+select pg_temp.ok(
+  (select count(*) from public.client_errors) = :before,
+  '★ 정해 둔 세 갈래(js·api·boot)만 받는다 — 아무 이름이나 받으면 묶을 수가 없다');
+
+-- ⑥ 길이를 막는다 (로그가 표를 삼키면 안 된다)
+select public.api_log_client_error('api', repeat('가', 500), repeat('나', 9000));
+select pg_temp.ok(
+  (select length(message) <= 300 and length(detail) <= 4000
+     from public.client_errors order by id desc limit 1),
+  '★ 길어도 잘라서 넣는다 — 거절하면 그 오류를 영영 못 본다');
+
 -- ── 038 초대 링크로 합류 ─────────────────────────────────────────────
 -- ★ §3 이 "초대 수락률이 핵심 지표"라고 적어 뒀는데 수락 경로가 없었다.
 --   여기서 지킬 것: ① 무엇을 수락하는지 먼저 보인다 ② 여러 링크가 한 계정에 쌓인다

@@ -74,6 +74,13 @@ function headers(): Record<string, string> {
   return h;
 }
 
+/* ★ 실패를 **밖에서 듣게** 한다(§13.120). `api` 가 `errorLog` 를 부르면 서로를
+   물어 **순환 import** 가 되고, 그러면 모듈이 먼저 평가되는 쪽에서 상대가
+   `undefined` 가 된다 — 켜는 중에만 터지고 재현이 어려운 종류다.
+   듣는 쪽이 걸어 둔다. */
+let onFail: ((msg: string) => void) | null = null;
+export const setFailHook = (f: ((msg: string) => void) | null) => { onFail = f; };
+
 export const STATE = {
   calls: 0, fails: 0, lastError: null as string | null,
   /** 401 을 받고 토큰을 갈아 끼운 횟수 — 검증에서 "정말 갱신을 거쳤나"를 본다 */
@@ -134,6 +141,8 @@ async function req<T>(path: string, init?: RequestInit, retried = false): Promis
     return { ok: true, via: "server", data: JSON.parse(body) as T };
   } catch (e: any) {
     STATE.fails++; STATE.lastError = String(e?.message ?? e);
+    /* ★ 오류 로그 자체가 실패했을 때 그걸 또 보내면 **고리**다 — 그 길은 뺀다. */
+    if (!path.includes("api_log_client_error")) onFail?.(STATE.lastError);
     return { ok: false, via: "local", data: null, error: STATE.lastError };
   }
 }

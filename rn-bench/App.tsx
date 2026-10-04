@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import { StatusBar } from "expo-status-bar";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { TabBar, type Tab } from "./src/TabBar";
+import { installErrorLog, logError } from "./src/errorLog";
 import { MapTab } from "./src/tabs/MapTab";
 import { FeedTab } from "./src/tabs/FeedTab";
 import { NewsTab, MyTab } from "./src/tabs/RecordTabs";
@@ -67,6 +68,9 @@ export default function App() {
   useEffect(() => { if (tab === "feed") setFeedBorn(true); }, [tab]);
 
   useEffect(() => {
+    /* ★ **제일 먼저 건다**(§13.120). 뒤에 걸면 켜는 중에 난 오류를 놓치는데,
+       켜는 중에 터지는 것이 **사용자가 가장 못 넘기는 것**이다. */
+    installErrorLog();
     API.setConfig(SUPABASE_URL, SUPABASE_ANON_KEY);
     void API.loadSession().then(async () => {
       /* ★ `ready` 는 **`ensureSession` 뒤에** 올린다. 앞에 올리면 지도가 토큰이
@@ -76,7 +80,10 @@ export default function App() {
          드러나지 않다가 **만료된 세션으로 앱을 열자 바로 나왔다**(§13.54).
          ★ `ensureSession` 은 망이 끊겨도 돌아온다(그대로 쓴다고 답한다) —
            여기서 기다려도 영영 안 뜨는 일은 없다. */
-      await API.ensureSession();
+      const ses = await API.ensureSession();
+      /* ★ 세션이 안 서면 **그 뒤 전부가 조용히 빈다**(RLS 가 아무것도 안 준다).
+         화면에는 "기록이 없습니다"로 보여서 테스터는 오류인 줄도 모른다. */
+      if (!ses.ok) void logError("boot", `세션이 안 섰다: ${ses.why ?? "이유 없음"}`);
       setReady(true);
       /* ★ 지난번에 다 못 올린 사진부터 이어서 올린다. 앱을 열 때마다 확인한다 —
          "다음에 여시면 이어서 올립니다"라고 말했으면 그렇게 되어야 한다. */
