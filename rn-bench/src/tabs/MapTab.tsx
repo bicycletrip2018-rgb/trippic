@@ -191,7 +191,7 @@ const KOREA: [number, number, number, number] = [124.4, 32.9, 132.2, 38.7];
 const BASEMAP_URL = "https://tiles.openfreemap.org/styles/dark";
 const BASEMAP = require("../../assets/basemap-dark.json");
 const NORTH_COVER = require("../../assets/north-cover.json");
-const OUTSIDE_LABELS = require("../../assets/outside-labels.json");
+const SOUTH_OUTLINE = require("../../assets/south-outline.json");
 
 /* ★ **한글을 앞에 세운다.** 이 스타일은 `name:latin` 을 먼저 쓰고 비라틴을 뒤에
    붙인다(실측: `name:latin` 12곳, `name:ko` 0곳). 그래서 확대하면 도로가
@@ -252,34 +252,24 @@ function dropNorthDetail(style: any) {
        `road_oneway`(23번)부터 시작하는데 **경계선이 그 뒤(34~36번)** 라서,
        덮개가 경계선 **아래**로 들어가 도 경계가 그대로 보였다. 기준은
        "symbol" 이 아니라 **지명(`place_*`)** 이다. 눈으로 보고 잡았다. */
-  /* ── ★ 바깥 도시 이름 — **타일에서 뽑은** 목록으로 지운다 (§13.129·§13.130) ──
-     덮개는 땅을 가릴 뿐 글자는 못 가린다(가리면 반쯤 잘린다, 위 참고).
-     이름으로 지우는 수밖에 없는데 — **손으로 적지 않고 뽑는다.**
-     `tools/outside_labels.py` 가 한반도(z5~9)와 이웃(z5~8) 타일을 훑어, 점이
-     남한 **밖**에 있는 `city`·`town` 이름을 모은다. 다시 돌리면 갱신된다.
+  /* ── ★ 바깥 지명은 **좌표로 가른다** (§13.131) ────────────────────────
+     §13.129·§13.130 은 **이름으로** 갈랐다. 그게 남긴 것이 일곱이었다 —
+     `안산시`(鞍山市)·`안양시`(安阳市)·`여수시`(麗水市)·`순천시` 처럼 한자는
+     달라도 `name:ko` 가 같은 곳. 이름으로는 **원리상 못 가른다.**
 
-     ★★ **남한과 같이 쓰는 이름은 뺀다.** 이게 이 방식의 전부다. 실제로 일곱이
-       겹쳤는데 그중 넷이 치명적이었다:
+     → MapLibre 의 **`within`** 이 네이티브에서 실제로 돈다(걸어서 확인했다).
+       점이 이 모양 안에 있느냐를 묻는 것이라 **같은 이름이 와도 안 헷갈린다.**
+       4,119개짜리 이름 목록이 통째로 필요 없어졌다.
 
-         안산시  ← 鞍山市(랴오닝)   ·  경기 안산시
-         안양시  ← 安阳市(허난)     ·  경기 안양시
-         여수시  ← 麗水市(저장)     ·  전남 여수시
-         순천시  ← 순천시(평남)     ·  전남 순천시
-
-       **손으로 적었으면 경기 안산·안양과 전남 여수가 지도에서 사라졌을 것이다.**
-       스크립트가 남쪽 이름을 같이 모아 걸러 준다(남쪽은 종류를 안 가리고 넓게).
-     ★ 그래서 **그 일곱은 바깥에도 남는다.** 이름만으로는 가를 수 없다.
-       *"다 지웠다"* 가 아니라 **"가를 수 있는 것만 지웠다"** 이다.
-     ★ 거는 겹은 뽑은 종류와 **같은 것만** — city·town. 넓게 걸면 뽑지 않은
-       종류에서 엉뚱한 남한 라벨이 조용히 사라질 수 있다.
-     ★ **상자 바깥(베이징·도쿄)은 안 건드린다.** 축소가 전국에서 멈추므로
-       그쪽은 **일부러 찾아가야** 보이는 자리고, 일부러 간 사람에게서 지명을
-       뺏을 이유가 없다. */
-  const NOT_OUTSIDE = ["match", ["coalesce", ["get", "name:ko"], ["get", "name"], ""],
-                       OUTSIDE_LABELS.names, false, true];
+     ★ 모양은 **우리 시군구 251개를 합쳐** 만든다(`south-outline.json`, 50KB).
+       3.3km 를 부풀려 해안의 점이 밖으로 떨어지지 않게 하고, **북쪽 모양을
+       빼서** DMZ 를 한 뼘도 안 넘게 했다(겹치는 넓이 0, 재서 확인).
+     ★ 거는 겹은 전과 **같다**(city·town). 넓히면 일본에 일부러 간 사람에게서
+       지명을 뺏는다 — §13.130 에서 정한 선을 여기서 바꾸지 않는다. */
+  const IN_KOREA: any = ["within", SOUTH_OUTLINE.geometry];
   for (const l of style.layers) {
     if (!["place_city", "place_city_large", "place_town"].includes(l.id)) continue;
-    l.filter = ["all", l.filter, NOT_OUTSIDE];
+    l.filter = ["all", l.filter, IN_KOREA];
   }
 
   const i = style.layers.findIndex((l: any) => String(l.id).startsWith("place_"));
