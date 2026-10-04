@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator, Image, Pressable, RefreshControl, ScrollView,
   StyleSheet, Text, View,
+  Linking,
 } from "react-native";
 import * as API from "../api";
 import { C, CAT } from "../theme";
@@ -15,6 +16,9 @@ import { DayCourse } from "../DayCourse";
 import { regionName } from "../regionName";
 import { distM } from "../course";
 import { useSkeletonPulse, SkelBar, SkelBox } from "../Skeleton";
+import { ReportSheet, type Target } from "../ReportSheet";
+import { sitePage } from "../siteLinks";
+import { INVITE_BASE } from "../config";
 import { openSocial } from "../oauth";
 import { isAvailable as appleAvailable, signInWithApple } from "../appleAuth";
 import { Alert } from "react-native";
@@ -23,6 +27,10 @@ type Pin = {
   /** PostgREST 가 FK 를 따라 붙여 주는 장소 이름(§13.89). 핀마다 따로 묻지 않는다. */
   places?: { name?: string | null } | null;
   id: string; category: string; visited_at: string; memo: string | null;
+  /* ★ 누가 올린 것인가 — **차단에 필요하다**(§13.135). 질의에는 있는데 타입에
+     없어서 컴파일러가 잡았다. 바로 아래 §13.115 가 **같은 일**을 적어 뒀다 —
+     `PIN_COLS` 와 이 타입은 **둘이 아니라 하나**로 봐야 한다. */
+  user_id: string;
   verification: string; is_public: boolean; comment_count: number;
   /* ★ `PIN_COLS` 가 **처음부터 받아 오던 것**인데 타입에 없어서 아무도 못 썼다
      (§13.115). 소식이 *"어디인지"* 를 못 적던 이유가 여기였다. */
@@ -67,6 +75,10 @@ function useRecords(which: "public" | "mine") {
 export function NewsTab({ center }: { center?: { lat: number; lng: number } }) {
   const { rows, busy, load } = useRecords("public");
   const first = busy && !rows.length;
+  /* ★ 남의 기록이 보이는 화면에는 **신고·차단이 있어야 한다**(§13.135).
+     심사 조항(1.2) 이기도 하지만, 그 전에 열어 둔 화면에 대한 책임이다. */
+  const [target, setTarget] = useState<Target>(null);
+  const [gone, setGone] = useState<string[]>([]);   // 차단 직후 **그 자리에서** 치운다
 
   return (
     <ScrollView style={s.wrap} contentContainerStyle={{ paddingBottom: 110 }}
@@ -84,7 +96,7 @@ export function NewsTab({ center }: { center?: { lat: number; lng: number } }) {
       {first && <><PostSkeleton /><PostSkeleton /></>}
 
       {!rows.length && !busy && <Empty text="아직 공개된 기록이 없습니다." />}
-      {rows.map((p) => {
+      {rows.filter((p) => !gone.includes(p.user_id)).map((p) => {
         const place = p.places?.name ?? undefined;
         const rname = regionName(p.region_code);
         const c = p.geom?.coordinates;
@@ -101,9 +113,18 @@ export function NewsTab({ center }: { center?: { lat: number; lng: number } }) {
         ].filter(Boolean) as string[];
         return (
           <View key={p.id} style={s.post}>
-            <Text style={s.why}>
-              {parts.length ? parts.join(" · ") : (CAT[p.category] ?? CAT.etc).k}
-            </Text>
+            <View style={s.whyRow}>
+              <Text style={[s.why, { flex: 1 }]}>
+                {parts.length ? parts.join(" · ") : (CAT[p.category] ?? CAT.etc).k}
+              </Text>
+              {/* ★ 내 기록에는 안 보인다 — 자기를 신고·차단할 일은 없다 */}
+              {p.user_id !== API.SESSION.user_id && (
+                <Pressable hitSlop={12} style={s.more}
+                           onPress={() => setTarget({ pinId: p.id, userId: p.user_id })}>
+                  <Text style={s.moreT}>⋯</Text>
+                </Pressable>
+              )}
+            </View>
             {cover(p) ? <Image source={{ uri: cover(p) }} style={s.postImg} /> : null}
             <View style={s.postFoot}>
               <Text style={s.date}>{ymd(p.visited_at)} · {(CAT[p.category] ?? CAT.etc).k}</Text>
@@ -115,6 +136,12 @@ export function NewsTab({ center }: { center?: { lat: number; lng: number } }) {
           </View>
         );
       })}
+      <ReportSheet
+        target={target} onClose={() => setTarget(null)}
+        /* ★ 차단하면 **그 자리에서** 사라져야 한다. 서버는 이미 안 보내지만
+           지금 화면에 떠 있는 줄은 다시 받기 전까지 남는다 — 사용자에게는
+           "차단했는데 그대로네"로 읽힌다. */
+        onBlocked={(uid) => setGone((g) => [...g, uid])} />
     </ScrollView>
   );
 }
@@ -354,7 +381,67 @@ export function MyTab({ authTick = 0 }: { authTick?: number }) {
           </View>
         </View>
       ))}
+
+      <BlockedList tick={authTick} />
+      <SiteLinks />
     </ScrollView>
+  );
+}
+
+/**
+ * 약관·개인정보·문의 (§13.136)
+ *
+ * ★ 심사가 요구하는 **공개된 연락처**가 여기다. 그리고 동의한 약관을 **나중에
+ *   다시 볼 길**이 있어야 한다 — 처음에 한 번 보이고 영영 못 찾으면 동의가
+ *   형식이 된다.
+ * ★ 주소를 못 만들면 **안 그린다.** 눌러도 아무 일이 없는 글자는 고장으로 읽힌다.
+ */
+function SiteLinks() {
+  const items: [string, string | null][] = [
+    ["이용약관", sitePage(INVITE_BASE, "terms")],
+    ["개인정보처리방침", sitePage(INVITE_BASE, "privacy")],
+    ["문의", sitePage(INVITE_BASE, "support")],
+  ];
+  const live = items.filter(([, u]) => !!u) as [string, string][];
+  if (!live.length) return null;
+  return (
+    <View style={{ paddingHorizontal: 18, paddingTop: 26, flexDirection: "row", gap: 16 }}>
+      {live.map(([t, u]) => (
+        <Pressable key={t} onPress={() => void Linking.openURL(u)}>
+          <Text style={s.siteLink}>{t}</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+/**
+ * 차단 푸는 화면 (§13.135)
+ *
+ * ★ **되돌릴 수 없는 차단은 사고가 된다.** 잘못 눌렀는데 푸는 길이 없으면
+ *   그 사람 기록은 영영 안 보인다 — 같이 여행한 사람이면 더 나쁘다.
+ * ★ 한 명도 없으면 **아무것도 안 그린다.** 대부분의 사람에게는 평생 빈 칸이고,
+ *   빈 칸을 두면 *"차단이 뭐지"* 를 생각하게 만든다.
+ */
+function BlockedList({ tick }: { tick: number }) {
+  const [rows, setRows] = useState<API.Blocked[]>([]);
+  const load = useCallback(() => { void API.blockedList().then(setRows); }, []);
+  useEffect(load, [load, tick]);
+  if (!rows.length) return null;
+  return (
+    <View style={{ paddingHorizontal: 18, paddingTop: 22 }}>
+      <Text style={s.cardT}>차단한 사람</Text>
+      <Text style={s.cardS}>이 사람들의 기록은 보이지 않습니다. 상대는 모릅니다.</Text>
+      {rows.map((b) => (
+        <View key={b.user_id} style={s.blocked}>
+          <Text style={s.blockedN}>{b.nickname || "이름 없는 사용자"}</Text>
+          <Pressable hitSlop={10}
+                     onPress={() => { void API.unblockUser(b.user_id).then(load); }}>
+            <Text style={s.unblock}>차단 풀기</Text>
+          </Pressable>
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -363,6 +450,14 @@ const Empty = ({ text }: { text: string }) => (
 );
 
 const s = StyleSheet.create({
+  whyRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  more: { paddingHorizontal: 6, marginTop: -4 },
+  moreT: { color: C.muted, fontSize: 18, lineHeight: 20 },
+  blocked: { flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+             paddingVertical: 11, borderTopWidth: 1, borderTopColor: C.line },
+  blockedN: { color: C.text, fontSize: 14 },
+  unblock: { color: C.accent, fontSize: 13, fontWeight: "600" },
+  siteLink: { color: C.muted, fontSize: 12.5, textDecorationLine: "underline" },
   wrap: { flex: 1, backgroundColor: C.bg },
   h1: { color: C.text, fontSize: 19, fontWeight: "700", paddingHorizontal: 18, paddingTop: 58 },
   sub: { color: C.muted, fontSize: 11.5, lineHeight: 18, paddingHorizontal: 18, paddingTop: 5, paddingBottom: 8 },

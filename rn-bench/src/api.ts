@@ -380,7 +380,9 @@ export async function consumeAuthRedirect(url: string) {
 
 /* ── 읽기 ──────────────────────────────────────────────────── */
 const PIN_COLS =
-  "id,trip_id,place_id,region_code,geom,category,visited_at,stay_sec,memo,verification,is_public,comment_count," +
+  /* ★ `user_id` 를 **같이 읽는다**(§13.135). 없으면 소식에서 *"이 사람 차단"* 을
+     누를 수가 없다 — 누구인지 모르니까. 신고·차단을 붙이며 알았다. */
+  "id,user_id,trip_id,place_id,region_code,geom,category,visited_at,stay_sec,memo,verification,is_public,comment_count," +
   /* ★ **장소 이름을 같이 읽는다**(§13.89). `CoursePin.placeName` 은 진작 선언돼
      있었는데 채우는 곳이 없어서, 하루 코스가 *"맛집 09:40"* 이라고 적고 있었다 —
      내 기록을 볼 때는 사진으로 알아보지만 **남에게 보내면 아무 뜻이 없다.**
@@ -401,6 +403,28 @@ export const search = (
 /** 검색을 시작하는 최소 길이. ★ 1글자는 느리고(4초) 결과도 쓸모없다
     (`카` → 이카·카세·퀸카). 2글자부터가 사람이 기대하는 것이기도 하다. */
 export const SEARCH_MIN = 2;
+
+/* ── 신고와 차단 (§13.135 · 072) ──────────────────────────────────────
+   ★ App Store 가이드라인 1.2 가 사용자 콘텐츠 앱에 요구하는 것이다.
+     **없어서 심사에서 걸릴 뻔했다** — 코드의 `신고` 는 전부 *장소가 문을
+     닫았다*는 뜻이었고 사람·기록을 신고하는 길이 없었다(§13.134).
+
+   ★ 셋 다 **성공/실패만** 돌려준다. 신고 결과(처리됐는지)는 **안 알린다** —
+     알리면 신고가 "상대에게 무슨 일이 생겼나"를 떠보는 도구가 된다. */
+export const reportPin = (pinId: string, reason: string) =>
+  rpc<boolean>("api_report_create",
+    { p_target_type: "pin", p_target_id: pinId, p_reason: reason })
+    .then((r) => r.ok && r.data === true);
+
+export const blockUser = (userId: string) =>
+  rpc<boolean>("api_block", { p_user: userId }).then((r) => r.ok && r.data === true);
+
+export const unblockUser = (userId: string) =>
+  rpc<boolean>("api_unblock", { p_user: userId }).then((r) => r.ok && r.data === true);
+
+export type Blocked = { user_id: string; nickname: string | null; created_at: string };
+export const blockedList = () =>
+  rpc<Blocked[]>("api_blocks").then((r) => (r.ok ? r.data ?? [] : []));
 
 export const publicRecords = (limit = 200) =>
   select<any[]>("pins",

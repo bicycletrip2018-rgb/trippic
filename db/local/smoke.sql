@@ -2613,5 +2613,161 @@ do $$ begin
   end;
 end $$;
 
+-- ── 29. 신고와 차단 (072) ───────────────────────────────────────────
+\echo '── 29. 신고와 차단 (072) ──'
+-- ★ 여기서 지킬 것 하나: *"한 자리에서만 안 보이는 차단"*. 소식에서 사라졌는데
+--   지도에서 보이면 차단이 아니다. 그래서 **표면마다 따로** 두드린다.
+--   어디가 새는지 **짐작하지 않는다** — 새는 자리는 이 시험이 말해 준다.
+reset role; select pg_temp.login(null);
+delete from public.blocks;
+delete from public.reports where reason like 'ZZ%';
+
+-- 2번이 공개 기록을 하나 남긴다
+/* ★ 다른 절이 만든 장소에 **기대지 않는다** — 그 절이 치우면 여기 준비 줄이
+   조용히 0행을 넣고, 그러면 아래 단언이 **전부 거짓으로 통과**한다. 한 번 그랬다. */
+insert into public.pins (id, user_id, geom, visited_at, is_public, verification)
+values ('bb000000-0000-0000-0000-00000000000b',
+        '22222222-2222-2222-2222-222222222222',
+        ST_SetSRID(ST_MakePoint(127.0, 37.5), 4326), now(), true, 'exif')
+on conflict (id) do nothing;
+
+/* ★ **장소에 붙은 사진**도 하나 심는다. 이게 없으면 아래 definer 시험이
+   *"사진이 없어서 안 나온 것"* 을 *"차단이 들었다"* 로 읽는다 — 실제로
+   한 번 그렇게 **공허하게 통과**했고, 준비 단언을 넣고서야 알았다. */
+/* ★ **장소도 내가 만든다.** 처음엔 다른 절이 쓰던 `7777…000a` 를 빌렸는데
+   이 시점엔 **이미 치워져서 없었다**(진단: place=0). 빌린 준비물은 언제
+   사라질지 모르고, 사라지면 시험이 **조용히 공허해진다.** */
+insert into public.places (id, name, category, geom, source)
+values ('bb000000-0000-0000-0000-0000000000ca', 'ZZ 차단 시험 장소', 'etc',
+        ST_SetSRID(ST_MakePoint(127.0, 37.5), 4326), 'tour_api')
+on conflict (id) do nothing;
+insert into public.pins (id, user_id, place_id, geom, visited_at, is_public, verification)
+values ('bb000000-0000-0000-0000-00000000000c',
+        '22222222-2222-2222-2222-222222222222', 'bb000000-0000-0000-0000-0000000000ca',
+        ST_SetSRID(ST_MakePoint(127.0, 37.5), 4326), now(), true, 'exif')
+on conflict (id) do nothing;
+/* ★ 화질 측정값을 **넣어야** 한다. `quality_ok` 기본값이 true 라 그냥 넣으면
+   될 줄 알았는데 `qok=0` 이 나왔다 — 010 의 판정이 걸린다. 진단을 찍어서 알았고,
+   그 전까지는 *"왜 0행이지"* 를 함수 탓으로 짐작하고 있었다. */
+insert into public.media (id, pin_id, url, is_main, width, height, taken_at,
+                          focus_score, contrast_score)
+values ('bb000000-0000-0000-0000-00000000000d',
+        'bb000000-0000-0000-0000-00000000000c', 'https://example.test/zz.jpg',
+        true, 1200, 900, now(), 500, 40)
+on conflict (id) do nothing;
+
+set role authenticated; select pg_temp.login('11111111-1111-1111-1111-111111111111');
+
+-- ① 차단 전에는 보인다 (안 보이면 아래 시험이 전부 거짓으로 통과한다)
+select pg_temp.ok(
+  exists (select 1 from public.pins where id = 'bb000000-0000-0000-0000-00000000000b'),
+  '  (준비) 차단 전에는 남의 공개 기록이 보인다 — 이게 안 되면 아래가 다 거짓이다');
+
+-- ①-b ★ definer 경로도 **차단 전에는 보이는지** 먼저 본다.
+--     안 보이면 아래 ③-b 가 **공허하게 통과**한다 — 사진이 없어서 안 나온 것을
+--     차단이 들었다고 읽게 된다. 준비 줄이 거짓을 만드는 자리다.
+select pg_temp.ok(
+  exists (select 1 from public.api_place_media('bb000000-0000-0000-0000-0000000000ca')
+           where user_id = '22222222-2222-2222-2222-222222222222'),
+  '  (준비) 차단 전에는 **장소 상세 사진에도** 2번 것이 있다');
+
+-- ② 차단한다
+select pg_temp.ok(public.api_block('22222222-2222-2222-2222-222222222222'),
+                  '★ 차단된다');
+select pg_temp.ok(
+  (select count(*) from public.api_blocks()) = 1,
+  '★ 차단 목록에 뜬다 — 푸는 화면이 있어야 되돌릴 수 있다');
+select pg_temp.ok(
+  (select nickname from public.api_blocks()) is not null,
+  '★ 목록에 **이름**이 같이 온다 — 아이디만으론 누구를 풀지 모른다');
+
+-- ③ ★★ 표면마다 **사라졌는가**
+select pg_temp.ok(
+  not exists (select 1 from public.pins where id = 'bb000000-0000-0000-0000-00000000000b'),
+  '★★ 소식·목록에서 사라진다 — 앱은 pins 를 **직접** 읽으므로 정책이 덮는다');
+select pg_temp.ok(
+  not exists (select 1 from public.api_pins_in_bbox(
+                124.0, 33.0, 132.0, 39.0, 300, null, 'all')
+               where id = 'bb000000-0000-0000-0000-00000000000b'),
+  '★★ **지도에서도** 사라진다 — 한 자리만 막으면 차단이 아니다');
+
+-- ③-b ★★ `security definer` 경로도 지키는가 — **여기가 새기 쉽다**
+--     RLS 를 건너뛰므로 정책 한 줄이 안 닿는다. 장소 상세의 사진 격자가 그 자리다.
+select pg_temp.ok(
+  not exists (select 1 from public.api_place_media('bb000000-0000-0000-0000-0000000000ca')
+               where user_id = '22222222-2222-2222-2222-222222222222'),
+  '★★ **장소 상세의 사진**에서도 사라진다 — definer 는 RLS 를 건너뛰므로 따로 막아야 한다');
+
+-- ④ 내 것은 안 가린다
+select pg_temp.ok(
+  exists (select 1 from public.pins where user_id = '11111111-1111-1111-1111-111111111111'),
+  '★ 내 기록은 그대로다 — 가리면 앱이 고장 난 것처럼 보인다');
+
+-- ⑤ 자기를 못 막는다
+select pg_temp.ok(
+  not public.api_block('11111111-1111-1111-1111-111111111111'),
+  '★ 자기를 차단할 수 없다 — 되면 자기 기록이 통째로 사라진다');
+
+-- ⑥ 푼다
+select pg_temp.ok(public.api_unblock('22222222-2222-2222-2222-222222222222'), '풀린다');
+select pg_temp.ok(
+  exists (select 1 from public.pins where id = 'bb000000-0000-0000-0000-00000000000b'),
+  '★ 풀면 다시 보인다 — 되돌릴 수 없는 차단은 사고가 된다');
+
+-- ⑦ 남이 나를 차단했는지는 **알 수 없다**
+select pg_temp.login('22222222-2222-2222-2222-222222222222');
+select pg_temp.ok(public.api_block('11111111-1111-1111-1111-111111111111'), '2번이 1번을 막는다');
+select pg_temp.login('11111111-1111-1111-1111-111111111111');
+select pg_temp.ok(
+  (select count(*) from public.api_blocks()) = 0,
+  '★★ 1번은 **자기가 막힌 줄 모른다** — 알 수 있으면 차단이 괴롭힘의 신호가 된다');
+
+-- ⑧ 신고
+select pg_temp.ok(
+  public.api_report_create('pin', 'bb000000-0000-0000-0000-00000000000b', 'ZZ 시험 신고'),
+  '★ 신고된다 — **이게 없어서 심사에서 걸릴 뻔했다**(가이드라인 1.2)');
+select pg_temp.ok(
+  public.api_report_create('pin', 'bb000000-0000-0000-0000-00000000000b', 'ZZ 또 신고'),
+  '같은 것을 또 신고해도 거절하지 않는다 — 사용자에게 실패로 보이면 안 된다');
+reset role; select pg_temp.login(null);
+select pg_temp.ok(
+  (select count(*) from public.reports where reason like 'ZZ%') = 1,
+  '★ 그런데 **줄은 하나다** — 중복이 큐를 부풀리면 진짜 신고가 묻힌다');
+set role authenticated; select pg_temp.login('11111111-1111-1111-1111-111111111111');
+select pg_temp.ok(
+  not public.api_report_create('pin', 'bb000000-0000-0000-0000-00000000000b', '   '),
+  '★ 빈 사유는 안 받는다 — 운영자가 보고 판단할 거리가 없다');
+select pg_temp.ok(
+  (select left(reason, 2) from public.reports where reason like 'ZZ%') = 'ZZ',
+  '사유가 그대로 들어간다');
+
+-- ⑨ 로그인 안 하면 **부를 수조차 없다**
+--    ★ 처음엔 *"false 를 받는다"* 로 적었는데, 067 이 새 함수를 anon 에게
+--      **닫힌 채로 태어나게** 해서 거절이 더 앞에서 난다. 실제 보장이 내가
+--      적은 것보다 **강했다** — 약한 쪽에 맞추지 않고 강한 쪽에 맞춘다.
+reset role; select pg_temp.login(null); set role anon;
+do $$ begin
+  begin
+    perform public.api_block('22222222-2222-2222-2222-222222222222');
+    raise exception 'FAIL  ★ 비로그인이 차단을 불렀다';
+  exception when insufficient_privilege then
+    raise notice '  OK   ★ 비로그인은 차단을 **부르지도 못한다**(067) — 누가 한 차단인지 적을 수가 없다';
+  end;
+  begin
+    perform public.api_report_create('pin', 'bb000000-0000-0000-0000-00000000000b', 'x');
+    raise exception 'FAIL  ★ 비로그인이 신고를 불렀다';
+  exception when insufficient_privilege then
+    raise notice '  OK   ★ 비로그인 신고도 못 부른다 — 익명 신고는 큐를 묻는다';
+  end;
+end $$;
+
+reset role; select pg_temp.login(null);
+delete from public.blocks;
+delete from public.reports where reason like 'ZZ%';
+delete from public.pins where id in ('bb000000-0000-0000-0000-00000000000b',
+                                     'bb000000-0000-0000-0000-00000000000c');
+delete from public.places where id = 'bb000000-0000-0000-0000-0000000000ca';
+set role authenticated;
+
 reset role;
 rollback;   -- 아무것도 남기지 않는다
