@@ -90,39 +90,41 @@ https://bicycletrip2018-rgb.github.io/trippic-web/support.html
 
 ---
 
-## 3단계 · Apple Developer 등록 ← **여기부터** (30분 + 승인 대기 1~2일)
+## ✅ 3단계 · Apple Developer 등록 — **결제까지 끝남** (2026-10-04)
 
-**여기부터는 제가 못 합니다.** 신원 확인과 결제가 걸립니다.
+`개인/개인사업자`(= Individual / Sole Proprietor) 로 등록하고, 사업자번호 대신
+**생년월일**을 넣어 결제까지 마쳤다. **승인 대기 중.**
 
-1. https://developer.apple.com/programs/enroll/ 접속
-2. Apple ID 로 로그인 (없으면 새로 만드십시오 — **앱 전용으로 하나 만드시길 권합니다**)
-3. **Individual(개인)** 선택
-   - 법인/사업자로 하시면 **D-U-N-S 번호**가 필요해 1~2주 더 걸립니다
-   - 개인으로 등록하면 App Store 에 **본인 이름이 공개**됩니다. 그게 싫으시면 사업자
-4. 이름·주소를 **영문**으로, 여권/신분증과 똑같이 입력
-5. 결제 (**$99/년** · 약 13만원)
-6. 승인 메일을 기다립니다 (보통 24~48시간)
+- 승인 메일 제목: `Welcome to the Apple Developer Program` (**스팸함도 볼 것**)
+- 중간에 **신분증 확인**을 요청할 수 있다 → 아이폰 **Apple Developer** 앱이 가장 빠르다
+- 상태 보기: https://developer.apple.com/account
 
-**끝났는지 확인**: https://developer.apple.com/account 에 들어갔을 때
-왼쪽에 `Certificates, IDs & Profiles` 가 보이면 됩니다.
+**끝났는지 확인**: 위 주소에서 `Certificates, Identifiers & Profiles` 가 보이면 된다.
 
----
+★ 앞서 *"이름을 **영문**으로"* 라고 적었는데 **틀렸다.** 애플이 요구하는 것은
+  **신분증에 적힌 그대로**이고, 한국 신분증이면 한글 이름이다.
+
+★ 한국어 화면에서는 영어 메뉴 이름이 안 보인다(`Individual` 이 아니라
+  `개인/개인사업자` 로 나왔다). 아래 단계는 **한국어·영어를 같이** 적어 둔다 —
+  영어만 적어 두면 못 찾는다.
+
 
 ## 4단계 · App Store Connect 에 앱 만들기 (15분)
 
-1. https://appstoreconnect.apple.com → `나의 앱` → `＋` → `신규 앱`
+1. https://appstoreconnect.apple.com → `나의 앱`(My Apps) → `＋` → `신규 앱`(New App)
 2. 아래대로 입력
 
 | 칸 | 값 |
 |---|---|
-| 플랫폼 | iOS |
+| 플랫폼 (Platforms) | iOS |
 | 이름 | **트립픽** (이미 쓰이고 있으면 `트립픽 TRIPPIC`) |
-| 기본 언어 | 한국어 |
-| 번들 ID | `app.trippic.bench` ← **목록에 없으면 5단계를 먼저** |
+| 기본 언어 (Primary Language) | 한국어 |
+| 번들 ID (Bundle ID) | `app.trippic.bench` ← **목록에 없으면 5단계를 먼저** |
 | SKU | `trippic-ios` (아무 값, 공개 안 됨) |
-| 사용자 액세스 | 전체 액세스 |
+| 사용자 액세스 (User Access) | 전체 액세스 (Full Access) |
 
-3. 만든 뒤 `계약, 세금 및 금융 거래` 로 가서 **무료 앱 계약에 동의**하십시오
+3. 만든 뒤 `계약, 세금 및 금융 거래`(Agreements, Tax, and Banking) 로 가서
+   **무료 앱 계약에 동의**하십시오
    — 이걸 안 하면 TestFlight 가 **"처리 중"에서 멈춥니다**
 
 **끝났는지 확인**: 앱 목록에 `트립픽` 이 보이고, 계약 상태가 `활성` 이면 됩니다.
