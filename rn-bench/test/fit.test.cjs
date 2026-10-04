@@ -5,7 +5,7 @@
  *   자리를 비춘다 — 그래서 눈으로는 *"데이터가 없나 보다"* 로 읽힌다.
  *   §13.94 에서 실제로 그렇게 넘어갔다(스페이스 `지도 ›` 가 빈 화면에 떨어졌다).
  */
-const { zoomForBBox, padPinBox, unionBox, Z_REGION, WORLD_TILE } = require("../build-test/fitBox.js");
+const { zoomForBBox, fitZoom, padPinBox, unionBox, Z_REGION, WORLD_TILE } = require("../build-test/fitBox.js");
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log("  OK   " + m); } else { fail++; console.log("  FAIL " + m); } };
@@ -91,6 +91,19 @@ ok(Math.abs(fit.center[0] - (pb[0] + pb[2]) / 2) < 1e-9,
 const even = fitView(padPinBox(box), W, H, { top: 150, bottom: 150 }, true);
 ok(Math.abs(even.center[1] - mid) < 1e-9,
    "★ 위아래가 같으면 중심은 그대로다 — 무조건 내리는 것이 아니다");
+
+// ── ★ 날것 맞춤 — **축소 한계**가 여기서 나온다 (§13.130) ──────────────
+const KOREA = [124.4, 32.9, 132.2, 38.7];
+const zKorea = fitZoom(KOREA, 402, 700);          // 아이폰 한 대 크기
+ok(zKorea > 4.5 && zKorea < 6,
+   `★ 전국이 담기는 줌은 5 언저리다 — 받음 ${zKorea.toFixed(2)}`);
+ok(zKorea < Z_REGION,
+   "★★ **제한이 안 씌워져 있다** — `zoomForBBox` 는 하한 9.3 을 씌우므로 그걸 쓰면 " +
+   "축소 한계가 9.3 이 되어 **전국이 화면에 안 들어온다**. 그래서 날것을 따로 둔다");
+ok(fitZoom(KOREA, 320, 560) < fitZoom(KOREA, 430, 930),
+   "★ 화면이 작으면 더 멀리 나갈 수 있어야 한다 — 숫자를 박으면 작은 폰에서 전국이 잘린다");
+ok(Math.abs(fitZoom(KOREA, 402, 700) - zoomForBBox(KOREA, 402, 700, true)) < 1e-9,
+   "핀 상자 경로와 같은 값이다 — 두 식이 갈라지지 않았다");
 
 console.log("");
 if (fail) { console.log(`=== 실패 ${fail}건 / 통과 ${pass}건 ===`); process.exit(1); }

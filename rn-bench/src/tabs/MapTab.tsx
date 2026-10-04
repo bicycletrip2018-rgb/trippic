@@ -43,7 +43,7 @@ import { shareInvite } from "../invite";
 import { regionInfo } from "../regionName";
 import { tapLayers, regionFallback } from "../tapRule";
 import { zoomIn, zoomOut, canZoomIn, canZoomOut } from "../zoomStep";
-import { zoomForBBox, padPinBox, unionBox, fitView } from "../fitBox";
+import { zoomForBBox, padPinBox, unionBox, fitView, fitZoom } from "../fitBox";
 import { pickNearest, TAP_SLOP, type Cand } from "../tapPick";
 import { metersPerPx, pickScale } from "../scaleBar";
 
@@ -184,10 +184,14 @@ function accuracyRing(h: Here, steps = 40): GeoJSON.FeatureCollection {
      그렇다고 적어 둔다.
    ★ 파일이 낡으면 이 주소에서 다시 받아 덮으면 된다. 원본 주소를 지우지 않는
      이유가 그것이다. */
+/* ★ **우리가 말하는 "전국"** — 마라도(33.0)부터 독도(131.9)까지 다 담는다.
+   첫 화면의 범위이자 **더 못 나가는 한계**다. 두 자리가 같은 값을 써야
+   *"처음 화면이 가장 넓은 화면"* 이 된다(§13.130). */
+const KOREA: [number, number, number, number] = [124.4, 32.9, 132.2, 38.7];
 const BASEMAP_URL = "https://tiles.openfreemap.org/styles/dark";
 const BASEMAP = require("../../assets/basemap-dark.json");
 const NORTH_COVER = require("../../assets/north-cover.json");
-const NORTH_LABELS = require("../../assets/north-labels.json");
+const OUTSIDE_LABELS = require("../../assets/outside-labels.json");
 
 /* ★ **한글을 앞에 세운다.** 이 스타일은 `name:latin` 을 먼저 쓰고 비라틴을 뒤에
    붙인다(실측: `name:latin` 12곳, `name:ko` 0곳). 그래서 확대하면 도로가
@@ -248,25 +252,34 @@ function dropNorthDetail(style: any) {
        `road_oneway`(23번)부터 시작하는데 **경계선이 그 뒤(34~36번)** 라서,
        덮개가 경계선 **아래**로 들어가 도 경계가 그대로 보였다. 기준은
        "symbol" 이 아니라 **지명(`place_*`)** 이다. 눈으로 보고 잡았다. */
-  /* ── ★ 도시 이름도 지운다 — 다만 **타일에서 뽑은** 목록으로 (§13.129) ────
+  /* ── ★ 바깥 도시 이름 — **타일에서 뽑은** 목록으로 지운다 (§13.129·§13.130) ──
      덮개는 땅을 가릴 뿐 글자는 못 가린다(가리면 반쯤 잘린다, 위 참고).
      이름으로 지우는 수밖에 없는데 — **손으로 적지 않고 뽑는다.**
-     `tools/north_labels.py` 가 한반도 z5~9 타일을 훑어 점이 북쪽 모양 안에
-     있는 `city`·`town` 이름을 모은다. 다시 돌리면 갱신된다.
+     `tools/outside_labels.py` 가 한반도(z5~9)와 이웃(z5~8) 타일을 훑어, 점이
+     남한 **밖**에 있는 `city`·`town` 이름을 모은다. 다시 돌리면 갱신된다.
 
-     ★ **남북이 같이 쓰는 이름은 뺀다.** 실제로 셋 겹쳤다 —
-       `순천시`·`김화읍`·`영광읍`. 손으로 적었으면 **전남 순천시가
-       지도에서 사라졌을 것이다.** 스크립트가 남쪽 이름을 같이 모아서
-       걸러 준다(남쪽은 종류를 안 가리고 넓게 보호한다).
-     ★ 그래서 **그 셋은 북쪽에도 남는다.** 이름만으로는 가를 수 없다.
+     ★★ **남한과 같이 쓰는 이름은 뺀다.** 이게 이 방식의 전부다. 실제로 일곱이
+       겹쳤는데 그중 넷이 치명적이었다:
+
+         안산시  ← 鞍山市(랴오닝)   ·  경기 안산시
+         안양시  ← 安阳市(허난)     ·  경기 안양시
+         여수시  ← 麗水市(저장)     ·  전남 여수시
+         순천시  ← 순천시(평남)     ·  전남 순천시
+
+       **손으로 적었으면 경기 안산·안양과 전남 여수가 지도에서 사라졌을 것이다.**
+       스크립트가 남쪽 이름을 같이 모아 걸러 준다(남쪽은 종류를 안 가리고 넓게).
+     ★ 그래서 **그 일곱은 바깥에도 남는다.** 이름만으로는 가를 수 없다.
        *"다 지웠다"* 가 아니라 **"가를 수 있는 것만 지웠다"** 이다.
      ★ 거는 겹은 뽑은 종류와 **같은 것만** — city·town. 넓게 걸면 뽑지 않은
-       종류에서 엉뚱한 남한 라벨이 조용히 사라질 수 있다. */
-  const NOT_NORTH = ["match", ["coalesce", ["get", "name:ko"], ["get", "name"], ""],
-                     NORTH_LABELS.names, false, true];
+       종류에서 엉뚱한 남한 라벨이 조용히 사라질 수 있다.
+     ★ **상자 바깥(베이징·도쿄)은 안 건드린다.** 축소가 전국에서 멈추므로
+       그쪽은 **일부러 찾아가야** 보이는 자리고, 일부러 간 사람에게서 지명을
+       뺏을 이유가 없다. */
+  const NOT_OUTSIDE = ["match", ["coalesce", ["get", "name:ko"], ["get", "name"], ""],
+                       OUTSIDE_LABELS.names, false, true];
   for (const l of style.layers) {
     if (!["place_city", "place_city_large", "place_town"].includes(l.id)) continue;
-    l.filter = ["all", l.filter, NOT_NORTH];
+    l.filter = ["all", l.filter, NOT_OUTSIDE];
   }
 
   const i = style.layers.findIndex((l: any) => String(l.id).startsWith("place_"));
@@ -505,6 +518,8 @@ export function MapTab(
   const [agg, setAgg] = useState<API.RegionAgg[]>([]);
   const [into, setInto] = useState<string | null>(null);   // 들어온 지역 이름
   const camRef = useRef<CameraRef>(null);
+  /* 화면이 잡히기 전에는 모른다. 그때까지는 안 건다(막연한 숫자를 박느니 안 건다) */
+  const [minZ, setMinZ] = useState<number | null>(null);
   /* ★ **연타를 삼키지 않는다**(§13.105). `zoom` 은 지도가 움직이면서 알려 주는
      값이라 **한 박자 늦는다.** + 를 빠르게 세 번 누르면 세 번 다 같은 옛 값에서
      출발해 **한 단계밖에 안 간다** — 두 번은 씹힌 것처럼 보인다.
@@ -1221,7 +1236,13 @@ export function MapTab(
            onPress={(e) => { void onMapPress(e); }}
            onLayout={(e) => {
              const { width, height } = e.nativeEvent.layout;
-             if (width > 0 && height > 0) size.current = { w: width, h: height };
+             if (width > 0 && height > 0) {
+               size.current = { w: width, h: height };
+               /* ★ **전국보다 더 멀리는 못 나간다**(§13.130). 화면 크기에서
+                  계산하므로 기기마다 값이 다르다 — 숫자를 박으면 작은 폰에서는
+                  전국이 잘리고 큰 폰에서는 중국이 들어온다. */
+               setMinZ(fitZoom(KOREA, width, height));
+             }
            }}
            onRegionIsChanging={(e) => {
              /* 돌리는 **도중에도** 따라간다. DidChange 만 보면 손을 뗄 때까지
@@ -1263,7 +1284,8 @@ export function MapTab(
             물려받은 값인데, 그 숫자가 "전국이 보인다"를 뜻하는지는 기기 크기와
             배경 데이터에 따라 달라진다 — 실제로 경계 파일을 바꾸자 전국이 잘렸다.
             bounds 는 의도 그 자체라 흔들리지 않는다. */}
-        <Camera ref={camRef} initialViewState={{ bounds: [124.4, 32.9, 132.2, 38.7] }} />
+        <Camera ref={camRef} minZoom={minZ ?? undefined}
+                initialViewState={{ bounds: KOREA }} />
 
         <GeoJSONSource id="sgg" data={SGG as any}>
           {/* ★ **줌이 바뀌면 지도의 성격도 바뀐다**(§13.11 의 확장, §13.59).
