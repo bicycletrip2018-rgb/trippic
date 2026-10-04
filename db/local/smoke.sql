@@ -3225,5 +3225,15 @@ delete from public.operators where user_id = 'ee111111-1111-1111-1111-1111111111
 delete from auth.users where id::text like 'ee%';
 set role authenticated;
 
+-- ── 32. 차가운 첫 호출 (078) ────────────────────────────────────────
+-- ★ 재는 것: **설정이 실제로 함수에 붙어 있나.** `ALTER FUNCTION ... SET` 은
+--   함수를 다시 만들면 **조용히 날아간다** — 그러면 §13.151 이 되돌아간다.
+select pg_temp.ok(
+  exists (select 1 from pg_proc p
+           join pg_namespace n on n.oid = p.pronamespace
+          where n.nspname = 'public' and p.proname = 'api_feed_rails'
+            and p.proconfig @> array['enable_indexscan=off']),
+  '★★ 피드 함수에 `enable_indexscan=off` 가 붙어 있다 — 없으면 차가운 첫 호출이 4배 무거워진다(§13.151)');
+
 reset role;
 rollback;   -- 아무것도 남기지 않는다
