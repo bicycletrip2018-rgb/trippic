@@ -15,6 +15,7 @@
  *   동의 말고 다른 선택지가 없는 화면은 동의가 아니라 통행료다.
  */
 import { useState } from "react";
+import { useTopPad } from "./safeArea";
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { C } from "./theme";
 import { sitePage } from "./siteLinks";
@@ -22,6 +23,7 @@ import { INVITE_BASE } from "./config";
 import { setAgreed } from "./terms";
 
 export function TermsGate({ onDone }: { onDone: () => void }) {
+  const topPad = useTopPad(18);
   const [bye, setBye] = useState(false);
   const terms = sitePage(INVITE_BASE, "terms");
   const privacy = sitePage(INVITE_BASE, "privacy");
@@ -44,7 +46,7 @@ export function TermsGate({ onDone }: { onDone: () => void }) {
 
   return (
     <View style={s.root}>
-      <ScrollView contentContainerStyle={s.body}>
+      <ScrollView contentContainerStyle={[s.body, { paddingTop: topPad }]}>
         <Text style={s.h}>시작하기 전에</Text>
         <Text style={s.p}>
           트립픽은 <Text style={s.b}>다른 분이 올린 사진</Text>이 함께 보이는
@@ -100,7 +102,7 @@ export function TermsGate({ onDone }: { onDone: () => void }) {
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
   center: { alignItems: "center", justifyContent: "center", padding: 28, gap: 14 },
-  body: { padding: 22, paddingTop: 76, paddingBottom: 24 },
+  body: { padding: 22, paddingBottom: 24 },
   h: { color: C.text, fontSize: 24, fontWeight: "700", letterSpacing: -0.4 },
   p: { color: C.muted, fontSize: 14.5, lineHeight: 23, marginTop: 10 },
   b: { color: C.text, fontWeight: "700" },

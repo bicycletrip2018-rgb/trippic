@@ -11,6 +11,7 @@
  *   이제 `api_feed_rails` 가 답한다 — 장소도 9,696곳에서 **465,914곳**으로 늘었다.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTopPad } from "../safeArea";
 import {
   Image, Linking, Pressable, ScrollView, StyleSheet, Text, View,
 } from "react-native";
@@ -74,6 +75,7 @@ export function FeedTab(
     onOpenMap?: (p: { lng: number; lat: number; name: string }) => void;
   },
 ) {
+  const topPad = useTopPad(0);
   /* 상세로 넘길 것: id 와, **이미 알고 있는** 이름·거리. 거리를 상세에서 다시
      재면 카드와 상세가 같은 곳을 다르게 말한다(§13.34). */
   /* ★ **보이는 동안에만 따라가는 자리**(§13.111).
@@ -220,7 +222,7 @@ export function FeedTab(
 
   const list = (
     <ScrollView style={s.wrap} contentContainerStyle={{ paddingBottom: 110 }}>
-      <Text style={s.h1}>갈 곳</Text>
+      <Text style={[s.h1, { paddingTop: topPad }]}>갈 곳</Text>
       <Text style={s.sub}>왜 떴는지 묶음마다 적어 둡니다 — 우리 추천은 설명할 수 있어야 합니다.</Text>
 
       {/* ★ **컨셉 칩을 뺐다**(§13.81). §12.25-A 가 실측해 둔 대로 태그가 붙은 곳이
@@ -707,7 +709,7 @@ function BudgetRail({ budget, rows }: { budget: number; rows: API.BudgetPlace[] 
 
 const s = StyleSheet.create({
   wrap: { flex: 1, backgroundColor: C.bg },
-  h1: { color: C.text, fontSize: 19, fontWeight: "700", paddingHorizontal: 18, paddingTop: 58 },
+  h1: { color: C.text, fontSize: 19, fontWeight: "700", paddingHorizontal: 18 },
   sub: { color: C.muted, fontSize: 11.5, lineHeight: 18, paddingHorizontal: 18, paddingTop: 5 },
   chips: { paddingHorizontal: 18, paddingVertical: 12, gap: 6 },
   railHead: { flexDirection: "row", alignItems: "center", gap: 7 },

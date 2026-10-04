@@ -9,6 +9,7 @@
  *   모른다는 말보다 나쁘다** — 사용자가 그걸 믿고 일정을 짜기 때문이다.
  */
 import { useEffect, useMemo, useState } from "react";
+import { useTopPad } from "./safeArea";
 import {
   Image, Modal, Pressable, ScrollView, Share, StyleSheet, Text, View,
 } from "react-native";
@@ -19,6 +20,7 @@ import { NextPlaces } from "./NextPlaces";
 import { useSkeletonPulse, SkelBar, SkelBox } from "./Skeleton";
 
 export function DayCourse({ onClose }: { onClose: () => void }) {
+  const topPad = useTopPad(0);
   const [rows, setRows] = useState<any[] | null>(null);
 
   const [land, setLand] = useState(0);   // 표를 받으면 다시 계산한다
@@ -60,7 +62,7 @@ export function DayCourse({ onClose }: { onClose: () => void }) {
 
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
-      <View style={s.root}>
+      <View style={[s.root, { paddingTop: topPad }]}>
         <View style={s.head}>
           <Pressable onPress={onClose} hitSlop={12}><Text style={s.headBtn}>✕</Text></Pressable>
           <Text style={s.headTitle}>내 하루</Text>
@@ -204,7 +206,7 @@ function CourseCard({ c }: { c: Course }) {
 }
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: C.bg, paddingTop: 54 },
+  root: { flex: 1, backgroundColor: C.bg },
   head: {
     flexDirection: "row", alignItems: "center", paddingHorizontal: 14,
     paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.line,

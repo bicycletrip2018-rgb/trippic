@@ -18,6 +18,7 @@
  *   번들을 42MB 로 불리지 않는다는 원칙(§13)은 그대로다.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useTopPad } from "../safeArea";
 import {
   ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from "react-native";
@@ -443,6 +444,7 @@ export function MapTab(
     onJumpedTo?: () => void;
   } = {},
 ) {
+  const topPad = useTopPad(0);
   const mapRef = useRef<MapRef>(null);
   /* 받아서 고친 배경 스타일. null 이면 아직 못 받았다 — 그동안 지도를 안 그린다
      (`mapStyle` 을 나중에 바꾸면 지도가 통째로 다시 만들어진다). */
@@ -1156,7 +1158,7 @@ export function MapTab(
 
   return (
     <View style={st.root}>
-      <View style={st.head}
+      <View style={[st.head, { paddingTop: topPad }]}
             onLayout={(e) => setHeadH(e.nativeEvent.layout.height)}>
         {/* ★ 찾기 — **칩 위**에 둔다(§13.97 ③). 네이버와 같은 자리이고, 칩은
             *"지금 보고 있는 것을 좁히는" 것*이라 *"다른 곳으로 가는" 것*보다 뒤다.
@@ -1877,7 +1879,7 @@ function SpacePicker(
 
 const st = StyleSheet.create({
   root: { flex: 1, backgroundColor: BG },
-  head: { paddingTop: 52, paddingBottom: 8, gap: 6, backgroundColor: BG },
+  head: { paddingBottom: 8, gap: 6, backgroundColor: BG },
   chipRow: { paddingHorizontal: 12, gap: 6 },
   chip: {
     paddingHorizontal: 11, paddingVertical: 6, borderRadius: 99,

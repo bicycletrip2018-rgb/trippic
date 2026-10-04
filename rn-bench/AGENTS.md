@@ -40,3 +40,19 @@ CommandError: No code signing certificates are available to use.
 → **로컬 `ios/` 에서는 빼 두고**, `app.json` 의 `ios.usesAppleSignIn: true` 만 남긴다.
 실제 배포 빌드는 prebuild 가 app.json 을 보고 다시 넣는다.
 (`ios/` 는 .gitignore 라 이 파일이 진짜 출처다 — §13.29 와 같은 구조)
+
+## 화면 위 여백은 **숫자로 박지 않는다** (§13.143)
+
+노치·상태바를 피하는 여백은 `src/safeArea.ts` 의 `useTopPad(gap)` 를 쓴다.
+
+```tsx
+const topPad = useTopPad(0);          // 안전영역 바로 아래
+<View style={[s.head, { paddingTop: topPad }]}>
+```
+
+★ `paddingTop: 54` 같은 상수를 다시 쓰지 말 것. 그 숫자들은 아이폰 하나를
+  눈대중한 값이라 **기기가 바뀌면 틀린다** — 실제로 아홉 군데가 52~76 으로
+  제각각이었고 전부 같은 것을 노리고 있었다.
+
+★ 훅이므로 **컴포넌트마다** 선언해야 한다. 한 파일에 컴포넌트가 여럿이면
+  각각 넣는다(§13.143 에서 `PlacePicker` 가 스코프 밖이라 놓쳤다).
