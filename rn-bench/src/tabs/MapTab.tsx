@@ -174,13 +174,87 @@ function accuracyRing(h: Here, steps = 40): GeoJSON.FeatureCollection {
 
    ★ OpenFreeMap: 키 없음 · 무료 · **상업 이용 가능** · MIT · OSM 기반.
      `dark` 스타일이 있다. 브이월드와 달리 *"영리 목적은 동의 필요"* 같은 조항이 없다. */
-const BASEMAP_STYLE = "https://tiles.openfreemap.org/styles/dark";
+/* ★ 밑그림 스타일을 **앱에 넣어 둔다** (§13.128).
+   예전에는 켤 때마다 이 주소에서 21KB 를 받아 왔고, 그동안 지도가 **비어 있었다**
+   — 기기에서 재 보니 155·246·269ms(§13.127). 고정된 파일을 켤 때마다 받아올
+   이유가 없다.
+   ★ 다만 **타일 목록(`sources.openmaptiles.url`)은 그대로 둔다.** 그 주소가 주는
+     실제 타일 경로에는 날짜가 박혀 있어서(`.../planet/20260927_080001_pt/...`)
+     박아 두면 저쪽이 갱신하는 날 **404 가 된다.** 두 번 중 한 번만 없앤 것이고,
+     그렇다고 적어 둔다.
+   ★ 파일이 낡으면 이 주소에서 다시 받아 덮으면 된다. 원본 주소를 지우지 않는
+     이유가 그것이다. */
+const BASEMAP_URL = "https://tiles.openfreemap.org/styles/dark";
+const BASEMAP = require("../../assets/basemap-dark.json");
+const NORTH_COVER = require("../../assets/north-cover.json");
 
 /* ★ **한글을 앞에 세운다.** 이 스타일은 `name:latin` 을 먼저 쓰고 비라틴을 뒤에
    붙인다(실측: `name:latin` 12곳, `name:ko` 0곳). 그래서 확대하면 도로가
    **BANSONG-RO** 로 보인다 — 한국 사용자에게 그건 읽는 것이 아니라 푸는 것이다.
    ★ 스타일을 **받아서 고쳐 쓴다.** URL 그대로 넘기면 손댈 수가 없다.
      받아 오지 못하면 URL 을 그대로 쓴다 — 지도가 아예 안 뜨는 것보다 낫다. */
+/* ── ★ 북쪽은 **구체적으로 안 그린다** (§13.128) ─────────────────────
+   밑그림은 북한을 도 단위까지 다 적는다 — 전국 줌에서 **라벨 열둘 중 아홉이
+   북한 것**이었다(량강도·자강도·평안북도·평안남도·함경남도·함경북도·
+   황해북도·황해남도·강원도). 우리 앱에는 그쪽 데이터가 한 줄도 없다.
+
+   ★ **이름 목록으로 거르지 않는다.** 타일을 열어 보고 구조를 찾았다:
+
+     남한의 도  →  class = "province"   (경기도·충청남도·경상북도 …)
+     북한의 도  →  class = "state"      (평안북도·함경남도 …)
+
+   그리고 이 스타일에는 **`class=province` 를 그리는 겹이 아예 없다.**
+   즉 `place_state` 를 빼면 **남한은 한 글자도 안 잃는다.** 확인하고 적는다.
+
+   ★ 나라 이름은 `iso_a2` 로 정확히 가른다 — `place` 피처 285개 중 나라 넷에만
+     그 칸이 있다(직접 열어서 셌다). 도·시에는 없어서 나라로 못 가른다.
+
+   ★ **남는 것도 적어 둔다**: 평양·원산 같은 **도시 라벨은 그대로 남는다.**
+     도시 피처에는 나라 칸이 없어 이름 목록 말고는 거를 방법이 없고,
+     목록은 저쪽이 이름 하나 바꾸면 조용히 새기 시작한다. 아홉을 지우고
+     셋을 남기는 쪽을 골랐다. **"다 지웠다"고 말하지 않는다.** */
+function dropNorthDetail(style: any) {
+  style.layers = style.layers.filter((l: any) => l.id !== "place_state");
+  for (const l of style.layers) {
+    if (l.id !== "place_country_minor") continue;
+    l.filter = ["all", l.filter, ["!=", ["get", "iso_a2"], "KP"]];
+  }
+
+  /* ── ★ 도시 이름은 **구조로 못 거른다** → 땅으로 덮는다 ───────────────
+     도 이름 아홉을 지웠더니 **자리가 비어 도시 이름이 더 올라왔다**
+     (신의주·함흥이 새로 떴다). 라벨은 자리를 다투기 때문에 하나를 치우면
+     다른 하나가 들어온다 — **지운 만큼 줄어드는 게 아니다.** 보고 알았다.
+
+     도시 피처에는 나라 칸이 없다(285개 중 나라 넷에만 있다, 직접 셌다).
+     남은 길은 ① 이름 목록 ② 땅을 덮기 인데, ①은 저쪽이 이름 하나 바꾸면
+     조용히 새기 시작한다. **②를 고른다 — 모양 하나로 끝나고 안 샌다.**
+
+     ★ 경계를 **남한 쪽으로 넘기지 않는 것**이 요점이다. Natural Earth 10m
+       의 북한 모양은 그대로 쓰면 남한을 0.1%(≈130km²) 덮는데, 그 자리가
+       하필 파주·철원처럼 **사람이 실제로 가는 DMZ 접경**이다. 그래서
+       **우리 시군구 251개를 합쳐 뺀 뒤**(0.002°≈220m 여유까지) 넣었다 — 침범 0
+       (`shapely` 로 교집합 넓이를 재서 확인했다). 220m 는 전국 줌에서 1px 도
+       안 되므로 사이가 벌어져 보이지 않는다.
+     ★ 땅 색(`rgb(12,12,12)`)과 **같은 색**이라 덮은 티가 안 난다. 지우는 게
+       아니라 **안 그리는 것처럼** 보이게 하는 것이다. 바다는 안 건드린다. */
+  style.sources["north-cover"] = { type: "geojson", data: NORTH_COVER };
+  /* ★ **글자 겹들보다 아래**에 넣는다. 처음엔 맨 위에 올렸는데 — 그러면 글자까지
+     덮여서 좋을 것 같지만 — **해안에 걸친 이름이 반쯤 잘렸다**(「ㅁ흥시」「ㅣ산시」).
+     라벨은 점에 붙어 바다 쪽으로 삐져나오기 때문이다. **잘린 글자는 안 지운
+     것보다 나쁘다.** 그래서 지명 겹 바로 앞에 넣는다 — 땅의 길·경계·행정구역은
+     사라지고 이름은 **온전히** 남는다.
+     ★ *"첫 symbol 겹 앞"* 으로 잡았다가 한 번 더 틀렸다. 이 스타일은 symbol 이
+       `road_oneway`(23번)부터 시작하는데 **경계선이 그 뒤(34~36번)** 라서,
+       덮개가 경계선 **아래**로 들어가 도 경계가 그대로 보였다. 기준은
+       "symbol" 이 아니라 **지명(`place_*`)** 이다. 눈으로 보고 잡았다. */
+  const i = style.layers.findIndex((l: any) => String(l.id).startsWith("place_"));
+  style.layers.splice(i < 0 ? style.layers.length : i, 0, {
+    id: "north-cover", type: "fill", source: "north-cover",
+    paint: { "fill-color": "rgb(12,12,12)", "fill-antialias": false },
+  });
+  return style;
+}
+
 function koreanFirst(style: any) {
   for (const l of style?.layers ?? []) {
     if (l.type !== "symbol") continue;
@@ -347,7 +421,13 @@ export function MapTab(
   const mapRef = useRef<MapRef>(null);
   /* 받아서 고친 배경 스타일. null 이면 아직 못 받았다 — 그동안 지도를 안 그린다
      (`mapStyle` 을 나중에 바꾸면 지도가 통째로 다시 만들어진다). */
-  const [style, setStyle] = useState<any>(null);
+  /* ★ **처음부터 들고 시작한다.** 기다릴 것이 없으니 `null` 인 순간이 없다 —
+     아래의 `!style` 분기(빈 화면 + 스피너)도 같이 사라졌다.
+     ★ `koreanFirst` 는 받은 것을 **고쳐 쓴다**(mutate). 번들된 객체를 그대로 넘기면
+       require 캐시 안의 원본이 더럽혀져, 두 번째로 지도를 만들 때 이미 고쳐진 것을
+       또 고치게 된다. 그래서 **복사해서** 넘긴다. */
+  const [style] = useState<any>(
+    () => dropNorthDetail(koreanFirst(JSON.parse(JSON.stringify(BASEMAP)))));
   const [scope, setScope] = useState<API.Scope>("mine_all");
   const [cat, setCat] = useState<string | null>(null);
   /* 고른 스페이스 하나. null 이면 스코프 전체다. */
@@ -425,14 +505,6 @@ export function MapTab(
     return () => { clearInterval(t); void flushCovers(); };
   }, []);
 
-  useEffect(() => {
-    let live = true;
-    fetch(BASEMAP_STYLE)
-      .then((r) => r.json())
-      .then((j) => { if (live) setStyle(koreanFirst(j)); })
-      .catch(() => { if (live) setStyle(BASEMAP_STYLE); });   // 못 고쳐도 깔기는 한다
-    return () => { live = false; };
-  }, []);
 
   /* 이미 읽은 상자와 그때의 스코프. 스코프가 바뀌면 이 상자는 소용없다 —
      서버가 **다른 집합**을 준다(§13.37). */
@@ -1111,11 +1183,9 @@ export function MapTab(
         )}
       </View>
 
-      {!style ? (
-        <View style={[st.fill, st.center]}>
-          <ActivityIndicator color={C.accent} />
-        </View>
-      ) : (
+      {/* ★ 예전엔 여기 `!style ? <ActivityIndicator/> : …` 가 있었다.
+          스타일을 앱에 넣고 나니 **비는 순간 자체가 없어져** 분기가 사라졌다 —
+          기다림을 꾸미는 대신 **기다림을 없앴다**(§13.127 이 남긴 것). */}
       <Map ref={mapRef} style={st.fill} mapStyle={style}
            /* ★ 돌린 지도를 **되돌릴 길을 준다**(§13.78). 두 손가락으로 쉽게 돌아가는데
               (실제로 90도 돌려 봤다) 나침반이 없으면 북쪽으로 돌아올 방법이 없다 —
@@ -1400,7 +1470,6 @@ export function MapTab(
                  }} />
         </GeoJSONSource>
       </Map>
-      )}
 
       {/* ── 줌 버튼 (§13.97 ⑤ · §13.105) ──
           ★ 근거를 분명히 해 둔다. *"한 손 조작에 좋다"* 는 여전히 **추측**이다 —
