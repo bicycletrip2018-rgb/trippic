@@ -27,11 +27,12 @@
  */
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View,
+  Image, Pressable, ScrollView, StyleSheet, Text, View,
 } from "react-native";
 import { C, CAT } from "./theme";
 import { driveText } from "./course";
 import * as API from "./api";
+import { useSkeletonPulse, SkelBar, SkelBox } from "./Skeleton";
 
 const ymd = (iso: string) => iso.slice(0, 10).replace(/-/g, ".");
 const md = (iso: string) => iso.slice(5, 10).replace("-", ".");
@@ -114,7 +115,11 @@ export function PlaceSheet(
           <Text style={s.dimS}>잠시 뒤에 다시 눌러 주세요</Text>
         </View>
       ) : !d ? (
-        <View style={s.center}><ActivityIndicator color={C.accent} /></View>
+        /* ★ 스피너가 아니라 **들어올 모양**이다(§13.110). 상세는 표지 → 이름 →
+           한 줄 메타 → 주소 → 내 발자국 순서가 늘 같아서 미리 그릴 수 있다.
+           ★ 높이를 **실제와 맞춘다.** 안 맞으면 응답이 오는 순간 글이 튄다 —
+             기다린 보람이 '화면이 흔들렸다'로 끝난다(§13.110 에서 33pt 틀렸었다). */
+        <View style={s.body}><SheetSkeleton /></View>
       ) : (
         <ScrollView contentContainerStyle={s.body}>
           {/* ── 표지 ── */}
@@ -181,7 +186,12 @@ export function PlaceSheet(
 
           {/* ── 그 자리의 사진 ── */}
           {shots === null ? (
-            <ActivityIndicator color={C.muted} style={{ marginTop: 18 }} />
+            /* ★ 사진은 **한 박자 늦게** 온다(따로 부른다). 여기도 빈 칸이 아니라
+               칸 모양을 둔다 — 안 그러면 "사진이 없는 곳"처럼 보인다. */
+            <>
+              <Text style={s.secT}>이 장소의 사진</Text>
+              <ShotsSkeleton />
+            </>
           ) : shots.length ? (
             <>
               <Text style={s.secT}>이 장소의 사진</Text>
@@ -247,6 +257,38 @@ export function PlaceSheet(
           </Text>
         </Pressable>
       ) : null}
+    </View>
+  );
+}
+
+/* ── 기다리는 동안의 모양 ──────────────────────────────────────── */
+function SheetSkeleton() {
+  const pulse = useSkeletonPulse();
+  return (
+    <>
+      <SkelBox pulse={pulse} style={s.cover} />
+      {/* ★ 표지 아래 **출처 줄은 안 그린다.** 한 번 넣었다가 뺐다 — 사진 있는 곳에서는
+          맞지만 **장소 46만 곳 중 사진이 있는 곳은 10.6%** 뿐이다(실측). 아홉 곳 중
+          여덟에서 오히려 17pt 어긋나게 만든다. 흔한 쪽에 맞춘다. */}
+      <SkelBar pulse={pulse} style={{ height: 21, width: "62%", marginTop: 12 }} />
+      <SkelBar pulse={pulse} style={{ height: 13, width: "45%", marginTop: 9 }} />
+      <SkelBar pulse={pulse} style={{ height: 12, width: "78%", marginTop: 9 }} />
+      <View style={s.mine}>
+        <SkelBar pulse={pulse} style={{ height: 14, width: "40%" }} />
+        <SkelBar pulse={pulse} style={{ height: 12, width: "56%", marginTop: 6 }} />
+      </View>
+    </>
+  );
+}
+
+function ShotsSkeleton() {
+  const pulse = useSkeletonPulse();
+  /* 세 칸. 한 줄이 다 차야 "사진이 들어올 자리"로 읽힌다 */
+  return (
+    <View style={s.grid}>
+      {[0, 1, 2].map((i) => (
+        <View key={i} style={s.cell}><SkelBox pulse={pulse} style={s.cellImg} /></View>
+      ))}
     </View>
   );
 }

@@ -15,6 +15,7 @@ import {
 } from "react-native";
 import { C, CAT } from "./theme";
 import * as API from "./api";
+import { useSkeletonPulse, SkelBar } from "./Skeleton";
 import { markRegistered, registeredIds } from "./registered";
 import { pendingOf, writePending } from "./pending";
 import {
@@ -532,7 +533,10 @@ function PlacePicker(
           placeholder={`이름으로 찾기 (${API.SEARCH_MIN}자 이상)`}
           placeholderTextColor={C.muted} />
         {list === null ? (
-          <View style={s.center}><ActivityIndicator color={C.accent} /></View>
+          /* ★ 결과는 **카드가 줄줄이** 온다. 모양이 정해져 있으니 미리 그린다(§13.110).
+             ★ 여기는 **빈 화면이 특히 나쁘다** — 좌표 없는 사진은 검색이 유일한
+               길이라(§13.52) 사람이 "검색이 안 되는 건가" 하고 글자를 지웠다 다시 친다. */
+          <View style={s.body}>{[0, 1, 2, 3].map((i) => <CardSkeleton key={i} />)}</View>
         ) : (
           <ScrollView contentContainerStyle={s.body}>
             {err && <Text style={s.err}>{err}</Text>}
@@ -609,6 +613,18 @@ function Done({ result, onClose }: { result: any; onClose: () => void }) {
       )}
       <Pressable style={s.cta} onPress={onClose}><Text style={s.ctaT}>닫기</Text></Pressable>
     </ScrollView>
+  );
+}
+
+function CardSkeleton() {
+  const pulse = useSkeletonPulse();
+  return (
+    <View style={s.card}>
+      <View style={{ flex: 1 }}>
+        <SkelBar pulse={pulse} style={{ height: 14, width: "58%" }} />
+        <SkelBar pulse={pulse} style={{ height: 12, width: "36%", marginTop: 7 }} />
+      </View>
+    </View>
   );
 }
 
