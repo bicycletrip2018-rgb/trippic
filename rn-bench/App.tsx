@@ -9,7 +9,7 @@
  */
 import { useEffect, useState } from "react";
 import { StatusBar } from "expo-status-bar";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StatusBar as RNStatusBar, StyleSheet, Text, View } from "react-native";
 import { TabBar, type Tab } from "./src/TabBar";
 import { installErrorLog, logError } from "./src/errorLog";
 import { TermsGate } from "./src/TermsGate";
@@ -32,6 +32,14 @@ import { readPending, type Pending } from "./src/pending";
 import { newPhotosSince } from "./src/album";
 import { C } from "./src/theme";
 import { QualityCalib } from "./src/dev/QualityCalib";
+
+/* ★ 안드로이드는 화면이 **상태바 밑까지** 그려진다(edge-to-edge). 그래서 스크롤하면
+   화면 제목이 시계와 **겹친다** — §13.142 에서 에뮬레이터로 직접 봤다.
+   상태바 높이만큼 바탕색을 덮어 두면 글자가 그 밑으로 지나간다.
+   ★ iOS 는 **건드리지 않는다.** 노치 높이를 알아낼 방법이 지금 없고
+     (`react-native-safe-area-context` 미설치), 모르는 값을 지어내면
+     기기마다 틀린다. 보이지도 않은 문제를 추측으로 고치지 않는다. */
+const STATUS_H = Platform.OS === "android" ? (RNStatusBar.currentHeight ?? 0) : 0;
 
 /* ★ 화질 기준 재측정 도구(§13.77). **평소에는 꺼 둔다** — 출시 경로에 없다.
    기준은 반드시 또 바뀌므로 도구는 남긴다(010 이 image_quality.py 를 남긴 것과 같다). */
@@ -163,6 +171,7 @@ export default function App() {
       <View style={s.root}>
         <StatusBar style="light" />
         <TermsGate onDone={() => setAgreed(true)} />
+        <StatusScrim />
       </View>
     );
   }
@@ -222,13 +231,21 @@ export default function App() {
       {live && <LiveCapture onClose={() => setLive(false)} />}
       {reg && <RegisterFlow onClose={() => setReg(false)} />}
       <UploadPill />
+      <StatusScrim />
       <TabBar tab={tab} onChange={setTab} />
     </View>
   );
 }
 
+/** 상태바 자리를 바탕색으로 덮는다. 안드로이드에서만 높이가 0 이 아니다. */
+function StatusScrim() {
+  if (STATUS_H <= 0) return null;
+  return <View style={[s.statusScrim, { height: STATUS_H }]} pointerEvents="none" />;
+}
+
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
+  statusScrim: { position: "absolute", top: 0, left: 0, right: 0, backgroundColor: C.bg, zIndex: 50 },
   page: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
   hidden: { opacity: 0, zIndex: -1 },
   fab: {

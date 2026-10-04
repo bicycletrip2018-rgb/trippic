@@ -107,6 +107,27 @@ grep user_interface_style android/app/src/main/res/values/strings.xml
 ★ `styles.xml` 은 `Theme.AppCompat.DayNight` 그대로다 — **런타임에 건다.**
   테마만 보고 "안 먹었다"고 판단하면 틀린다.
 
+## ⑦ 에뮬레이터에서 띄워 보기 (§13.142)
+
+```bash
+export ANDROID_HOME=$HOME/Library/Android/sdk
+export PATH=$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH
+sdkmanager "emulator" "system-images;android-36;google_apis;arm64-v8a"
+avdmanager create avd -n trippic -k "system-images;android-36;google_apis;arm64-v8a" -d pixel_7
+emulator -avd trippic -no-audio -no-boot-anim -gpu swiftshader_indirect &
+adb wait-for-device
+adb install -r android/app/build/outputs/apk/release/app-release.apk
+adb shell am start -n app.trippic/.MainActivity     # ★ monkey 는 가끔 안 뜬다
+adb exec-out screencap -p > /tmp/shot.png
+```
+
+★ **디스크를 10GB 쯤 비워 두고 시작한다.** 에뮬레이터가 userdata **7.2GB** 를
+  요구하고, `config.ini` 의 `disk.dataPartition.size` 를 줄여도 **무시한다**
+  (§13.142 에서 세 번 시도해 세 번 다 무시당했다).
+
+★ 내려받기가 끝났는지는 **폴더가 아니라 `system.img` 파일**로 본다.
+  `sdkmanager` 는 폴더를 먼저 만들어 둔다 — 폴더만 보면 속는다.
+
 ## 아직 안 넣은 것
 
 - **앱 아이콘이 Expo 기본**이다(파란 갈매기). 로고가 생기면 바꾼다.
@@ -118,5 +139,7 @@ grep user_interface_style android/app/src/main/res/values/strings.xml
   드로어블은 `image` 가 있을 때만 만든다. iOS 는 그냥 지나가므로
   **안드로이드까지 빌드해 보지 않으면 모른다.** 로고가 생기면
   이 파일을 바꾸되, **비우지는 말 것.**
-- 안드로이드를 **실행해 본 적은 없다** — 에뮬레이터도 실기기도 없었다.
-  컴파일과 APK 내용물까지만 봤다(§13.141).
+- 화면들이 `paddingTop: 52~76` 같은 **박아 넣은 숫자**로 노치를 피한다.
+  지금은 맞지만 기기가 달라지면 틀린다. 제대로 고치려면
+  `react-native-safe-area-context`(네이티브 모듈 → 양쪽 재빌드)가 필요하다.
+  안드로이드 상태바만 §13.142 에서 `<StatusScrim/>` 으로 막아 뒀다.
