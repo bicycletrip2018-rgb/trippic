@@ -3,13 +3,13 @@
     "name": "트립픽",
     "slug": "trippic",
     "version": "1.0.0",
-    "scheme": "app.trippic.bench",
+    "scheme": "app.trippic",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "app.trippic.bench",
+      "bundleIdentifier": "app.trippic",
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
@@ -30,7 +30,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "app.trippic.bench",
+      "package": "app.trippic",
       "versionCode": 1
     },
     "web": {
@@ -59,9 +59,8 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#0E0F13",
-          "image": "./assets/splash-icon.png",
-          "imageWidth": 180,
-          "resizeMode": "contain"
+          "image": "./assets/splash-blank.png",
+          "imageWidth": 200
         }
       ]
     ]

@@ -37,8 +37,8 @@ curl -s "$SUPABASE_URL/auth/v1/settings" -H "apikey: $ANON_KEY" | grep -o '"appl
 
 ## 1. Apple Developer (유료 프로그램 $99/년이 필요하다 — iOS 출시에 어차피 드는 돈)
 
-1. **App ID** — `app.trippic.bench`. Capabilities 에서 **Sign in with Apple** 체크
-2. **Services ID** — 웹용으로 **따로** 만든다 (예: `app.trippic.bench.web`)
+1. **App ID** — `app.trippic`. Capabilities 에서 **Sign in with Apple** 체크
+2. **Services ID** — 웹용으로 **따로** 만든다 (예: `app.trippic.web`)
    - Sign in with Apple **Configure**
    - **Domains**: `<project-id>.supabase.co`
    - **Return URLs**: `https://<project-id>.supabase.co/auth/v1/callback`
@@ -51,12 +51,12 @@ curl -s "$SUPABASE_URL/auth/v1/settings" -H "apikey: $ANON_KEY" | grep -o '"appl
 Authentication → Providers → **Apple** → Enable
 
 - **Client IDs**: App ID 와 Services ID 를 **둘 다** 넣는다
-  (네이티브는 App ID `app.trippic.bench` 로, 웹은 Services ID 로 온다)
+  (네이티브는 App ID `app.trippic` 로, 웹은 Services ID 로 온다)
   ★ 네이티브만 쓸 거면 App ID 만 넣어도 된다.
 - **Secret Key**: Team ID · Key ID · `.p8` 로 만든 JWT
 - Authentication → URL Configuration → **Redirect URLs** 에 우리가 돌아올 주소:
   - 웹: `http://localhost:3012/index.html` (배포되면 실제 주소)
-  - 앱: `app.trippic.bench://auth` ← §13.42 에서 쓰는 그 스킴
+  - 앱: `app.trippic://auth` ← §13.42 에서 쓰는 그 스킴
 
 ## 3. 확인
 ```bash

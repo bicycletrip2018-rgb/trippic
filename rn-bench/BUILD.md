@@ -55,7 +55,7 @@ npx expo prebuild --platform ios --clean
    -destination 'generic/platform=iOS Simulator' \
    -derivedDataPath /tmp/trippic-dd CODE_SIGNING_ALLOWED=NO)
 xcrun simctl install booted /tmp/trippic-dd/Build/Products/Release-iphonesimulator/app.app
-xcrun simctl launch booted app.trippic.bench
+xcrun simctl launch booted app.trippic
 ```
 
 ★ **Metro 를 끄고** 띄워야 의미가 있다. 켜져 있으면 번들이 안 박혔어도 돈다.
@@ -70,6 +70,53 @@ plutil -extract UIUserInterfaceStyle raw ios/app/Info.plist   # → Dark
   적혀 있었는데도 그랬다 — 스플래시의 `dark` **변형**이 되돌리기 때문이다.
   **적어 둔 것과 생성된 것은 다를 수 있다.**
 
+## ⑥ 안드로이드도 계정 없이 뚫어 보기 (§13.141)
+
+```bash
+cd rn-bench
+export JAVA_HOME=$(/usr/libexec/java_home -v 17) ANDROID_HOME=$HOME/Library/Android/sdk
+npx expo prebuild --platform android --clean
+cd android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a
+```
+
+★ **`-PreactNativeArchitectures=arm64-v8a` 를 꼭 준다.** 기본값은 네 개 ABI 를
+  다 컴파일해서 **디스크를 수 GB 먹고, 모자라면 죽는다**(§13.141 에서 실제로
+  `No space left on device` 로 죽었다). 실기기는 거의 다 arm64 다.
+  출시용 `.aab` 는 EAS 가 네 개를 다 만들어 준다.
+
+나온 APK 뜯어 보기:
+
+```bash
+AAPT=$ANDROID_HOME/build-tools/36.0.0/aapt2
+APK=android/app/build/outputs/apk/release/app-release.apk
+$AAPT dump badging $APK | grep -E "^package|application-label:|native-code"
+$AAPT dump permissions $APK          # ★ 권한을 눈으로 센다
+unzip -p $APK assets/index.android.bundle | strings | grep -c "<서버 주소>"
+```
+
+### 다크 모드는 **`styles.xml` 에 안 나온다**
+
+안드로이드는 `expo-system-ui` 가 있어야 `userInterfaceStyle` 이 먹고,
+그 결과는 **`strings.xml`** 에 들어간다:
+
+```bash
+grep user_interface_style android/app/src/main/res/values/strings.xml
+# → <string name="expo_system_ui_user_interface_style">dark</string>
+```
+
+★ `styles.xml` 은 `Theme.AppCompat.DayNight` 그대로다 — **런타임에 건다.**
+  테마만 보고 "안 먹었다"고 판단하면 틀린다.
+
 ## 아직 안 넣은 것
 
-- 안드로이드 — `package` 와 `versionCode` 는 적어 뒀지만 **한 번도 안 돌려 봤다**.
+- **앱 아이콘이 Expo 기본**이다(파란 갈매기). 로고가 생기면 바꾼다.
+- 스플래시는 **`assets/splash-blank.png`(완전 투명)** 을 가리킨다 —
+  화면에는 배경색 `#0E0F13` 만 뜬다.
+
+  ★ **`image` 를 아예 빼면 안드로이드 빌드가 깨진다**(§13.141):
+  `expo-splash-screen` 이 `windowSplashScreenAnimatedIcon` 을 항상 쓰면서
+  드로어블은 `image` 가 있을 때만 만든다. iOS 는 그냥 지나가므로
+  **안드로이드까지 빌드해 보지 않으면 모른다.** 로고가 생기면
+  이 파일을 바꾸되, **비우지는 말 것.**
+- 안드로이드를 **실행해 본 적은 없다** — 에뮬레이터도 실기기도 없었다.
+  컴파일과 APK 내용물까지만 봤다(§13.141).
