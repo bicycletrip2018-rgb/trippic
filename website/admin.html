@@ -168,8 +168,8 @@ async function openPin(pin, reportId) {
     shots +
     '<pre>작성자 ' + esc(h.owner_id) + '</pre>' +
     '<div class="row">' +
-      '<button class="danger" id="rm">내리기 + 파일 삭제</button>' +
-      '<button class="danger" id="sus">작성자 7일 정지</button>' +
+      '<button class="danger" id="rm">내리고 조치하기</button>' +
+      '<button class="ghost"  id="sus">7일 정지만</button>' +
       '<button class="ghost"  id="ok">문제없음</button>' +
     '</div><div id="msg" class="muted"></div></div>';
 
@@ -182,13 +182,19 @@ async function openPin(pin, reportId) {
     const why = prompt("왜 내립니까? (기록에 남습니다)");
     if (!why) return;
     try {
-      const got = await rpc("api_mod_remove_pin", { p_pin: pin, p_why: why, p_report: reportId || null });
-      /* ★ 함수가 돌려준 경로로 **파일까지** 지운다. 줄만 내리면 주소를 아는
-         사람에게 사진이 계속 간다(§13.144). 여기가 그 마무리다. */
+      /* ★ **사다리를 탄다**(077). 며칠 정지할지 운영자가 그때그때 정하지 않는다 —
+         1회 경고 · 2회 7일 · 3회~ 영구. 같은 잘못에 같은 벌이 나가야 한다.
+         그리고 **당사자에게 알림이 간다**. */
+      const r = await rpc("api_mod_enforce", { p_pin: pin, p_why: why, p_report: reportId || null });
+      /* ★ 돌려받은 경로로 **파일까지** 지운다. 줄만 내리면 주소를 아는 사람에게
+         사진이 계속 간다(§13.144). 여기가 그 마무리다. */
+      const ps = (r && r.paths) || paths;
       let gone = 0;
-      for (const p of (got || paths)) { if (await delFile(p)) gone++; }
+      for (const p of ps) { if (await delFile(p)) gone++; }
       if (reportId) await rpc("api_report_resolve", { p_ids: [reportId], p_status: "resolved", p_note: why });
-      msg.textContent = "내렸습니다. 파일 " + gone + "/" + (got || paths).length + "개 삭제.";
+      const ko = { warned: "경고", suspended: "7일 정지", banned: "영구 정지" };
+      msg.textContent = (r.strike) + "회째 → " + (ko[r.action] || r.action) +
+        " · 파일 " + gone + "/" + ps.length + "개 삭제 · 당사자에게 알림 보냄";
       await loadQueue(); await loadLog();
     } catch (e) { msg.textContent = "실패: " + e.message; }
   };

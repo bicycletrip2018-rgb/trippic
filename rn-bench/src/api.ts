@@ -727,6 +727,17 @@ export const mySaves = (
   lat: number | null, lng: number | null, limit = 24,
 ) => rpc<SaveRow[]>("api_my_saves", { p_lng: lng, p_lat: lat, p_limit: limit });
 
+/* ── 운영 알림 (§13.147) ─────────────────────────────────────────────
+   ★ 기록이 내려가면 **당사자가 안다.** 말 없이 지우면 무엇을 잘못했는지
+     모르니 고치지 않고, 그리고 돌아오지도 않는다. */
+export type Notice = {
+  id: string; kind: "warned" | "suspended" | "banned";
+  title: string; body: string; created_at: string; read_at: string | null;
+};
+export const myNotices = () => rpc<Notice[]>("api_my_notices", { p_limit: 20 });
+export const readNotices = (ids: string[]) =>
+  rpc<number>("api_notice_read", { p_ids: ids });
+
 /* ── 장소의 표지 (§12.25-A · §13.74) ─────────────────────────────────
    ★ **표지를 여기서 고르지 않는다.** 029 가 `place_stats.top_media_id` 에
      골라 둔 것을 읽어 올 뿐이다. 고르는 곳이 둘이 되는 순간 두 화면이 같은
