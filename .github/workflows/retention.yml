@@ -1,0 +1,45 @@
+# =====================================================================
+# 오류 기록 90일 뒤 지우기 (§13.137)
+#
+# ★ 왜 — 개인정보처리방침에 *"오류 기록은 90일 뒤 삭제"* 라고 **적었기 때문**이다.
+#   적어 놓고 지우는 것이 없으면 그건 **방침이 아니라 거짓말**이다.
+#   채우기 전에 확인했고, 지우는 것이 **아무것도 없었다.**
+#
+# ★ 주 1회면 충분하다. "90일 뒤"는 하루 단위의 약속이 아니다.
+#   다만 **늦어도 97일 안에는 지워진다** — 그 선을 넘지 않게 주기를 잡았다.
+#
+# ★ `DB_URL` 이 없으면 **그냥 건너뛴다.** 포크에서 빨간 X 가 계속 뜨면
+#   사람들이 알림을 끄고, 그때부터 진짜 실패도 안 보인다(festival-refresh 와 같은 이유).
+# =====================================================================
+name: 오래된 기록 지우기
+
+on:
+  schedule:
+    - cron: "0 19 * * 0"      # 일 19:00 UTC = 월 04:00 KST
+  workflow_dispatch:
+
+jobs:
+  purge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: psql 준비
+        run: |
+          BIN=$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1 || true)
+          [ -n "$BIN" ] || { sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client-16; BIN=/usr/lib/postgresql/16/bin; }
+          echo "$BIN" >> "$GITHUB_PATH"
+      - name: 90일 지난 오류 기록 지우기
+        env:
+          DB_URL: ${{ secrets.DB_URL }}
+        run: |
+          if [ -z "${DB_URL:-}" ]; then echo "DB_URL 이 없다 — 건너뛴다"; exit 0; fi
+          psql -X -v ON_ERROR_STOP=1 -d "$DB_URL" -c "
+            with gone as (
+              delete from public.client_errors
+               where at < now() - interval '90 days'
+              returning 1)
+            select '지운 줄: ' || count(*) from gone;"
+          psql -X -At -d "$DB_URL" -c "
+            select '남은 줄 ' || count(*) || ' · 가장 오래된 것 '
+                || coalesce(min(at)::date::text, '없음') from public.client_errors;"
