@@ -187,6 +187,7 @@ function accuracyRing(h: Here, steps = 40): GeoJSON.FeatureCollection {
 const BASEMAP_URL = "https://tiles.openfreemap.org/styles/dark";
 const BASEMAP = require("../../assets/basemap-dark.json");
 const NORTH_COVER = require("../../assets/north-cover.json");
+const NORTH_LABELS = require("../../assets/north-labels.json");
 
 /* ★ **한글을 앞에 세운다.** 이 스타일은 `name:latin` 을 먼저 쓰고 비라틴을 뒤에
    붙인다(실측: `name:latin` 12곳, `name:ko` 0곳). 그래서 확대하면 도로가
@@ -247,6 +248,27 @@ function dropNorthDetail(style: any) {
        `road_oneway`(23번)부터 시작하는데 **경계선이 그 뒤(34~36번)** 라서,
        덮개가 경계선 **아래**로 들어가 도 경계가 그대로 보였다. 기준은
        "symbol" 이 아니라 **지명(`place_*`)** 이다. 눈으로 보고 잡았다. */
+  /* ── ★ 도시 이름도 지운다 — 다만 **타일에서 뽑은** 목록으로 (§13.129) ────
+     덮개는 땅을 가릴 뿐 글자는 못 가린다(가리면 반쯤 잘린다, 위 참고).
+     이름으로 지우는 수밖에 없는데 — **손으로 적지 않고 뽑는다.**
+     `tools/north_labels.py` 가 한반도 z5~9 타일을 훑어 점이 북쪽 모양 안에
+     있는 `city`·`town` 이름을 모은다. 다시 돌리면 갱신된다.
+
+     ★ **남북이 같이 쓰는 이름은 뺀다.** 실제로 셋 겹쳤다 —
+       `순천시`·`김화읍`·`영광읍`. 손으로 적었으면 **전남 순천시가
+       지도에서 사라졌을 것이다.** 스크립트가 남쪽 이름을 같이 모아서
+       걸러 준다(남쪽은 종류를 안 가리고 넓게 보호한다).
+     ★ 그래서 **그 셋은 북쪽에도 남는다.** 이름만으로는 가를 수 없다.
+       *"다 지웠다"* 가 아니라 **"가를 수 있는 것만 지웠다"** 이다.
+     ★ 거는 겹은 뽑은 종류와 **같은 것만** — city·town. 넓게 걸면 뽑지 않은
+       종류에서 엉뚱한 남한 라벨이 조용히 사라질 수 있다. */
+  const NOT_NORTH = ["match", ["coalesce", ["get", "name:ko"], ["get", "name"], ""],
+                     NORTH_LABELS.names, false, true];
+  for (const l of style.layers) {
+    if (!["place_city", "place_city_large", "place_town"].includes(l.id)) continue;
+    l.filter = ["all", l.filter, NOT_NORTH];
+  }
+
   const i = style.layers.findIndex((l: any) => String(l.id).startsWith("place_"));
   style.layers.splice(i < 0 ? style.layers.length : i, 0, {
     id: "north-cover", type: "fill", source: "north-cover",

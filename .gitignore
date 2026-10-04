@@ -25,3 +25,6 @@ prototype/config.js
 # RN 서버 키 (공개 키지만 이력에 남기지 않는다)
 rn-bench/src/config.ts
 prototype/photos_blur/
+
+# 타일 캐시 (north_labels.py)
+.tilecache/
