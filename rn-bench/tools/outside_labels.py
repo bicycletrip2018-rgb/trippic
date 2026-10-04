@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-북쪽 지명을 **타일에서 뽑는다** (§13.129)
+바깥 지명을 **타일에서 뽑는다** (§13.129 북쪽 · §13.130 중국·일본·러시아)
 
 ★ 왜 스크립트인가 — 손으로 적으면 빠뜨리고, 빠뜨린 줄은 **조용히 샌다**.
   §13.128 에서 이름 목록을 피한 이유가 그것이다. 피할 수 없다면
@@ -20,15 +20,21 @@
 
 사용:
     python3 -m venv .venv && .venv/bin/pip install mapbox-vector-tile shapely
-    .venv/bin/python rn-bench/tools/north_labels.py
+    .venv/bin/python rn-bench/tools/outside_labels.py
 """
 import json, math, os, sys, time, urllib.request, gzip
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ASSETS = os.path.join(ROOT, "rn-bench", "assets")
 # 한반도 전체 — 남쪽도 같이 훑어야 **같은 이름**을 찾을 수 있다
-BBOX = (124.0, 33.0, 132.0, 43.2)          # lon0, lat0, lon1, lat1
-ZOOMS = (5, 6, 7, 8, 9)                     # 도·시·읍 라벨이 뜨는 구간
+# ① 한반도 — 남쪽 이름을 **지킬 목록**으로 모으는 범위. 깊게(z9) 본다.
+BBOX  = (124.0, 33.0, 132.0, 43.2)
+ZOOMS = (5, 6, 7, 8, 9)
+# ② 이웃 — 중국·일본·러시아·대만. **첫 화면에 끼어드는 것**만 보면 되므로 z8 까지.
+#    축소가 전국에서 멈추므로(§13.130) 그보다 넓은 화면은 아예 없다. 이 상자
+#    바깥(베이징·도쿄)은 **일부러 찾아간 자리**라 안 건드린다 — 그렇다고 적는다.
+BBOX2  = (120.0, 30.0, 136.0, 44.0)
+ZOOMS2 = (5, 6, 7, 8)
 STYLE = "https://tiles.openfreemap.org/styles/dark"
 
 def tilexy(lat, lon, z):
@@ -63,12 +69,12 @@ def main():
     tmpl = json.loads(get(json.loads(get(STYLE, False))["sources"]["openmaptiles"]["url"], False))["tiles"][0]
     print("타일:", tmpl)
 
-    n_names, s_names, seen = set(), set(), 0
-    for z in ZOOMS:
-        x0, y1 = tilexy(BBOX[1], BBOX[0], z)
-        x1, y0 = tilexy(BBOX[3], BBOX[2], z)
+    n_names, f_names, s_names, seen = set(), set(), set(), 0
+    for z, bb in [(z, BBOX) for z in ZOOMS] + [(z, BBOX2) for z in ZOOMS2]:
+        x0, y1 = tilexy(bb[1], bb[0], z)
+        x1, y0 = tilexy(bb[3], bb[2], z)
         tiles = [(x, y) for x in range(x0, x1 + 1) for y in range(y0, y1 + 1)]
-        print(f"  z={z}  타일 {len(tiles)}장")
+        print(f"  z={z}  타일 {len(tiles)}장  {bb}")
         for x, y in tiles:
             try:
                 raw = get(tmpl.replace("{z}", str(z)).replace("{x}", str(x)).replace("{y}", str(y)), cache=True)
@@ -89,25 +95,30 @@ def main():
                 if not names: continue
                 seen += 1
                 cls = f["properties"].get("class")
-                if north.contains(p):
-                    if cls in ("city", "town"): n_names |= names
-                elif south.contains(p):
+                if south.contains(p):
                     s_names |= names          # 남쪽은 **종류를 안 가린다** — 넓게 보호한다
+                elif north.contains(p):
+                    if cls in ("city", "town"): n_names |= names
+                elif cls in ("city", "town"):
+                    f_names |= names          # 중국·일본·러시아·대만
             time.sleep(0.03)      # 남의 서버다. 천천히 받고, 받은 것은 캐시한다.
 
-    both = sorted(n_names & s_names)
-    drop = sorted(n_names - s_names)
-    print(f"\n점 {seen}개 · 북쪽 시·읍 이름 {len(n_names)} · 남쪽 이름(전부) {len(s_names)}")
+    outside = n_names | f_names
+    both = sorted(outside & s_names)
+    drop = sorted(outside - s_names)
+    print(f"\n점 {seen}개 · 북쪽 {len(n_names)} · 이웃 {len(f_names)} · 남쪽 이름(전부) {len(s_names)}")
     if both:
-        print("★ 남북이 **같이 쓰는 이름** — 지우면 남한도 사라지므로 **뺀다**:")
+        print(f"★ 남한과 **같이 쓰는 이름** {len(both)}개 — 지우면 남한도 사라지므로 **뺀다**:")
         for b in both: print("   ", b)
     out = {
-        "_": "타일에서 뽑은 북쪽 지명. 손으로 고치지 말고 north_labels.py 를 다시 돌릴 것(§13.129).",
-        "zooms": list(ZOOMS), "classes": ["city", "town"],
+        "_": "타일에서 뽑은 바깥 지명. 손으로 고치지 말고 outside_labels.py 를 다시 돌릴 것(§13.129·§13.130).",
+        "zooms": list(ZOOMS), "zooms_neighbour": list(ZOOMS2),
+        "bbox": list(BBOX), "bbox_neighbour": list(BBOX2),
+        "classes": ["city", "town"],
         "kept_shared": both, "names": drop,
     }
-    json.dump(out, open(os.path.join(ASSETS, "north-labels.json"), "w"), ensure_ascii=False, indent=0)
-    print(f"\n저장: north-labels.json · {len(drop)}개")
+    json.dump(out, open(os.path.join(ASSETS, "outside-labels.json"), "w"), ensure_ascii=False, indent=0)
+    print(f"\n저장: outside-labels.json · {len(drop)}개 (북 {len(n_names - s_names)} · 이웃 {len(f_names - s_names)})")
 
 if __name__ == "__main__":
     main()

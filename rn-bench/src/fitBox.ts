@@ -33,15 +33,29 @@ export const Z_REGION = 9;
  */
 export const WORLD_TILE = 512;
 
-export function zoomForBBox(b: number[], wPx: number, hPx: number, onPins = false) {
+/**
+ * ★ **상자가 화면에 꼭 맞는 줌** — 아무 제한도 걸지 않은 날것 (§13.130)
+ *
+ * `zoomForBBox` 는 여기에 상·하한을 씌운다. 그런데 *"더 못 나가게 막는 줌"* 을
+ * 구할 때는 그 제한이 방해가 된다 — 행정구역 상자의 하한 9.3 이 걸려서
+ * 전국이 담기는 5.1 대신 9.3 이 나온다. 그래서 **날것을 따로 낸다.**
+ * 두 군데가 같은 식을 베껴 쓰면 한쪽만 고치는 날이 온다(§13.37).
+ */
+export function fitZoom(b: number[], wPx: number, hPx: number) {
   const lonFrac = Math.max(1e-6, (b[2] - b[0]) / 360);
   const latFrac = Math.max(1e-6, Math.abs(mercY(b[3]) - mercY(b[1])));
-  const zx = Math.log2(wPx / (WORLD_TILE * lonFrac));
-  const zy = Math.log2(hPx / (WORLD_TILE * latFrac));
+  return Math.min(
+    Math.log2(wPx / (WORLD_TILE * lonFrac)),
+    Math.log2(hPx / (WORLD_TILE * latFrac)),
+  );
+}
+
+export function zoomForBBox(b: number[], wPx: number, hPx: number, onPins = false) {
   /* ★ 상한이 **둘**이다. 행정구역 상자로 갈 때는 12.5 에서 멈춘다 —
      그 큰 상자를 다 담으려다 보면 어차피 멀다. 그런데 **핀 상자**로 갈 때는
      내용이 있는 곳이니 더 들어가도 된다. 상호가 z14 부터 켜지므로(§13.60)
      그 위로 가야 *"주변에 뭐가 있나"* 가 같이 보인다. */
+  const fit = fitZoom(b, wPx, hPx);
   const hi = onPins ? 16.5 : 12.5;
   /* ★ **하한도 둘이다**(§13.94 에서 고쳤다). 예전에는 둘 다 `Z_REGION + 0.3`(9.3)
      이었다. 그 값은 *"지역을 눌렀으면 집계 줌에 머물지 말고 들어간다"* 는 뜻이라
@@ -56,7 +70,7 @@ export function zoomForBBox(b: number[], wPx: number, hPx: number, onPins = fals
      → 핀 상자에는 하한을 두지 않는다(3 은 안전장치일 뿐이다). 한 곳뿐일 때
        줌이 튀는 것은 `padPinBox` 의 최소 크기가 이미 막는다. */
   const lo = onPins ? 3 : Z_REGION + 0.3;
-  return Math.min(hi, Math.max(lo, Math.min(zx, zy)));
+  return Math.min(hi, Math.max(lo, fit));
 }
 
 /* 핀 상자에 여백을 준다. ★ 한 곳뿐이면 상자가 **점**이라 그대로 쓰면 줌이
