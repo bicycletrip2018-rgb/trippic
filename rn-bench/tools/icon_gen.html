@@ -1,0 +1,84 @@
+<!doctype html><meta charset="utf-8">
+<body style="margin:0;background:#2a2d33;display:flex;gap:16px;flex-wrap:wrap;padding:16px">
+<script>
+const BG = "#0E0F13", A1 = "#5CC6FF", A2 = "#2196E8";
+
+/** 핀 하나를 그린다. s = 캔버스 한 변, frac = 마크가 차지할 비율 */
+function mark(ctx, s, frac, opt) {
+  const solid = opt.solid || null;           // 단색(모노크롬)일 때
+  /* ★ 전체 높이로부터 거꾸로 푼다. 처음엔 **머리 중심**을 화면 가운데에 두고
+     눈대중으로 올렸는데, 꼬리가 머리보다 길어서 **아래로 치우쳤다.**
+     핀의 높이는 R(머리 위) + d(중심→꼭지점) = R·(1+TAIL) 이다. */
+  const TAIL = 2.45;                         // 중심→꼭지점 = R·TAIL (짧을수록 통통)
+  const H = s * frac;                        // 마크 전체 높이
+  const R = H / (1 + TAIL);                  // 머리 반지름
+  const d = R * TAIL;
+  const cx = s / 2;
+  const cy = s / 2 - H / 2 + R;              // ★ 바운딩박스의 가운데가 화면 가운데
+
+  // 머리(원) + 꼭지점의 접선으로 물방울을 만든다
+  const L = Math.sqrt(d * d - R * R);
+  const tx = R * L / d, ty = R * R / d;      // 접점
+  const a  = Math.atan2(ty, tx);
+
+  ctx.beginPath();
+  ctx.moveTo(cx, cy + d);
+  ctx.lineTo(cx + tx, cy + ty);
+  ctx.arc(cx, cy, R, a, Math.PI - a, true);
+  ctx.closePath();
+
+  if (solid) ctx.fillStyle = solid;
+  else {
+    const g = ctx.createLinearGradient(cx - R, cy - R, cx + R, cy + d);
+    g.addColorStop(0, A1); g.addColorStop(1, A2);
+    ctx.fillStyle = g;
+  }
+  ctx.fill();
+
+  // 안쪽 '사진' — 둥근 네모를 뚫는다
+  const w = R * 1.12, r = w * 0.26;
+  ctx.globalCompositeOperation = solid ? "destination-out" : "source-over";
+  ctx.fillStyle = solid ? "#000" : (opt.hole || BG);
+  ctx.beginPath();
+  ctx.roundRect(cx - w / 2, cy - w / 2, w, w, r);
+  ctx.fill();
+  ctx.globalCompositeOperation = "source-over";
+
+  // 사진 안의 '산' — 크게 보면 풍경, 작게 보면 점 하나
+  if (!solid) {
+    ctx.save();
+    ctx.beginPath(); ctx.roundRect(cx - w/2, cy - w/2, w, w, r); ctx.clip();
+    ctx.fillStyle = A1;
+    ctx.beginPath();
+    ctx.moveTo(cx - w * 0.34, cy + w * 0.30);
+    ctx.lineTo(cx - w * 0.02, cy - w * 0.14);
+    ctx.lineTo(cx + w * 0.30, cy + w * 0.30);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx + w * 0.22, cy - w * 0.20, w * 0.115, 0, 7); ctx.fill();
+    ctx.restore();
+  }
+}
+
+function make(kind, s) {
+  const c = document.createElement("canvas"); c.width = c.height = s;
+  const x = c.getContext("2d");
+  if (kind === "ios")      { x.fillStyle = BG; x.fillRect(0,0,s,s); mark(x, s, 0.72, {}); }
+  if (kind === "bg")       { x.fillStyle = BG; x.fillRect(0,0,s,s); }
+  /* ★ 적응형 아이콘은 **가운데 66%만 보인다**(기기마다 다른 모양으로 깎는다).
+     그래서 전경은 더 작게 그린다 — 안 그러면 꼭지점이 잘린다. */
+  if (kind === "fg")       { mark(x, s, 0.44, {}); }
+  if (kind === "mono")     { mark(x, s, 0.48, { solid: "#fff" }); }
+  if (kind === "splash")   { mark(x, s, 0.76, {}); }
+  c.style.width = "120px"; c.style.imageRendering = "auto";
+  c.title = kind; document.body.appendChild(c);
+  return c.toDataURL("image/png");
+}
+window.OUT = {
+  ios:    make("ios", 1024),
+  bg:     make("bg", 512),
+  fg:     make("fg", 512),
+  mono:   make("mono", 432),
+  splash: make("splash", 512),
+};
+</script>

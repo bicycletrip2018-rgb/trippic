@@ -130,15 +130,15 @@ adb exec-out screencap -p > /tmp/shot.png
 
 ## 아직 안 넣은 것
 
-- **앱 아이콘이 Expo 기본**이다(파란 갈매기). 로고가 생기면 바꾼다.
-- 스플래시는 **`assets/splash-blank.png`(완전 투명)** 을 가리킨다 —
-  화면에는 배경색 `#0E0F13` 만 뜬다.
+- 아이콘·스플래시는 §13.148 에서 만들었다(`assets/icon.png` ·
+  `android-icon-{foreground,background,monochrome}.png` · `splash-mark.png`).
+  다시 만들려면 그때 쓴 캔버스 생성기를 보라 — 모양은 **코드로** 정의돼 있다.
 
-  ★ **`image` 를 아예 빼면 안드로이드 빌드가 깨진다**(§13.141):
+  ★ **스플래시의 `image` 를 아예 빼면 안드로이드 빌드가 깨진다**(§13.141):
   `expo-splash-screen` 이 `windowSplashScreenAnimatedIcon` 을 항상 쓰면서
   드로어블은 `image` 가 있을 때만 만든다. iOS 는 그냥 지나가므로
-  **안드로이드까지 빌드해 보지 않으면 모른다.** 로고가 생기면
-  이 파일을 바꾸되, **비우지는 말 것.**
+  **안드로이드까지 빌드해 보지 않으면 모른다.** 바꾸되 **비우지는 말 것.**
+- `assets/favicon.png` 는 아직 Expo 기본이다 — **웹을 안 쓰므로** 그대로 둔다.
 - 화면들이 `paddingTop: 52~76` 같은 **박아 넣은 숫자**로 노치를 피한다.
   지금은 맞지만 기기가 달라지면 틀린다. 제대로 고치려면
   `react-native-safe-area-context`(네이티브 모듈 → 양쪽 재빌드)가 필요하다.
