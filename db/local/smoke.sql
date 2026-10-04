@@ -804,6 +804,7 @@ end $$;
 
 -- 운영자로 만들고 처리해 본다 (심는 것은 superuser로)
 reset role;
+select pg_temp.login(null);   -- 심는 것은 **서버 자신**으로(068 벽을 안 건드리게)
 insert into public.operators(user_id) values ('22222222-2222-2222-2222-222222222222')
   on conflict do nothing;
 set role authenticated; select pg_temp.login('22222222-2222-2222-2222-222222222222');
@@ -2137,6 +2138,7 @@ reset role; set role authenticated;
 
 -- ② 운영자는 읽는다
 reset role;
+select pg_temp.login(null);   -- 심는 것은 **서버 자신**으로(068 벽을 안 건드리게)
 insert into public.operators (user_id, granted_by)
   values ('11111111-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111')
   on conflict do nothing;
@@ -2235,6 +2237,145 @@ select pg_temp.ok(
   has_function_privilege('authenticated', 'public.zz_new_function_test()', 'execute'),
   '새 함수도 로그인한 사람은 쓴다 — 앱이 안 깨지게');
 drop function public.zz_new_function_test();
+set role authenticated;
+
+-- ── 068 빗장을 빠뜨려도 막힌다 (§13.122) ─────────────────────────────
+-- ★ §13.121 이 남긴 위험: *"안쪽 is_operator() 빗장이 유일한 벽이다. 새 함수에서
+--   그걸 빠뜨리면 로그인한 누구나 부를 수 있다."* 그걸 두 겹으로 막았다.
+\echo ''
+\echo '── 28. 운영자 벽 (068) ──'
+
+-- ① 쓰기 — **표가 거절한다**. 함수가 빗장을 빠뜨려도.
+--   ★ 빗장을 **일부러 빠뜨린 definer 함수**를 만들어 때려 본다. 이게 핵심이다 —
+--     "그런 함수가 생기면 어떻게 되나"를 말이 아니라 **실제로** 보는 것.
+reset role;
+create or replace function public.zz_forgot_guard(p_user uuid) returns boolean
+  language plpgsql security definer set search_path = public, extensions as $$
+  begin
+    insert into public.operators(user_id, granted_by) values (p_user, auth.uid())
+      on conflict do nothing;        -- 빗장을 **일부러** 빠뜨린다
+                                     -- (여기에 그 함수 이름을 글자로 적으면 검사기가 속는다 — 한 번 그랬다)
+    return true;
+  end $$;
+grant execute on function public.zz_forgot_guard(uuid) to anon, authenticated;
+
+set role authenticated; select pg_temp.login('33333333-3333-3333-3333-333333333333');
+do $$ begin
+  begin
+    perform public.zz_forgot_guard('33333333-3333-3333-3333-333333333333');
+    raise exception 'FAIL  ★ 빗장 없는 definer 함수가 스스로를 운영자로 만들었다';
+  exception when insufficient_privilege then
+    raise notice '  OK   ★★ 빗장을 빠뜨린 definer 함수도 **표가 거절한다** — 트리거는 RLS 와 달리 definer 를 안 봐준다';
+  end;
+end $$;
+reset role;          -- operators 는 authenticated 에게 SELECT 권한이 아예 없다
+select pg_temp.ok(
+  not exists (select 1 from public.operators
+               where user_id = '33333333-3333-3333-3333-333333333333'),
+  '★ 실제로 한 줄도 안 들어갔다 — 거절만 하고 쓰기는 통과하면 아무 의미가 없다');
+
+-- ② 운영자는 **그대로 된다** — 벽을 세우다 문을 막으면 안 된다
+reset role;
+select pg_temp.login(null);   -- 심는 것은 **서버 자신**으로(068 벽을 안 건드리게)
+delete from public.operators;   -- 앞 절(26·27)이 심어 둔 것을 치운다
+insert into public.operators (user_id, granted_by)
+  values ('11111111-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111');
+set role authenticated; select pg_temp.login('11111111-1111-1111-1111-111111111111');
+select pg_temp.ok(
+  public.api_operator_grant('22222222-2222-2222-2222-222222222222', '벽 시험'),
+  '★ 진짜 운영자는 그대로 준다 — 벽이 문까지 막으면 집에 못 들어간다');
+
+-- ③ 신고는 **아무나** 한다 (만드는 것과 처리하는 것은 다르다)
+select pg_temp.login('33333333-3333-3333-3333-333333333333');
+insert into public.reports (reporter_id, target_type, target_id, reason)
+  values ('33333333-3333-3333-3333-333333333333', 'pin',
+          '77770000-0000-0000-0000-00000000000a', '시험');
+select pg_temp.ok(true, '★ 신고는 운영자가 아니어도 한다 — 막으면 신고 자체가 사라진다');
+
+-- ④ 그런데 **처리**는 못 한다
+--    ★ 처음엔 여기서 그냥 `update public.reports ...` 를 했고 **거짓으로 통과**했다.
+--      `authenticated` 는 `reports` 에 UPDATE 권한이 아예 없어서 올라온
+--      `insufficient_privilege` 가 **트리거가 아니라 GRANT** 에서 난 것이었다.
+--      트리거를 시험하려면 권한을 가진 자리 = **definer 함수**로 들어가야 한다.
+--      (그리고 그게 실제 위험이 들어오는 자리이기도 하다.)
+reset role;
+create or replace function public.zz_resolve_no_guard() returns boolean
+  language plpgsql security definer set search_path = public, extensions as $$
+  begin
+    update public.reports set status = 'resolved' where reason = '시험';
+    return true;
+  end $$;
+create or replace function public.zz_move_reporter(p_to uuid) returns boolean
+  language plpgsql security definer set search_path = public, extensions as $$
+  begin
+    update public.reports set reporter_id = p_to where reason = '시험';
+    return true;
+  end $$;
+grant execute on function public.zz_resolve_no_guard() to authenticated;
+grant execute on function public.zz_move_reporter(uuid) to authenticated;
+set role authenticated; select pg_temp.login('33333333-3333-3333-3333-333333333333');
+
+do $$ begin
+  begin
+    perform public.zz_resolve_no_guard();
+    raise exception 'FAIL  ★ 운영자가 아닌데 신고를 처리했다';
+  exception when insufficient_privilege then
+    raise notice '  OK   ★ 신고를 **처리**하는 것은 운영자만 — definer 함수로 들어와도 표가 거절한다';
+  end;
+end $$;
+reset role;
+select pg_temp.ok(
+  (select status from public.reports where reason = '시험') = 'open',
+  '★ 상태가 그대로 open 이다 — 거절만 하고 값은 바뀌면 벽이 아니다');
+set role authenticated; select pg_temp.login('33333333-3333-3333-3333-333333333333');
+
+-- ④-b 그런데 **주인 옮기기**는 막으면 안 된다 (계정 합치기가 여기를 지난다)
+--    ★ 이 줄이 없었을 때 벽을 `before update` 로 통째로 걸었고, 합치기가 깨졌다.
+select pg_temp.ok(
+  public.zz_move_reporter('22222222-2222-2222-2222-222222222222'),
+  '★★ 신고의 **주인 옮기기**는 운영자가 아니어도 된다 — 계정 합치기(040)가 여기서 멈추면 기록이 반만 옮겨진다');
+reset role;
+select pg_temp.ok(
+  (select reporter_id from public.reports where reason = '시험')
+    = '22222222-2222-2222-2222-222222222222',
+  '★ 실제로 옮겨졌다');
+set role authenticated; select pg_temp.login('33333333-3333-3333-3333-333333333333');
+
+-- ⑤ 읽기는 트리거로 못 막는다 → **검증이 막는다**
+select pg_temp.ok(
+  (select count(*) from public.unguarded_operator_functions()
+    where proname not like 'zz\_%') = 0,
+  '★★ 민감한 표를 건드리는 definer 함수에 **빗장이 전부 있다** — 하나라도 빠지면 여기서 검증이 멈춘다');
+select pg_temp.ok(
+  exists (select 1 from public.unguarded_operator_functions() where proname = 'zz_forgot_guard'),
+  '★ 검사기가 **일부러 빠뜨린 그 함수를 잡아낸다** — 안 잡으면 검사기가 장식이다');
+
+-- ⑥ 예외는 **이유가 있어야** 들어간다 (이유 없는 예외는 정규식을 좁힌 것과 같다)
+reset role;
+do $$ begin
+  begin
+    insert into public.operator_wall_exemptions (proname) values ('zz_no_reason');
+    raise exception 'FAIL  ★ 이유 없이 예외가 들어갔다';
+  exception when not_null_violation then
+    raise notice '  OK   ★ 예외에는 **왜**를 적어야 한다 — 조용히 빼는 것과 적어 두고 빼는 것은 다르다';
+  end;
+end $$;
+select pg_temp.ok(
+  exists (select 1 from public.operator_wall_exemptions where proname = 'api_merge_claim'),
+  '★ 합치기 예외가 **표에 적혀 있다** — grep 하면 왜 뺐는지 나온다');
+set role authenticated;
+
+reset role;
+/* ★ `reset role` 만으로는 못 치운다. 트리거는 `current_user` 가 아니라
+   **`auth.uid()`** 를 보는데, 그 값은 마지막 login() 이 그대로 남아 있다 —
+   superuser 로 돌아와도 "운영자가 아닌 사람"으로 보여 치우다가 막힌다.
+   (실제로 여기서 막혔다. 벽이 제대로 서 있다는 뜻이기도 하다.) */
+select pg_temp.login(null);
+drop function public.zz_forgot_guard(uuid);
+drop function public.zz_resolve_no_guard();
+drop function public.zz_move_reporter(uuid);
+delete from public.reports where reason = '시험';
+delete from public.operators;
 set role authenticated;
 
 -- ── 038 초대 링크로 합류 ─────────────────────────────────────────────
