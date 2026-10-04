@@ -790,8 +790,20 @@ select pg_temp.ok((select count(*) from public.reports) = 0,
 
 -- 운영자가 아니면 신고함도 처리도 없다
 select pg_temp.ok(public.is_operator() = false, '보통 사용자는 운영자가 아니다');
-select pg_temp.ok((select count(*) from public.api_report_queue()) = 0,
-  '운영자가 아니면 신고함이 비어 보인다');
+/* ★ §13.146 에서 **기대를 바꿨다.** 예전에는 *"비어 보인다"* 를 쟀는데,
+   그게 어드민 화면을 속였다 — *"예외가 안 났으니 운영자구나"* 로 읽혀
+   **운영자가 아닌 계정에 '운영자로 들어와 있습니다'** 가 떴다.
+   *"볼 수 없다"* 와 *"볼 것이 없다"* 는 다른 답이다. 이제 **거절한다.** */
+do $$ begin
+  begin
+    perform * from public.api_report_queue();
+    raise exception 'FAIL  ★ 운영자가 아닌데 신고함이 열렸다';
+  exception when insufficient_privilege then
+    raise notice '  OK   ★★ 운영자가 아니면 신고함이 **거절한다** — 빈손이 아니라(§13.146)';
+  end;
+end $$;
+select pg_temp.ok(public.api_am_i_operator() = false,
+  '★ 자기 상태를 묻는 것은 거절하지 않는다 — 화면이 무엇을 그릴지 정해야 한다');
 do $$ begin
   begin
     perform public.api_report_resolve(array['dddddddd-0000-0000-0000-000000000001'::uuid], 'resolved');

@@ -65,7 +65,12 @@ export function TermsGate({ onDone }: { onDone: () => void }) {
         </View>
 
         <Text style={s.li}>· 기록은 <Text style={s.b}>기본이 ‘나만 보기’</Text>입니다.
-          공개로 바꾸신 것만 다른 분께 보입니다.</Text>
+          공개로 바꾸신 것만 다른 분께 보입니다.
+          {/* ★ §13.146: 075 로 **신고된 기록은 비공개여도 운영자가 연다.**
+              첫 줄에서 "나만 보기"라고 해 놓고 그 예외를 방침 안쪽에만 적으면
+              **읽은 사람과 실제가 어긋난다.** 예외는 약속 바로 옆에 적는다. */}
+          {" "}다만 <Text style={s.b}>신고가 들어온 기록</Text>은 확인을 위해
+          운영자가 열어 봅니다.</Text>
         <Text style={s.li}>· 마음에 들지 않는 기록은 <Text style={s.b}>신고</Text>하거나
           그 사람을 <Text style={s.b}>차단</Text>하실 수 있습니다. 차단은 언제든 푸십니다.</Text>
         <Text style={s.li}>· 사진의 촬영 시각·좌표는 <Text style={s.b}>기기 안에서만</Text> 읽고,
