@@ -55,6 +55,17 @@ cd prototype && /usr/bin/python3 -m http.server 5173 # ③ UI — 브라우저�
 ./db/supabase/reset_test_data.sh && ./db/supabase/verify.sh   # ④ DB
 ```
 
+### ★ 밀기 전 훅을 **한 번 켜 둔다**
+
+```bash
+git config core.hooksPath .githooks
+```
+
+`db/` 가 바뀐 밀기에서 `db/local/verify.sh` 가 자동으로 돈다(5초). 구멍이 있으면
+**밀리지 않는다.** CI 도 돌지만 **머지를 막지는 못한다** — 비공개 저장소 + 무료
+플랜이라 브랜치 보호와 룰셋을 못 쓴다(403, 실제로 확인). CI 는 **기록**이고
+훅이 **문**이다(§13.125).
+
 ### ★ ④ 는 **리셋 → 검증** 순서를 지킨다
 
 `db/local/smoke.sql` 에는 *"이 DB 에 내 것 말고는 없다"* 를 전제로 쓴 단언이 많다.
