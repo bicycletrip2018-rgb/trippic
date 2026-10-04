@@ -178,6 +178,9 @@ export function MyTab({ authTick = 0 }: { authTick?: number }) {
   const [uid, setUid] = useState<string | null>(API.SESSION.user_id);
   const [course, setCourse] = useState(false);
   const [cov, setCov] = useState<API.Coverage | null>(null);
+  /* ★ 운영 조치 알림(§13.147). **맨 위에 둔다** — 기록이 내려갔는데 그 사실이
+     스크롤 아래에 있으면 못 보고 지나간다. 못 본 알림은 없는 알림이다. */
+  const [notices, setNotices] = useState<API.Notice[]>([]);
   /* 지운 기록은 **그 자리에서** 치운다 — 다시 받기 전까지 남으면 "안 지워졌네"로 읽힌다 */
   const [erased, setErased] = useState<string[]>([]);
   const [erasing, setErasing] = useState<string | null>(null);
@@ -227,12 +230,36 @@ export function MyTab({ authTick = 0 }: { authTick?: number }) {
     setSigning(false);
     if (r.ok) void load();
   }
+  /* 알림은 **조용히** 받아 온다 — 실패해도 마이 탭이 멈추면 안 된다 */
+  useEffect(() => {
+    let live = true;
+    API.myNotices().then((r) => { if (live && r.ok) setNotices(r.data ?? []); }).catch(() => {});
+    return () => { live = false; };
+  }, [uid, authTick]);
+
   const photos = rows.reduce((n, p) => n + (p.media?.length ?? 0), 0);
 
   return (
     <ScrollView style={s.wrap} contentContainerStyle={{ paddingBottom: 110 }}
       refreshControl={<RefreshControl refreshing={busy} onRefresh={load} tintColor={C.muted} />}>
       <Text style={[s.h1, { paddingTop: topPad }]}>마이</Text>
+
+      {/* ★ 운영 조치 알림. **읽어도 안 지운다** — 무슨 일이 있었는지는 남아야
+          한다. 다만 읽은 뒤에는 **옅게** 둔다. */}
+      {notices.map((n) => (
+        <Pressable key={n.id} style={[s.notice, !!n.read_at && s.noticeRead]}
+          onPress={() => {
+            if (!n.read_at) {
+              void API.readNotices([n.id]);
+              setNotices((v) => v.map((x) => x.id === n.id
+                ? { ...x, read_at: new Date().toISOString() } : x));
+            }
+          }}>
+          <Text style={s.noticeT}>{n.title}</Text>
+          <Text style={s.noticeB}>{n.body}</Text>
+          {!n.read_at && <Text style={s.noticeNew}>눌러서 읽음 표시</Text>}
+        </Pressable>
+      ))}
 
       {/* ★ 정복률 (§13.68). 원본 기획 §1 의 한 줄 정의가 *"공간 정복 쾌감"* 인데
           서버(`api_coverage`)만 있고 **화면이 한 번도 안 불렀다.**
@@ -515,6 +542,12 @@ const s = StyleSheet.create({
      주 동작이라, 같은 줄에 두면 어느 것이 본론인지 흐려진다. */
   cardT: { color: C.text, fontSize: 13.5, fontWeight: "650" as any },
   cardS: { color: C.muted, fontSize: 11, marginTop: 3 },
+  notice: { marginHorizontal: 18, marginTop: 10, padding: 15, borderRadius: 16,
+            borderWidth: 1, borderColor: C.warn, backgroundColor: "rgba(245,158,11,0.10)" },
+  noticeRead: { borderColor: C.line, backgroundColor: "rgba(255,255,255,0.03)" },
+  noticeT: { color: C.text, fontSize: 14, fontWeight: "700" },
+  noticeB: { color: C.muted, fontSize: 12.5, lineHeight: 19, marginTop: 5 },
+  noticeNew: { color: C.warn, fontSize: 11, marginTop: 8 },
   box: { marginHorizontal: 18, marginTop: 10, padding: 15, borderRadius: 16, borderWidth: 1,
          borderColor: C.line, backgroundColor: "rgba(255,255,255,0.03)" },
   boxT: { color: C.muted, fontSize: 11.5 },

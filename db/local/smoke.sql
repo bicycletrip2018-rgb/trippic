@@ -3141,7 +3141,81 @@ select pg_temp.ok(
   (select count(*) from public.api_mod_view_log(50)) > 0,
   '★ 운영자는 자기가 무엇을 열었는지 돌아볼 수 있다');
 
+-- ⑨ 조치 사다리 (077)
+-- ★ 재는 것: **같은 잘못에 같은 벌**이 나가고, **당사자가 안다**는 것.
 reset role; select pg_temp.login(null);
+insert into public.pins (id,user_id,place_id,geom,visited_at,is_public,verification,memo)
+values ('ee000000-0000-0000-0000-0000000000c1','ee222222-2222-2222-2222-222222222222',
+        'ee000000-0000-0000-0000-0000000000da',ST_SetSRID(ST_MakePoint(127.1,37.5),4326),
+        now(),true,'exif','ZZ사다리1'),
+       ('ee000000-0000-0000-0000-0000000000c2','ee222222-2222-2222-2222-222222222222',
+        'ee000000-0000-0000-0000-0000000000da',ST_SetSRID(ST_MakePoint(127.1,37.5),4326),
+        now(),true,'exif','ZZ사다리2'),
+       ('ee000000-0000-0000-0000-0000000000c3','ee222222-2222-2222-2222-222222222222',
+        'ee000000-0000-0000-0000-0000000000da',ST_SetSRID(ST_MakePoint(127.1,37.5),4326),
+        now(),true,'exif','ZZ사다리3')
+on conflict (id) do nothing;
+delete from public.operator_log where action='remove_pin'
+  and target_id='ee222222-2222-2222-2222-222222222222';   -- 앞 절이 남긴 1회를 비운다
+update auth.users set banned_until = null where id='ee222222-2222-2222-2222-222222222222';
+set role authenticated;
+
+select pg_temp.login('ee111111-1111-1111-1111-111111111111');
+do $$
+declare r jsonb;
+begin
+  r := public.api_mod_enforce('ee000000-0000-0000-0000-0000000000c1','ZZ1회');
+  if r->>'action' <> 'warned' then raise exception 'FAIL ★ 1회는 경고여야 하는데 %', r->>'action'; end if;
+  raise notice '  OK   ★ 1회는 **경고**다 — 처음 실수한 사람과 반복범이 같은 벌을 받으면 안 된다';
+
+  r := public.api_mod_enforce('ee000000-0000-0000-0000-0000000000c2','ZZ2회');
+  if r->>'action' <> 'suspended' then raise exception 'FAIL ★ 2회는 7일이어야 하는데 %', r->>'action'; end if;
+  raise notice '  OK   ★ 2회는 **7일 정지**';
+
+  r := public.api_mod_enforce('ee000000-0000-0000-0000-0000000000c3','ZZ3회');
+  if r->>'action' <> 'banned' then raise exception 'FAIL ★ 3회는 영구여야 하는데 %', r->>'action'; end if;
+  raise notice '  OK   ★ 3회째는 **영구** — 같은 잘못에 같은 벌이 나간다(운영자 기분이 아니라)';
+end $$;
+
+reset role; select pg_temp.login(null);
+select pg_temp.ok(
+  (select banned_until from auth.users where id='ee222222-2222-2222-2222-222222222222') > now() + interval '50 years',
+  '★ 영구는 실제로 먼 미래가 찍힌다 — 말만 영구면 다음 날 돌아온다');
+set role authenticated;
+
+-- 당사자가 **안다**
+select pg_temp.login('ee222222-2222-2222-2222-222222222222');
+select pg_temp.ok((select count(*) from public.api_my_notices()) = 3,
+  '★★ **세 번 다 알림이 간다** — 말 없이 지우면 고치지 않는다(그리고 돌아오지도 않는다)');
+select pg_temp.ok(
+  exists (select 1 from public.api_my_notices() where kind='banned' and body like '%이의가 있으시면%'),
+  '★★ 영구 정지 알림에는 **이의 제기할 곳**이 적혀 있다 — 끝이 아니라 길을 준다');
+
+-- 남의 징계는 안 보인다
+select pg_temp.login('ee333333-3333-3333-3333-333333333333');
+select pg_temp.ok((select count(*) from public.api_my_notices()) = 0,
+  '★★ **남의 징계 내역은 안 보인다** — 보이면 그 자체가 2차 피해다');
+
+-- 내용은 못 고치고 읽음 표시만 된다
+select pg_temp.login('ee222222-2222-2222-2222-222222222222');
+/* ★ RLS 는 *어느 줄*을 정하고, **권한이 *어느 칸*을 정한다.**
+   처음엔 정책만 걸어 두고 주석에 "읽음 표시만" 이라고 적었다가 여기서 잡혔다. */
+do $$ begin
+  begin
+    update public.user_notices set body = 'ZZ나는 경고받은 적 없다'
+     where user_id = 'ee222222-2222-2222-2222-222222222222';
+    raise exception 'FAIL  ★★ 당사자가 징계 내용을 고쳤다 — 기록이 아니라 낙서가 된다';
+  exception when insufficient_privilege then
+    raise notice '  OK   ★★ 징계 **내용은 못 고친다**(칸 단위 권한) — 고칠 수 있으면 "못 받았다"가 된다';
+  end;
+end $$;
+select pg_temp.ok(public.api_notice_read(
+    array(select id from public.api_my_notices())) >= 1,
+  '★ 그래도 **읽음 표시는 된다** — 막기만 하고 못 쓰게 하면 안 읽은 채로 쌓인다');
+
+reset role; select pg_temp.login(null);
+delete from public.user_notices where user_id::text like 'ee%';
+delete from public.pins where id::text like 'ee000000-0000-0000-0000-0000000000c%';
 delete from public.reports where id::text like 'ee000000%';
 delete from public.operator_log where note like 'ZZ%' or note like '%ee000000%';
 delete from public.media  where id::text like 'ee000000%';
