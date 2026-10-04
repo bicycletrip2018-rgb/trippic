@@ -3057,7 +3057,81 @@ begin
   end if;
 end $$;
 
-delete from public.operator_log where note like 'ZZ%';
+-- ⑧ **신고된 것만** 열린다 (075)
+-- ★ 이 절이 재는 것: "운영자 권한"이 아니라 **신고**가 문을 연다는 것.
+select pg_temp.login('ee111111-1111-1111-1111-111111111111');
+do $$ begin
+  begin
+    perform * from public.api_mod_reported_pin('ee000000-0000-0000-0000-00000000000b');
+    raise exception 'FAIL  ★★ 신고가 없는데 열렸다 — 그러면 그냥 전부 보기다';
+  exception when insufficient_privilege then
+    raise notice '  OK   ★★ **신고가 없으면 운영자여도 못 본다** — 권한이 아니라 사유가 문을 연다';
+  end;
+end $$;
+
+reset role; select pg_temp.login(null);
+insert into public.reports (id, reporter_id, target_type, target_id, reason)
+  values ('ee000000-0000-0000-0000-0000000000f1',
+          'ee333333-3333-3333-3333-333333333333', 'pin',
+          'ee000000-0000-0000-0000-00000000000b', 'ZZ음란물')
+  on conflict (id) do nothing;
+set role authenticated;
+
+select pg_temp.login('ee333333-3333-3333-3333-333333333333');
+do $$ begin
+  begin
+    perform * from public.api_mod_reported_pin('ee000000-0000-0000-0000-00000000000b');
+    raise exception 'FAIL  ★ 운영자가 아닌데 신고된 사진을 봤다';
+  exception when insufficient_privilege then
+    raise notice '  OK   ★ 신고가 있어도 **운영자가 아니면** 못 본다 — 두 조건을 다 넘어야 한다';
+  end;
+end $$;
+
+select pg_temp.login('ee111111-1111-1111-1111-111111111111');
+do $$
+declare r record; got int := 0;
+begin
+  for r in select * from public.api_mod_reported_pin('ee000000-0000-0000-0000-00000000000b') loop
+    got := got + 1;
+    if r.url is null then
+      raise exception 'FAIL  ★★ 사진 주소가 비었다 — 무엇을 지우는지 못 보고 지우게 된다';
+    end if;
+    if r.reports < 1 then
+      raise exception 'FAIL  ★ 신고 수가 %', r.reports;
+    end if;
+  end loop;
+  if got = 0 then
+    raise exception 'FAIL  ★ 신고된 기록인데 아무것도 안 나왔다';
+  end if;
+  raise notice '  OK   ★★ 신고된 기록은 **비공개·내려간 뒤여도** 사진까지 보인다(%건)', got;
+end $$;
+
+reset role; select pg_temp.login(null);
+select pg_temp.ok(
+  exists (select 1 from public.operator_log
+           where action = 'view'
+             and actor_id = 'ee111111-1111-1111-1111-111111111111'
+             and note like '%ee000000-0000-0000-0000-00000000000b%'),
+  '★★ **열어 본 것이 남는다** — 본 것은 못 돌이키니 기록도 못 돌이켜야 한다');
+set role authenticated;
+
+select pg_temp.login('ee333333-3333-3333-3333-333333333333');
+do $$ begin
+  begin
+    perform * from public.api_mod_view_log(10);
+    raise exception 'FAIL  ★ 남남이 운영 기록을 봤다';
+  exception when insufficient_privilege then
+    raise notice '  OK   ★ 운영 기록은 운영자만 본다';
+  end;
+end $$;
+select pg_temp.login('ee111111-1111-1111-1111-111111111111');
+select pg_temp.ok(
+  (select count(*) from public.api_mod_view_log(50)) > 0,
+  '★ 운영자는 자기가 무엇을 열었는지 돌아볼 수 있다');
+
+reset role; select pg_temp.login(null);
+delete from public.reports where id::text like 'ee000000%';
+delete from public.operator_log where note like 'ZZ%' or note like '%ee000000%';
 delete from public.media  where id::text like 'ee000000%';
 delete from public.pins   where id::text like 'ee000000%';
 delete from public.places where id = 'ee000000-0000-0000-0000-0000000000da';
