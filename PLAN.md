@@ -15744,6 +15744,19 @@ ios/app/Images.xcassets/AppIcon.appiconset/App-Icon-1024x1024@1x.png
 
 ### 다시 읽다가 찾은 것 하나 더
 
-`app.json` 의 `ios.supportsTablet` 이 **`true`** 다. 그러면 애플이
+`app.json` 의 `ios.supportsTablet` 이 **`true`** 였다. 그러면 애플이
 **아이패드 스크린샷도 요구하고**, 심사자가 아이패드에서 열어 본다.
 **이 앱은 아이패드에서 한 번도 안 띄워 봤다** — 여백도 지도도 전부 폰 기준이다.
+
+→ **폰 전용으로 내렸다**(`supportsTablet: false`). 되돌릴 수 없는 결정이 아니다 —
+  나중 버전에서 켜면 된다. 첫 출시에 **안 해 본 화면을 심사에 내밀지 않는다.**
+
+★ 확인하다가 **내가 또 엉뚱한 곳을 봤다.** `Info.plist` 의 `UIDeviceFamily` 를
+  찾았는데 `None` 이 나와 *"아직 아이패드가 들어 있다"* 고 읽을 뻔했다.
+  요즘 Xcode 는 거기 안 적는다 — **빌드 설정**이다:
+
+  ```
+  ios/app.xcodeproj/project.pbxproj:  TARGETED_DEVICE_FAMILY = 1;   (두 곳 다)
+  ```
+
+  **없다는 것과 다른 데 있다는 것은 다르다.**

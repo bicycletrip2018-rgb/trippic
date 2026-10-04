@@ -8,7 +8,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
       "bundleIdentifier": "app.trippic",
       "infoPlist": {
         "NSAppTransportSecurity": {
