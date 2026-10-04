@@ -18,6 +18,7 @@ import { distM } from "../course";
 import { useSkeletonPulse, SkelBar, SkelBox } from "../Skeleton";
 import { ReportSheet, type Target } from "../ReportSheet";
 import { sitePage } from "../siteLinks";
+import { DangerZone } from "../DangerZone";
 import { INVITE_BASE } from "../config";
 import { openSocial } from "../oauth";
 import { isAvailable as appleAvailable, signInWithApple } from "../appleAuth";
@@ -174,6 +175,9 @@ export function MyTab({ authTick = 0 }: { authTick?: number }) {
   const [uid, setUid] = useState<string | null>(API.SESSION.user_id);
   const [course, setCourse] = useState(false);
   const [cov, setCov] = useState<API.Coverage | null>(null);
+  /* 지운 기록은 **그 자리에서** 치운다 — 다시 받기 전까지 남으면 "안 지워졌네"로 읽힌다 */
+  const [erased, setErased] = useState<string[]>([]);
+  const [erasing, setErasing] = useState<string | null>(null);
   /* ★ 켜져 있는 것만 보여 준다 — 꺼져 있는데 버튼을 두면 누른 사람이
      `Unsupported provider` 를 본다 (§13.41). */
   const [socials, setSocials] = useState<API.Social[]>([]);
@@ -365,7 +369,7 @@ export function MyTab({ authTick = 0 }: { authTick?: number }) {
           : "아직 올라간 기록이 없습니다."}</Text>
       </View>
 
-      {rows.slice(0, 12).map((p) => (
+      {rows.slice(0, 12).filter((p) => !erased.includes(p.id)).map((p) => (
         <View key={p.id} style={s.rowItem}>
           {cover(p)
             ? <Image source={{ uri: cover(p) }} style={s.thumb} />
@@ -379,11 +383,32 @@ export function MyTab({ authTick = 0 }: { authTick?: number }) {
             </Text>
             <Text style={s.cardS}>{ymd(p.visited_at)} · {p.is_public ? "공개" : "나만 보기"}</Text>
           </View>
+          {/* ★ 내 기록은 **내가 지울 수 있어야 한다**(§13.138). 개인정보처리방침이
+              그렇게 적고 있고, 그 전에 올린 사람의 것이다. */}
+          <Pressable hitSlop={10} disabled={erasing === p.id}
+                     onPress={() => {
+                       setErasing(p.id);
+                       void API.deleteRecord(p.id).then((ok) => {
+                         setErasing(null);
+                         /* ★ 성공했을 때만 치운다. 실패했는데 치우면 **지워진 줄
+                            알고** 넘어가고, 다음에 다시 열면 그대로 있다. */
+                         if (ok) setErased((g) => [...g, p.id]);
+                       });
+                     }}>
+            <Text style={s.erase}>{erasing === p.id ? "…" : "지우기"}</Text>
+          </Pressable>
         </View>
       ))}
 
       <BlockedList tick={authTick} />
       <SiteLinks />
+      {/* ★ 5.1.1(v) — 계정을 만들 수 있으면 **앱 안에서 지울 수도** 있어야 한다.
+          맨 아래에 둔다. 자주 쓰는 것이 아니고, 옆에 두면 잘못 누른다. */}
+      {!!uid && (
+        <DangerZone
+          counts={{ places: rows.length, photos }}
+          onDone={() => { setUid(null); void load(); }} />
+      )}
     </ScrollView>
   );
 }
@@ -458,6 +483,7 @@ const s = StyleSheet.create({
   blockedN: { color: C.text, fontSize: 14 },
   unblock: { color: C.accent, fontSize: 13, fontWeight: "600" },
   siteLink: { color: C.muted, fontSize: 12.5, textDecorationLine: "underline" },
+  erase: { color: C.muted, fontSize: 12.5, paddingHorizontal: 4 },
   wrap: { flex: 1, backgroundColor: C.bg },
   h1: { color: C.text, fontSize: 19, fontWeight: "700", paddingHorizontal: 18, paddingTop: 58 },
   sub: { color: C.muted, fontSize: 11.5, lineHeight: 18, paddingHorizontal: 18, paddingTop: 5, paddingBottom: 8 },

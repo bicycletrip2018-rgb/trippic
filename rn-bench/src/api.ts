@@ -404,6 +404,44 @@ export const search = (
     (`카` → 이카·카세·퀸카). 2글자부터가 사람이 기대하는 것이기도 하다. */
 export const SEARCH_MIN = 2;
 
+/* ── 지우기 (§13.138 · 073) ─────────────────────────────────────────
+   ★ App Store **5.1.1(v)**: 계정을 만들 수 있는 앱은 **앱 안에서 계정 삭제**도
+     제공해야 한다. 메일로 받는 것으로는 안 된다.
+
+   ★★ **순서가 전부다.** 사진은 DB 가 아니라 저장소(버킷)에 있고, 계정을 먼저
+     지우면 **토큰이 죽어서 파일을 못 지운다** — 주소를 아는 사람은 계속 본다.
+       ① 경로를 받고 ② 파일을 지우고 ③ 계정을 지운다.
+   ★ 저장소 정책이 *"본인 폴더만"* 지우게 돼 있어(030) **앱이** 지워야 한다.
+     서버 함수로는 못 한다 — 그래서 서버는 **경로만** 돌려준다. */
+async function removeFiles(paths: string[]): Promise<number> {
+  let done = 0;
+  for (const p of paths) {
+    /* ★ 하나가 실패해도 **멈추지 않는다.** 멈추면 나머지가 영영 남는다.
+       (이미 없는 파일도 실패로 온다 — 그건 우리가 바라던 상태다.) */
+    const r = await req<unknown>(`/storage/v1/object/photos/${p}`, { method: "DELETE" });
+    if (r.ok) done++;
+  }
+  return done;
+}
+
+/** 기록 하나 지우기 — 사진까지. 지운 파일 수를 돌려준다. */
+export async function deleteRecord(pinId: string): Promise<boolean> {
+  const r = await rpc<string[]>("api_delete_pin", { p_pin: pinId });
+  if (!r.ok) return false;
+  await removeFiles(r.data ?? []);
+  return true;
+}
+
+/** 계정 통째로 지우기. **되돌릴 수 없다.** */
+export async function deleteAccount(): Promise<boolean> {
+  const paths = await rpc<string[]>("api_my_media_paths");
+  await removeFiles(paths.data ?? []);          // ← 토큰이 살아 있을 때
+  const r = await rpc<boolean>("api_delete_account");
+  if (!(r.ok && r.data === true)) return false;
+  await clearSession();                          // 이 기기에 남은 토큰도 치운다
+  return true;
+}
+
 /* ── 신고와 차단 (§13.135 · 072) ──────────────────────────────────────
    ★ App Store 가이드라인 1.2 가 사용자 콘텐츠 앱에 요구하는 것이다.
      **없어서 심사에서 걸릴 뻔했다** — 코드의 `신고` 는 전부 *장소가 문을
