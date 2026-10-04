@@ -17,17 +17,36 @@
 # 사용: ./db/local/verify.sh
 # =====================================================================
 set -uo pipefail
-export PATH="${PGBIN:-/opt/homebrew/opt/postgresql@16/bin}:$PATH"
+# ── PostgreSQL 을 어디서 찾나 ────────────────────────────────────────
+# 내 맥(홈브루)과 CI(우분투)가 경로가 다르다. **고정하면 한쪽에서만 돈다.**
+if [ -z "${PGBIN:-}" ]; then
+  for c in /opt/homebrew/opt/postgresql@16/bin /usr/lib/postgresql/16/bin \
+           /usr/lib/postgresql/17/bin /usr/local/opt/postgresql@16/bin; do
+    [ -x "$c/pg_ctl" ] && PGBIN="$c" && break
+  done
+fi
+export PATH="${PGBIN:+$PGBIN:}$PATH"
+command -v pg_ctl >/dev/null || { echo "pg_ctl 이 없다. PGBIN 을 주거나 postgresql 을 깔 것"; exit 1; }
 export LC_ALL=C LANG=C          # macOS: 없으면 "postmaster became multithreaded"로 죽는다
 # ★ 이 DB는 실행할 때마다 drop 된다. 적재 데이터는 trippic_data에 둔다.
 #   (한 번 섞어 쓰다가 160만 행을 날렸다.)
-PGH=/tmp; PGP=55432; DB=trippic_verify
+PGH=/tmp; PGP=55432; DB=trippic_verify; PGDATA_DIR="${PGDATA_DIR:-$HOME/.trippic_pg}"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 red(){ printf "\033[31m%s\033[0m\n" "$*"; }; green(){ printf "\033[32m%s\033[0m\n" "$*"; }
 
-pg_ctl -D ~/.trippic_pg -l /tmp/trippic_pg.log -o "-p $PGP -k $PGH" status >/dev/null 2>&1 || \
-  pg_ctl -D ~/.trippic_pg -l /tmp/trippic_pg.log -o "-p $PGP -k $PGH" start >/dev/null 2>&1
+# ★ **한글 로케일이 없으면 여기서 멈춘다.** C 로케일로 넘어가면 pg_trgm 이 한글을
+#   '문자'로 안 봐서 한글 트라이그램이 통째로 비고, similarity() 가 늘 0 이 된다.
+#   → 검색 시험이 **조용히 전부 통과한다**(아무것도 안 재면서). 그게 제일 나쁘다.
+locale -a 2>/dev/null | tr 'A-Z' 'a-z' | grep -qE '^en_us\.?utf-?8$' || {
+  red "en_US.UTF-8 로케일이 없다 — C 로케일로 돌리면 한글 검색 시험이 **거짓으로 통과한다**"
+  echo "   우분투: sudo locale-gen en_US.UTF-8   ·   맥: 기본으로 있다"; exit 1; }
+
+# ★ 데이터 디렉터리가 없으면 만든다 (CI 는 매번 빈 러너다)
+[ -d "$PGDATA_DIR" ] || initdb -D "$PGDATA_DIR" -U "$(id -un)" --encoding=UTF8 >/dev/null 2>&1 || {
+  red "initdb 실패"; exit 1; }
+pg_ctl -D "$PGDATA_DIR" -l /tmp/trippic_pg.log -o "-p $PGP -k $PGH" status >/dev/null 2>&1 || \
+  pg_ctl -D "$PGDATA_DIR" -l /tmp/trippic_pg.log -o "-p $PGP -k $PGH" -w start >/dev/null 2>&1
 sleep 1
 dropdb -h $PGH -p $PGP --if-exists $DB 2>/dev/null
 # ★ 로케일이 중요하다. pg_trgm은 LC_CTYPE 기준으로 한글을 '문자'로 볼지 정한다.
@@ -80,8 +99,35 @@ psql -X -h $PGH -p $PGP -At -d $DB -c "
       || ' / RLS정책 '||(select count(*) from pg_policies where schemaname='public')
       || ' / 트리거 '||(select count(*) from pg_trigger where not tgisinternal)"
 
+# ── 2. 배포 전 벽 (§13.123) ──────────────────────────────────────────
+# ★ 이 검사는 스모크 28절에도 있다. **일부러 두 자리에서 부른다** —
+#   검사기가 둘인 게 아니라 **같은 검사기를 두 군데서** 부르는 것이다.
+#   스모크 한 절을 지우면 벽이 조용히 사라지는데, 여기는 파일 구조상
+#   지우려면 **눈에 띄게** 지워야 한다. 그리고 CI 가 읽는 자리도 여기다.
+#
+# ★ **스모크보다 앞**이다. 스모크 안에도 같은 검사가 있어서 뒤에 두면 스모크가
+#   먼저 멈춰 이 단계가 아예 안 돌고, CI 요약에 "무엇이 뚫렸나"가 안 남는다.
+#   (실제로 그랬다. 구멍을 뚫어 보고 알았다.) 벽은 정적 검사라 앞에 와도 된다.
 echo
-echo "=== 2. 동작 ==="
+echo "=== 2. 배포 전 벽 (067·068 을 한 문장으로) ==="
+holes=$(psql -X -h $PGH -p $PGP -At -F'|' -d $DB -c "
+  select proname||' '||layer||' — '||why from public.operator_wall_holes()
+   where proname not like 'zz\_%'" 2>&1)
+if [ -n "$holes" ]; then
+  red "  구멍이 있다:"; echo "$holes" | sed 's/^/     /'
+  red "=== 벽에 구멍이 있다 — 올리면 안 된다 ==="
+  [ -n "${GITHUB_STEP_SUMMARY:-}" ] && {
+    echo "### ❌ 운영자 벽에 구멍"; echo '```'; echo "$holes"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+  exit 1
+fi
+green "  OK   민감한 표에 닿는 자리에 빗장이 있고, anon 에서 안 닿는다"
+[ -n "${GITHUB_STEP_SUMMARY:-}" ] && {
+  echo "### ✅ 운영자 벽 통과"
+  echo "민감한 표(\`operators\`·\`operator_log\`·\`reports\`)에 닿는 자리는"
+  echo "① \`is_operator()\` 빗장이 있거나 이유를 적은 예외이고, ② \`anon\` 에서 안 닿는다."; } >> "$GITHUB_STEP_SUMMARY"
+
+echo
+echo "=== 3. 동작 ==="
 out=$(psql -X -h $PGH -p $PGP -v ON_ERROR_STOP=1 -d $DB -f "$ROOT/db/local/smoke.sql" 2>&1)
 echo "$out" | grep -E "NOTICE:|──" | sed 's/^psql:[^ ]* //; s/^NOTICE:  //'
 if echo "$out" | grep -q "ERROR"; then
@@ -91,7 +137,7 @@ fi
 echo
 green "=== 전부 통과 (동작 검증 $(echo "$out" | grep -c 'OK  ')건) ==="
 
-# ── 3. Supabase와 어긋나지 않았는가 ──────────────────────────────────
+# ── 4. Supabase와 어긋나지 않았는가 ──────────────────────────────────
 # 로컬만 통과하고 Supabase에 안 올려 며칠을 보낸 적이 있다 (008·009).
 # DB_URL이 있으면 여기서 같이 본다. 2초면 끝난다.
 if [ -f "$ROOT/.env" ]; then
