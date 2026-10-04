@@ -2342,13 +2342,61 @@ select pg_temp.ok(
 set role authenticated; select pg_temp.login('33333333-3333-3333-3333-333333333333');
 
 -- ⑤ 읽기는 트리거로 못 막는다 → **검증이 막는다**
+--    ★ 067(anon 차단)과 068(빗장)을 **한 번에** 본다(069). 둘로 나눠 보면
+--      각각 통과하면서 사이로 빠지는 조합이 있다 — 적어 둔 예외가 anon 에
+--      열려 있는 경우가 그렇다. 한 문장이어야 사이가 없다.
 select pg_temp.ok(
-  (select count(*) from public.unguarded_operator_functions()
+  (select count(*) from public.operator_wall_holes()
     where proname not like 'zz\_%') = 0,
-  '★★ 민감한 표를 건드리는 definer 함수에 **빗장이 전부 있다** — 하나라도 빠지면 여기서 검증이 멈춘다');
+  '★★ 민감한 표에 닿는 자리는 **빗장이 있거나 적어 둔 예외이고, anon 에서 안 닿는다** — 한쪽만 깨져도 여기서 멈춘다');
 select pg_temp.ok(
-  exists (select 1 from public.unguarded_operator_functions() where proname = 'zz_forgot_guard'),
-  '★ 검사기가 **일부러 빠뜨린 그 함수를 잡아낸다** — 안 잡으면 검사기가 장식이다');
+  exists (select 1 from public.operator_wall_holes()
+           where proname = 'zz_forgot_guard' and layer like '①%'),
+  '★ 검사기가 **일부러 빠뜨린 그 함수를 ①로 잡아낸다** — 안 잡으면 검사기가 장식이다');
+
+-- ⑤-b **두 번째 층도 문다** — 067 쪽이 깨진 것만으로도 잡혀야 한다
+--    ★ 이걸 안 재면 "①만 보는 검사"를 "둘 다 보는 검사"라고 부르게 된다.
+reset role; select pg_temp.login(null);
+create or replace function public.zz_exempt_but_open(p uuid) returns boolean
+  language plpgsql security definer set search_path = public, extensions as $$
+  begin update public.reports set reporter_id = p where false; return true; end $$;
+/* ★ 새 함수는 PostgreSQL 기본으로 **PUBLIC 에 열린 채** 태어난다 — 즉 anon 도
+   부를 수 있다. 067 의 `lock_function_privileges()` 가 돌아야 닫힌다.
+   (여기서 ②가 먼저 물어서 알았다. 그게 067 이 왜 있어야 하는지 그대로 보여 준다.) */
+revoke execute on function public.zz_exempt_but_open(uuid) from public, anon;
+-- 빗장은 없지만 **이유를 적어** ①을 면제받는다 (api_merge_claim 과 같은 모양)
+insert into public.operator_wall_exemptions (proname, why)
+  values ('zz_exempt_but_open', '시험용 — ② 층이 무는지 보려고 ①만 면제한다')
+  on conflict (proname) do update set why = excluded.why;
+select pg_temp.ok(
+  not exists (select 1 from public.operator_wall_holes() where proname = 'zz_exempt_but_open'),
+  '  (준비) 적어 둔 예외는 ①에 안 걸린다');
+grant execute on function public.zz_exempt_but_open(uuid) to anon;   -- ← 여기서 깨진다
+select pg_temp.ok(
+  exists (select 1 from public.operator_wall_holes()
+           where proname = 'zz_exempt_but_open' and layer like '②%'),
+  '★★ **적어 둔 예외라도 anon 에 열리면 잡힌다** — ②는 아무도 면제 못 한다');
+
+-- ⑤-c definer 를 **타고 넘어가는** 것도 센다 (anon 권한 없이 닿는 자리)
+create or replace function public.zz_deep_touch() returns boolean
+  language plpgsql security definer set search_path = public, extensions as $$
+  begin perform count(*) from public.operators; return true; end $$;
+create or replace function public.zz_front() returns boolean
+  language plpgsql security definer set search_path = public, extensions as $$
+  begin return public.zz_deep_touch(); end $$;
+revoke execute on function public.zz_deep_touch() from public, anon;  -- anon 권한은 **없다**
+revoke execute on function public.zz_front()      from public;
+grant  execute on function public.zz_front() to anon;
+select pg_temp.ok(
+  exists (select 1 from public.operator_wall_holes()
+           where proname = 'zz_deep_touch' and layer like '②%'),
+  '★★ anon 권한이 **없어도** definer 를 타고 닿으면 잡힌다 — definer 안에서는 주인 권한으로 도니까');
+
+delete from public.operator_wall_exemptions where proname like 'zz\_%';
+drop function public.zz_exempt_but_open(uuid);
+drop function public.zz_front();
+drop function public.zz_deep_touch();
+set role authenticated; select pg_temp.login('33333333-3333-3333-3333-333333333333');
 
 -- ⑥ 예외는 **이유가 있어야** 들어간다 (이유 없는 예외는 정규식을 좁힌 것과 같다)
 reset role;
