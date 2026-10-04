@@ -33,6 +33,7 @@ import { C, CAT } from "./theme";
 import { driveText } from "./course";
 import * as API from "./api";
 import { useSkeletonPulse, SkelBar, SkelBox } from "./Skeleton";
+import { ReportSheet, type Target } from "./ReportSheet";
 
 const ymd = (iso: string) => iso.slice(0, 10).replace(/-/g, ".");
 const md = (iso: string) => iso.slice(5, 10).replace("-", ".");
@@ -67,6 +68,9 @@ export function PlaceSheet(
   /* 격자를 눌렀을 때 **그 자리에서** 크게 본다. 사진 뷰어를 따로 만들지 않는다 —
      지금 필요한 것은 *"작아서 안 보인다"* 를 푸는 일이지 새 화면이 아니다. */
   const [big, setBig] = useState<API.PlaceMedia | null>(null);
+  /* 남의 사진이 보이는 자리에는 신고·차단이 있어야 한다(§13.135) */
+  const [target, setTarget] = useState<Target>(null);
+  const [gone, setGone] = useState<string[]>([]);
   /* ★ 저장은 **눌리자마자** 바뀐다(낙관적). 서버를 기다리면 한 박자 늦게 켜져
      *"안 눌렸나"* 하고 두 번 누르게 된다. 실패하면 되돌리고 이유를 적는다. */
   const [saved, setSaved] = useState<boolean | null>(null);
@@ -196,7 +200,7 @@ export function PlaceSheet(
             <>
               <Text style={s.secT}>이 장소의 사진</Text>
               <View style={s.grid}>
-                {shots.map((m) => (
+                {shots.filter((m) => !gone.includes(m.user_id)).map((m) => (
                   <Pressable key={m.media_id} style={s.cell} onPress={() => setBig(m)}>
                     <Image source={{ uri: m.thumb_url }} style={s.cellImg} />
                     {/* 찍은 사람을 **칸마다** 적는다 — 격자는 누구 사진인지 가장 헷갈리는 모양이다 */}
@@ -255,8 +259,25 @@ export function PlaceSheet(
               big.taken_at ? ymd(big.taken_at) : "촬영 시기 미상",
               big.caption].filter(Boolean).join(" · ")}
           </Text>
+          {/* ★ 내 사진에는 안 띄운다. 그리고 **배경 누르면 닫히는** 자리라
+              이 버튼은 전파를 막아야 한다 — 안 그러면 누르는 순간 창이 닫힌다. */}
+          {big.user_id !== API.SESSION.user_id && (
+            <Pressable style={s.bigMore} hitSlop={12}
+                       onPress={(e) => { e.stopPropagation();
+                                         setTarget({ pinId: big.pin_id, userId: big.user_id }); }}>
+              <Text style={s.bigMoreT}>⋯</Text>
+            </Pressable>
+          )}
         </Pressable>
       ) : null}
+
+      <ReportSheet
+        target={target} onClose={() => setTarget(null)}
+        onBlocked={(uid) => {
+          /* 차단하면 그 사람 사진은 **지금 화면에서도** 빠져야 한다 */
+          setGone((g) => [...g, uid]);
+          setBig(null);
+        }} />
     </View>
   );
 }
@@ -294,6 +315,10 @@ function ShotsSkeleton() {
 }
 
 const s = StyleSheet.create({
+  bigMore: { position: "absolute", top: 54, right: 16, width: 38, height: 38,
+             borderRadius: 19, backgroundColor: "rgba(0,0,0,0.45)",
+             alignItems: "center", justifyContent: "center" },
+  bigMoreT: { color: "#fff", fontSize: 19, lineHeight: 21 },
   root: {
     position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
     backgroundColor: C.bg,
