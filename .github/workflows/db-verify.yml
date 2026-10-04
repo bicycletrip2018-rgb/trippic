@@ -50,7 +50,7 @@ jobs:
           echo "PGBIN=$BIN" >> "$GITHUB_ENV"
           "$BIN/postgres" --version
 
-      - name: 검증 (문법 → 동작 → **배포 전 벽**)
+      - name: 검증 (문법 → **배포 전 벽** → 동작 → 표류)
         env:
           PGBIN: ${{ env.PGBIN }}
           DB_URL: ${{ secrets.DB_URL }}       # 없으면 표류 점검만 건너뛴다
