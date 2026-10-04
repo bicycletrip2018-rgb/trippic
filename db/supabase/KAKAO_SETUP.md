@@ -142,12 +142,18 @@ Authentication → URL Configuration → **Redirect URLs** 에 앱이 돌아올 
 여기 없는 주소로는 **돌려보내지 않는다** (그게 이 목록의 존재 이유다).
 
 - 개발(웹): `http://localhost:3012/index.html`
-- **RN(앱): `app.trippic.bench://auth`**
+- **RN(앱): `app.trippic://auth`**
+
+  ★ **§13.141 에서 번들 id 를 `app.trippic.bench` → `app.trippic` 으로 바꿨다.**
+  이 목록의 옛 주소(`app.trippic.bench://auth`)를 **새 주소로 바꿔야** 로그인이
+  돌아온다. **카카오 개발자 콘솔은 건드릴 것이 없다** — 카카오는 Supabase 의
+  콜백(`https://<ref>.supabase.co/auth/v1/callback`)까지만 알고, 앱 스킴은
+  Supabase 가 쥐고 있다.
 
   ★ 새 스킴을 만들지 않았다. Expo 가 번들 id 를 **기본 스킴으로 이미 Info.plist 에
   넣어 두었다** — 새로 만들면 재빌드가 붙는다(§13.28). 확인:
   ```bash
-  grep -A3 CFBundleURLSchemes rn-bench/ios/rnbench/Info.plist
+  grep -A3 CFBundleURLSchemes rn-bench/ios/app/Info.plist
   ```
   나중에 `trippic://` 처럼 짧은 스킴을 쓰고 싶으면 `app.json` 의 `expo.scheme` 에
   넣고 **한 번 재빌드**한 뒤, 이 목록의 주소도 같이 바꾼다.

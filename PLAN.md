@@ -15125,3 +15125,122 @@ Release 번들은 Metro 와 말하지 않는다. 그걸 **증명하려고** 먼�
 전체 사용자: 1   ← 당신 카카오 계정만
 핀: 0
 ```
+
+---
+
+## §13.141 안드로이드도 뚫었다 — 그러다 **내가 넣은 모눈종이**를 봤다
+
+§13.140 에서 iOS 를 뚫었으니 안드로이드도 같은 자리까지 밀어 봤다.
+`BUILD SUCCESSFUL`, APK 57.6MB, `arm64-v8a`.
+
+### ★ 뚫기 전에 **다섯 개**가 걸렸다
+
+#### ① 내가 §13.140 에서 스플래시에 넣은 그림이 **모눈종이였다**
+
+`assets/splash-icon.png` 는 Expo 템플릿의 **빈 안내용 그림**이다 — 격자와
+동심원뿐, 로고가 없다. 나는 그것을 **열어 보지도 않고** 스플래시로 지정했고,
+`main` 에 들어갔다. 생성된 iOS 자산(`SplashScreenLogo.imageset/image.png`)을
+열어서야 알았다.
+
+★ §13.140 에서 나는 **값은 전부 대조하면서 그림은 한 번도 안 봤다.**
+  `plutil` 로 문자열을 확인하는 것과 **눈으로 보는 것**은 다른 일이다.
+
+고침을 **두 번** 했다. 처음엔 `image` 를 통째로 뺐는데 — **안드로이드 빌드가
+깨졌다**:
+
+```
+error: resource drawable/splashscreen_logo (aka app.trippic:drawable/splashscreen_logo) not found.
+```
+
+`expo-splash-screen` 의 안드로이드 플러그인은 `windowSplashScreenAnimatedIcon`
+항목을 **항상** 쓰면서 드로어블은 `image` 가 있을 때만 만든다. 즉
+**"배경색만"이라는 설정이 성립하지 않는다.** iOS 는 멀쩡히 지나간다 —
+안드로이드를 빌드하지 않았으면 **이 구멍을 못 봤다.**
+
+★ 이것이 안드로이드를 뚫어 본 값어치다. 한쪽만 빌드하면 **다른 쪽에서만
+  깨지는 설정**을 태연히 `main` 에 올린다.
+
+그래서 `assets/splash-blank.png` — **512×512 완전 투명 PNG**(1,096바이트)를
+만들어 가리켰다. 화면에는 `#0E0F13` 한 색만 뜬다. 모눈종이는 **지웠다** —
+남겨 두면 다음에 또 누가(나 포함) 그걸 가리킨다.
+
+#### ② 앱 아이콘도 **Expo 기본 그대로**다
+
+파란 갈매기. 9월 18일 템플릿 생성 때 그대로다. §13.140 의 홈 화면
+스크린샷에 **찍혀 있었는데** 나는 "아이콘 붙었습니다"라고만 했다.
+붙긴 붙었는데 **Expo 것이** 붙은 것이다. 고치지 않았다 — 로고는
+만들어 드릴 수 있지만 **상표는 당신 것**이라 묻지 않고 지을 일이 아니다.
+
+#### ③ 안드로이드에서 `userInterfaceStyle: "dark"` 가 **또** 무시됐다
+
+```
+» android: userInterfaceStyle: Install expo-system-ui in your project to enable this feature.
+```
+
+iOS(§13.140)와 **같은 종류, 다른 원인**이다. `expo-system-ui` 없이는 테마가
+`Theme.AppCompat.DayNight` — **시스템을 따라간다.**
+
+★ 설치해도 `styles.xml` 은 **안 바뀐다.** 런타임에 거는 방식이라
+  `strings.xml` 에 들어간다:
+  `<string name="expo_system_ui_user_interface_style">dark</string>`
+  생성된 테마만 봤으면 **"안 고쳐졌다"고 잘못 말할 뻔했다.**
+
+#### ④ 디스크가 꽉 차서 빌드가 죽었다 — **내가 채웠다**
+
+```
+Caused by: java.io.IOException: No space left on device
+```
+
+안드로이드는 네이티브를 **네 개 ABI** 로 컴파일한다. 거기에 내가 §13.140 에서
+남긴 iOS 빌드 찌꺼기 **9.2GB**(`/tmp/trippic-dd`, `dd2`)가 겹쳤다. 남은 공간
+156MB 까지 갔다.
+
+고침: 내 찌꺼기를 지우고(9.1GB 회수), `-PreactNativeArchitectures=arm64-v8a`
+하나로만 돌렸다 — 실기기는 거의 다 arm64 다. **5분 34초**에 끝났다.
+
+★ 검증하느라 만든 것을 **치우지 않으면 다음 검증을 막는다.**
+
+#### ⑤ 번들 id 가 `app.trippic.bench` 였다 — **지금이 마지막 기회였다**
+
+벤치마크로 시작해서 붙은 이름이고, 첫 출시 뒤에는 **영원히 못 바꾼다.**
+플레이스토어 주소에 `id=app.trippic.bench` 로 **보인다.** 애플·구글에 아직
+아무것도 등록 안 된 상태라 지금이 공짜였다 — 여쭤보고 **`app.trippic`** 으로
+바꿨다(코드 4줄 + 문서 11곳).
+
+★ `PLAN.md` 의 옛 기록은 **안 고쳤다.** 그때 그랬던 것이 사실이다.
+
+★★ **당신이 손봐야 할 것이 하나 있다** — Supabase
+  Authentication → URL Configuration → **Redirect URLs** 의
+  `app.trippic.bench://auth` 를 **`app.trippic://auth`** 로 바꿔야 한다.
+  안 바꾸면 카카오 로그인이 **돌아오지 못한다.**
+
+  ★ **카카오 개발자 콘솔은 건드릴 것이 없다.** 카카오는 Supabase 의
+  콜백까지만 알고, 앱 스킴은 Supabase 가 쥐고 있다 — 처음에 나는
+  "카카오 콘솔도 바꿔야 한다"고 말했는데 **틀렸다.**
+
+### 뚫은 결과
+
+| | |
+|---|---|
+| APK | 57.6MB, `arm64-v8a`, `targetSdk 36` |
+| 이름 | `트립픽` |
+| `index.android.bundle` | 4.27MB |
+| `.env.local` 세 값 | **셋 다** 박힘 |
+| 딥링크 | `app.trippic://` · `exp+trippic://` |
+| 다크 | `expo_system_ui_user_interface_style = dark` |
+
+### ★ 권한을 세다가 **의심이 틀린 것도 하나**
+
+출시 APK 에 `RECORD_AUDIO` 가 있어서 "사진 지도가 왜 마이크를?" 하고 빼려다
+`src/live.ts` 를 읽었다 — **15초 동영상을 찍는다.** 녹화는 소리를 같이 담는다.
+**정당한 권한이었다.** 안 읽고 뺐으면 동영상이 조용히 깨졌을 것이다.
+
+반면 `SYSTEM_ALERT_WINDOW`(다른 앱 위에 표시)는 `expo-dev-client` 것이고
+**출시에는 필요 없다.** 지금 빼면 **쓰고 계신 개발 빌드**가 불편해지므로
+CHECKLIST **10.5단계**(제출 직전)로 미뤘다.
+
+### 못 한 것
+
+- **실행은 못 해 봤다.** 에뮬레이터가 없고 시스템 이미지(~2GB)를 받기에는
+  디스크가 빠듯하다. 연결된 안드로이드 기기도 없다. APK 를 뜯어서
+  확인할 수 있는 것까지만 했다.

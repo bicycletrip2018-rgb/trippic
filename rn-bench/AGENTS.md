@@ -22,7 +22,7 @@ iOS 는 문구 없는 권한 요청을 크래시로 다룬다.
 **이미 `ios/` 를 갖고 있는 기계에서만** 손으로 맞춰야 한다:
 
 ```
-/usr/libexec/PlistBuddy -c "Add :<키> string '<값>'" ios/rnbench/Info.plist
+/usr/libexec/PlistBuddy -c "Add :<키> string '<값>'" ios/app/Info.plist
 ```
 
 또는 `npx expo prebuild -p ios --clean` (네이티브 수정이 있으면 날아간다).
