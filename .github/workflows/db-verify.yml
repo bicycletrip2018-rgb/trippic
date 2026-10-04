@@ -18,11 +18,14 @@
 # =====================================================================
 name: DB 검증 (배포 전 벽)
 
+# ★ **`paths` 필터를 쓰면 안 된다.** `verify` 가 **필수 체크**라서, 필터에 안 걸리는
+#   PR 에서는 워크플로가 아예 안 돌고 → 체크가 **영영 안 올라오고** → PR 이
+#   `BLOCKED` 로 굳는다. 문서만 고친 PR 이 못 머지된다. (첫 PR 에서 바로 겪었다.)
+#   21초면 끝나니 **전부 돈다.** 아낄 자리가 아니다.
 on:
-  push:
-    paths: ["db/**", ".github/workflows/db-verify.yml"]
   pull_request:
-    paths: ["db/**", ".github/workflows/db-verify.yml"]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
