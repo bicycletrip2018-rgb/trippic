@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>신고 처리 · 트립픽</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+  :root{color-scheme:light;--g900:#191F28;--g700:#4E5968;--g500:#8B95A1;--g200:#E5E8EB;
+        --blue:#0A7CC9;--warn:#B45309;--warnbg:#FEF3C7;--red:#C2301C;--redbg:#FEE2E2}
+  *{box-sizing:border-box}
+  body{margin:0;background:#F7F8FA;color:var(--g900);
+       font-family:Pretendard Variable,Pretendard,-apple-system,system-ui,sans-serif;line-height:1.7}
+  main{max-width:760px;margin:0 auto;padding:28px 16px 96px}
+  h1{font-size:22px;margin:0 0 4px;letter-spacing:-.02em}
+  .sub{color:var(--g500);font-size:13px;margin:0 0 20px}
+  .card{background:#fff;border:1px solid var(--g200);border-radius:14px;padding:16px;margin:12px 0}
+  .muted{color:var(--g500);font-size:13px}
+  button{font:inherit;border:0;border-radius:10px;padding:11px 16px;cursor:pointer}
+  .primary{background:var(--blue);color:#fff}
+  .danger{background:var(--redbg);color:var(--red);font-weight:700}
+  .ghost{background:#EEF1F4;color:var(--g700)}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  img.shot{max-width:100%;border-radius:10px;border:1px solid var(--g200);display:block;margin:10px 0}
+  .warn{background:var(--warnbg);color:var(--warn);border-radius:10px;padding:12px 14px;font-size:14px}
+  .tag{display:inline-block;background:#EEF1F4;color:var(--g700);border-radius:999px;
+       padding:2px 10px;font-size:12px;margin-right:6px}
+  pre{white-space:pre-wrap;word-break:break-all;font-size:12px;color:var(--g500);margin:4px 0 0}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  td{padding:6px 4px;border-bottom:1px solid var(--g200);color:var(--g700);vertical-align:top}
+</style>
+</head>
+<body>
+<main>
+  <h1>신고 처리</h1>
+  <p class="sub">트립픽 운영자 전용</p>
+
+  <div class="warn">
+    ★ 이 화면은 <b>신고된 기록만</b> 엽니다. 신고가 없는 기록은 운영자도 열지 못합니다.
+    <b>열어 본 것은 모두 기록에 남습니다.</b>
+  </div>
+
+  <div id="auth" class="card"></div>
+  <div id="queue"></div>
+  <div id="detail"></div>
+  <div id="log"></div>
+</main>
+
+<script>
+/* ──────────────────────────────────────────────────────────────────
+   ★ 여기 적힌 두 값은 **공개 값**이다 — 앱 번들을 뜯으면 어차피 보인다.
+     벽은 이 값이 아니라 **서버의 is_operator()** 다. 운영자가 아니면
+     아래 모든 호출이 42501 로 거절된다(075).
+   ★ 그래서 이 페이지가 공개 주소에 있어도 괜찮다. 가려서 지키는 것이
+     아니라 **서버가 거절해서** 지킨다.
+   ────────────────────────────────────────────────────────────────── */
+const URL_ = "https://ziwsvnkxytqifkfhiulu.supabase.co";
+const KEY  = "sb_publishable_BDEM2XY-5mw4NzjrgvfVgA_hkO3thwF";
+
+/* ★ sessionStorage 다 — 탭을 닫으면 끊긴다. 운영 도구의 로그인이
+   브라우저에 눌러앉아 있을 이유가 없다. */
+const TOK = () => sessionStorage.getItem("trippic_admin_tok");
+
+function readHashToken() {
+  if (!location.hash.includes("access_token")) return;
+  const p = new URLSearchParams(location.hash.slice(1));
+  const t = p.get("access_token");
+  if (t) sessionStorage.setItem("trippic_admin_tok", t);
+  history.replaceState(null, "", location.pathname);   // 주소창에서 토큰을 지운다
+}
+
+async function rpc(fn, args) {
+  const r = await fetch(URL_ + "/rest/v1/rpc/" + fn, {
+    method: "POST",
+    headers: { "apikey": KEY, "Authorization": "Bearer " + TOK(),
+               "Content-Type": "application/json" },
+    body: JSON.stringify(args || {}),
+  });
+  const text = await r.text();
+  if (!r.ok) {
+    let msg = text;
+    try { msg = JSON.parse(text).message || text; } catch (e) {}
+    throw new Error(msg);
+  }
+  return text ? JSON.parse(text) : null;
+}
+
+async function delFile(path) {
+  const r = await fetch(URL_ + "/storage/v1/object/photos/" + path, {
+    method: "DELETE",
+    headers: { "apikey": KEY, "Authorization": "Bearer " + TOK() },
+  });
+  return r.ok;
+}
+
+const esc = (s) => String(s == null ? "" : s)
+  .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+
+/* ── 로그인 ────────────────────────────────────────────────────── */
+function renderAuth(state, who) {
+  const el = document.getElementById("auth");
+  if (state === "out") {
+    el.innerHTML = '<p>운영자 계정으로 들어오십시오.</p>' +
+      '<div class="row"><button class="primary" id="login">카카오로 들어가기</button></div>';
+    document.getElementById("login").onclick = () => {
+      location.href = URL_ + "/auth/v1/authorize?provider=kakao&redirect_to=" +
+                      encodeURIComponent(location.origin + location.pathname);
+    };
+  } else if (state === "notop") {
+    el.innerHTML = '<p><b>운영자가 아닙니다.</b> 이 화면에서 할 수 있는 것이 없습니다.</p>' +
+      '<p class="muted">계정 ' + esc(who) + '</p>' +
+      '<div class="row"><button class="ghost" id="out">나가기</button></div>';
+    document.getElementById("out").onclick = signOut;
+  } else {
+    el.innerHTML = '<p>운영자로 들어와 있습니다. <span class="muted">' + esc(who) + '</span></p>' +
+      '<div class="row"><button class="ghost" id="out">나가기</button>' +
+      '<button class="ghost" id="reload">새로고침</button></div>';
+    document.getElementById("out").onclick = signOut;
+    document.getElementById("reload").onclick = boot;
+  }
+}
+function signOut() { sessionStorage.removeItem("trippic_admin_tok"); location.reload(); }
+
+/* ── 큐 ───────────────────────────────────────────────────────── */
+async function loadQueue() {
+  const q = document.getElementById("queue");
+  const rows = await rpc("api_report_queue", { p_status: "open", p_limit: 50 });
+  if (!rows.length) { q.innerHTML = '<div class="card muted">처리할 신고가 없습니다.</div>'; return; }
+  q.innerHTML = rows.map((r) =>
+    '<div class="card">' +
+      '<div><span class="tag">' + esc(r.target_type) + '</span>' +
+      '<b>' + esc(r.label || "(이름 없음)") + '</b></div>' +
+      '<div class="muted">' + esc(r.reason) + ' · 신고 ' + r.reporters + '건 · ' +
+        esc(String(r.last_at).slice(0, 16).replace("T", " ")) + '</div>' +
+      '<pre>' + esc(r.target_id) + '</pre>' +
+      (r.target_type === "pin"
+        ? '<div class="row"><button class="primary" data-open="' + esc(r.target_id) +
+          '" data-rep="' + esc((r.report_ids || [])[0] || "") + '">열어서 확인</button></div>'
+        : '<div class="muted">장소 신고는 이 화면에서 열 수 없습니다.</div>') +
+    '</div>').join("");
+  q.querySelectorAll("[data-open]").forEach((b) => {
+    b.onclick = () => openPin(b.dataset.open, b.dataset.rep);
+  });
+}
+
+/* ── 한 건 열기 ───────────────────────────────────────────────── */
+async function openPin(pin, reportId) {
+  const d = document.getElementById("detail");
+  d.innerHTML = '<div class="card muted">여는 중… (이 열람은 기록에 남습니다)</div>';
+  let rows;
+  try { rows = await rpc("api_mod_reported_pin", { p_pin: pin }); }
+  catch (e) { d.innerHTML = '<div class="card"><b>열지 못했습니다.</b><br>' + esc(e.message) + '</div>'; return; }
+  if (!rows.length) { d.innerHTML = '<div class="card muted">내용이 없습니다.</div>'; return; }
+
+  const h = rows[0];
+  const shots = rows.filter((r) => r.url).map((r) =>
+    '<img class="shot" src="' + esc(r.thumb_url || r.url) + '" alt="">' +
+    '<div class="muted"><a href="' + esc(r.url) + '" target="_blank" rel="noopener">원본 열기</a></div>').join("");
+
+  d.innerHTML = '<div class="card">' +
+    '<div><b>' + esc(h.place_name || "(장소 없음)") + '</b> ' +
+      (h.is_public ? '<span class="tag">공개</span>' : '<span class="tag">나만 보기</span>') +
+      (h.deleted_at ? '<span class="tag">이미 내려감</span>' : '') + '</div>' +
+    '<div class="muted">신고 ' + h.reports + '건 · ' + esc((h.reasons || []).join(", ")) + '</div>' +
+    (h.memo ? '<p>' + esc(h.memo) + '</p>' : '') +
+    shots +
+    '<pre>작성자 ' + esc(h.owner_id) + '</pre>' +
+    '<div class="row">' +
+      '<button class="danger" id="rm">내리기 + 파일 삭제</button>' +
+      '<button class="danger" id="sus">작성자 7일 정지</button>' +
+      '<button class="ghost"  id="ok">문제없음</button>' +
+    '</div><div id="msg" class="muted"></div></div>';
+
+  const msg = document.getElementById("msg");
+  const paths = rows.filter((r) => r.url).map((r) => r.url.split("/public/photos/")[1])
+    .concat(rows.filter((r) => r.thumb_url).map((r) => r.thumb_url.split("/public/photos/")[1]))
+    .filter(Boolean);
+
+  document.getElementById("rm").onclick = async () => {
+    const why = prompt("왜 내립니까? (기록에 남습니다)");
+    if (!why) return;
+    try {
+      const got = await rpc("api_mod_remove_pin", { p_pin: pin, p_why: why, p_report: reportId || null });
+      /* ★ 함수가 돌려준 경로로 **파일까지** 지운다. 줄만 내리면 주소를 아는
+         사람에게 사진이 계속 간다(§13.144). 여기가 그 마무리다. */
+      let gone = 0;
+      for (const p of (got || paths)) { if (await delFile(p)) gone++; }
+      if (reportId) await rpc("api_report_resolve", { p_ids: [reportId], p_status: "resolved", p_note: why });
+      msg.textContent = "내렸습니다. 파일 " + gone + "/" + (got || paths).length + "개 삭제.";
+      await loadQueue(); await loadLog();
+    } catch (e) { msg.textContent = "실패: " + e.message; }
+  };
+
+  document.getElementById("sus").onclick = async () => {
+    const why = prompt("왜 정지합니까? (기록에 남습니다)");
+    if (!why) return;
+    try {
+      const til = await rpc("api_mod_suspend_user", { p_user: h.owner_id, p_days: 7, p_why: why });
+      msg.textContent = "정지했습니다 — " + String(til).slice(0, 10) + " 까지";
+      await loadLog();
+    } catch (e) { msg.textContent = "실패: " + e.message; }
+  };
+
+  document.getElementById("ok").onclick = async () => {
+    if (!reportId) { msg.textContent = "신고 id 가 없습니다."; return; }
+    const why = prompt("남길 말 (선택)") || "확인 결과 문제없음";
+    try {
+      await rpc("api_report_resolve", { p_ids: [reportId], p_status: "rejected", p_note: why });
+      msg.textContent = "문제없음으로 닫았습니다.";
+      document.getElementById("detail").innerHTML = "";
+      await loadQueue();
+    } catch (e) { msg.textContent = "실패: " + e.message; }
+  };
+}
+
+/* ── 내가 무엇을 열었나 ───────────────────────────────────────── */
+async function loadLog() {
+  const el = document.getElementById("log");
+  try {
+    const rows = await rpc("api_mod_view_log", { p_limit: 30 });
+    el.innerHTML = '<div class="card"><b>최근 운영 기록</b><table>' +
+      rows.map((r) => '<tr><td>' + esc(String(r.at).slice(0, 16).replace("T", " ")) + '</td>' +
+        '<td>' + esc(r.action) + '</td><td>' + esc(r.note) + '</td></tr>').join("") +
+      '</table></div>';
+  } catch (e) { el.innerHTML = ""; }
+}
+
+/* ── 시작 ─────────────────────────────────────────────────────── */
+async function boot() {
+  readHashToken();
+  if (!TOK()) { renderAuth("out"); return; }
+  let who = "";
+  try {
+    const u = await fetch(URL_ + "/auth/v1/user",
+      { headers: { apikey: KEY, Authorization: "Bearer " + TOK() } }).then((r) => r.json());
+    who = u.id || "";
+  } catch (e) {}
+  /* ★ **물어본다.** 처음엔 큐를 불러 보고 *"예외가 안 났으니 운영자"* 로 읽었는데,
+     그때 `api_report_queue` 가 빈손을 돌려주는 바람에 **운영자가 아닌 계정에
+     '운영자로 들어와 있습니다' 가 떴다**(§13.146). 추론하지 말고 묻는다. */
+  let isOp = false;
+  try { isOp = await rpc("api_am_i_operator", {}); } catch (e) { isOp = false; }
+  if (!isOp) { renderAuth("notop", who); return; }
+  renderAuth("in", who);
+  await loadQueue(); await loadLog();
+}
+boot();
+</script>
+</body>
+</html>

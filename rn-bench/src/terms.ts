@@ -17,8 +17,12 @@
  */
 import * as FileSystem from "expo-file-system/legacy";
 
-/** 약관을 **내용까지 고쳤으면** 올린다. 올리면 모두에게 한 번 더 묻는다. */
-export const TERMS_VERSION = 1;
+/** 약관을 **내용까지 고쳤으면** 올린다. 올리면 모두에게 한 번 더 묻는다.
+ *
+ *  2 — §13.146: *"신고가 들어온 기록은 운영자가 열어 봅니다"* 를 더했다.
+ *      **새로 알리는 사실**이라 v1 에 동의한 사람은 이것을 못 봤다.
+ *      이럴 때 올리라고 만든 장치다 — 안 올리면 장치가 장식이 된다. */
+export const TERMS_VERSION = 2;
 
 const FILE = FileSystem.documentDirectory + "trippic-terms.json";
 
