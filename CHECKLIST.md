@@ -6,6 +6,25 @@
 
 ---
 
+## ✅ 0·1·2단계는 **끝났습니다** (2026-10-04)
+
+운영 주체 `노혜성` · 문의 `bicycletrip2018@gmail.com` 으로 채워 **공개했습니다**:
+
+```
+https://bicycletrip2018-rgb.github.io/trippic-web/terms.html
+https://bicycletrip2018-rgb.github.io/trippic-web/privacy.html
+https://bicycletrip2018-rgb.github.io/trippic-web/support.html
+```
+
+앱의 `마이 → 이용약관` 에서 눌러 열리는 것까지 확인했습니다.
+**바꾸고 싶으시면 말씀만 하시면 됩니다** — 시행일을 올리고 다시 올립니다.
+
+### → **지금 하실 것은 3단계(Apple Developer 등록)입니다.**
+
+---
+
+<details><summary>0단계 · 먼저 정하실 것 (끝남)</summary>
+
 ## 0단계 · 먼저 정하실 것 (10분, 컴퓨터 없이)
 
 아래 여섯 가지는 **제가 지어낼 수 없습니다.** 종이에 적어 두시면 1단계가 빨라집니다.
@@ -23,7 +42,7 @@
 
 ---
 
-## 1단계 · 문서 빈 칸 채우기 (20분)
+## 1단계 · 문서 빈 칸 채우기 (끝남)
 
 `website/` 의 세 파일에 **노란 칸 12곳**이 있습니다. 그 칸만 바꾸시면 됩니다.
 
@@ -48,7 +67,7 @@ website/support.html   1곳 — 이메일
 
 ---
 
-## 2단계 · 문서 공개하기 (10분)
+## 2단계 · 문서 공개하기 (끝남)
 
 채운 세 파일을 공개 웹에 올립니다.
 → https://github.com/bicycletrip2018-rgb/trippic-web
@@ -67,9 +86,11 @@ https://bicycletrip2018-rgb.github.io/trippic-web/support.html
 
 **끝났는지 확인**: 세 주소가 **휴대폰에서도** 열리면 됩니다.
 
+</details>
+
 ---
 
-## 3단계 · Apple Developer 등록 (30분 + 승인 대기 1~2일)
+## 3단계 · Apple Developer 등록 ← **여기부터** (30분 + 승인 대기 1~2일)
 
 **여기부터는 제가 못 합니다.** 신원 확인과 결제가 걸립니다.
 
