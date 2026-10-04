@@ -54,6 +54,15 @@
           "locationAlwaysAndWhenInUsePermission": "지도에서 지금 계신 곳을 보여 드리고, 사진을 찍어 올리실 때 그 순간의 위치로 어느 장소인지 찾습니다. 찍은 순간의 좌표는 '현장 인증'의 근거가 됩니다. 앱을 쓰지 않는 동안에는 위치를 보지 않습니다.",
           "isAndroidBackgroundLocationEnabled": false
         }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0E0F13",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 180,
+          "resizeMode": "contain"
+        }
       ]
     ]
   }

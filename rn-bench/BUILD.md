@@ -41,8 +41,35 @@ eas submit --profile production --platform ios
 올라간 뒤 App Store Connect → TestFlight 에서 테스터를 초대한다. **여기부터가
 사람 몫이다** — 다섯 명이 2주 쓰면 고칠 것이 나온다. 그게 MVP 테스트다.
 
+## ⑤ 애플 계정 없이 미리 뚫어 보기 (§13.140)
+
+출시 설정이 **컴파일은 되는지**, 번들에 값이 **박히는지**는 계정 없이도 본다.
+
+```bash
+cd rn-bench
+export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8   # ★ 없으면 pod install 이 죽는다
+npx expo prebuild --platform ios --clean
+(cd ios && pod install)
+(cd ios && xcodebuild -workspace app.xcworkspace -scheme app \
+   -configuration Release -sdk iphonesimulator \
+   -destination 'generic/platform=iOS Simulator' \
+   -derivedDataPath /tmp/trippic-dd CODE_SIGNING_ALLOWED=NO)
+xcrun simctl install booted /tmp/trippic-dd/Build/Products/Release-iphonesimulator/app.app
+xcrun simctl launch booted app.trippic.bench
+```
+
+★ **Metro 를 끄고** 띄워야 의미가 있다. 켜져 있으면 번들이 안 박혔어도 돈다.
+
+### 생성된 `Info.plist` 를 **반드시 열어 본다**
+
+```bash
+plutil -extract UIUserInterfaceStyle raw ios/app/Info.plist   # → Dark
+```
+
+★ §13.140 에서 여기가 `Automatic` 이었다. `app.json` 에는 `"dark"` 라고
+  적혀 있었는데도 그랬다 — 스플래시의 `dark` **변형**이 되돌리기 때문이다.
+  **적어 둔 것과 생성된 것은 다를 수 있다.**
+
 ## 아직 안 넣은 것
 
-- **스플래시 화면**(`expo-splash-screen`) — 네이티브 모듈이라 지금 넣으면
-  지금 쓰는 개발 빌드가 깨진다. **첫 EAS 빌드 때 같이** 넣는다(어차피 다시 빌드한다).
 - 안드로이드 — `package` 와 `versionCode` 는 적어 뒀지만 **한 번도 안 돌려 봤다**.
