@@ -2769,5 +2769,136 @@ delete from public.pins where id in ('bb000000-0000-0000-0000-00000000000b',
 delete from public.places where id = 'bb000000-0000-0000-0000-0000000000ca';
 set role authenticated;
 
+-- ── 30. 계정·기록 지우기 (073) ──────────────────────────────────────
+\echo '── 30. 계정·기록 지우기 (073) ──'
+-- ★ 가이드라인 5.1.1(v) 와 **우리가 방침에 적은 약속**을 함께 지키는 자리다.
+--   *"받는 즉시 지웁니다 — 사진·기록·계정이 함께 사라집니다"*(§13.137)
+reset role; select pg_temp.login(null);
+insert into public.places (id, name, category, geom, source)
+values ('dd000000-0000-0000-0000-0000000000da', 'ZZ 삭제 시험 장소', 'etc',
+        ST_SetSRID(ST_MakePoint(127.1, 37.6), 4326), 'tour_api')
+on conflict (id) do nothing;
+insert into public.pins (id, user_id, place_id, geom, visited_at, is_public, verification)
+values ('dd000000-0000-0000-0000-00000000000a',
+        '11111111-1111-1111-1111-111111111111', 'dd000000-0000-0000-0000-0000000000da',
+        ST_SetSRID(ST_MakePoint(127.1, 37.6), 4326), now(), true, 'exif'),
+       ('dd000000-0000-0000-0000-00000000000b',
+        '22222222-2222-2222-2222-222222222222', 'dd000000-0000-0000-0000-0000000000da',
+        ST_SetSRID(ST_MakePoint(127.1, 37.6), 4326), now(), true, 'exif')
+on conflict (id) do nothing;
+insert into public.media (id, pin_id, url, thumb_url, is_main, width, height,
+                          focus_score, contrast_score)
+values ('dd000000-0000-0000-0000-00000000000c', 'dd000000-0000-0000-0000-00000000000a',
+        'https://x.supabase.co/storage/v1/object/public/photos/11111111-1111-1111-1111-111111111111/aaa.webp',
+        'https://x.supabase.co/storage/v1/object/public/photos/11111111-1111-1111-1111-111111111111/aaa_t.webp',
+        true, 1200, 900, 500, 40),
+       ('dd000000-0000-0000-0000-00000000000d', 'dd000000-0000-0000-0000-00000000000b',
+        'https://x.supabase.co/storage/v1/object/public/photos/22222222-2222-2222-2222-222222222222/bbb.webp',
+        null, true, 1200, 900, 500, 40)
+on conflict (id) do nothing;
+
+set role authenticated; select pg_temp.login('11111111-1111-1111-1111-111111111111');
+
+-- ① 내 사진 경로 — **내 것만**
+select pg_temp.ok(
+  array_length(public.api_my_media_paths(), 1) = 2,
+  '★ 내 사진 경로가 **원본과 섬네일 둘 다** 온다 — 하나만 지우면 다른 하나가 남는다');
+select pg_temp.ok(
+  not ('22222222-2222-2222-2222-222222222222/bbb.webp' = any(public.api_my_media_paths())),
+  '★★ **남의 경로는 안 온다** — 왔으면 남의 사진을 지울 수 있다는 뜻이다');
+select pg_temp.ok(
+  '11111111-1111-1111-1111-111111111111/aaa.webp' = any(public.api_my_media_paths()),
+  '경로가 `{사용자}/{파일}` 꼴로 온다 — 저장소 정책이 이 첫 칸을 본다(030)');
+
+-- ② 기록 하나 지우기
+select pg_temp.ok(
+  array_length(public.api_delete_pin('dd000000-0000-0000-0000-00000000000a'), 1) = 2,
+  '★ 지울 **파일 경로를 돌려준다** — 앱이 그걸로 저장소를 지운다');
+reset role; select pg_temp.login(null);
+select pg_temp.ok(
+  (select deleted_at is not null from public.pins where id = 'dd000000-0000-0000-0000-00000000000a'),
+  '★ 핀은 **지운 표시만** 남는다 — 함께 쓰는 타임라인에 구멍이 나면 안 된다(002)');
+select pg_temp.ok(
+  not exists (select 1 from public.media where id = 'dd000000-0000-0000-0000-00000000000c'),
+  '★★ 그런데 **사진 행은 진짜로 사라진다** — 자리만 남기고 내용은 지운다');
+set role authenticated; select pg_temp.login('11111111-1111-1111-1111-111111111111');
+
+-- ③ ★ 남의 기록은 못 지운다
+select pg_temp.ok(
+  array_length(public.api_delete_pin('dd000000-0000-0000-0000-00000000000b'), 1) is null,
+  '★★ 남의 기록에는 **빈손으로 답한다** — 지울 것이 없다');
+reset role; select pg_temp.login(null);
+select pg_temp.ok(
+  (select deleted_at is null from public.pins where id = 'dd000000-0000-0000-0000-00000000000b'),
+  '★★ 그리고 **실제로 안 지워졌다** — 빈손만 돌려주고 지우면 아무 의미가 없다');
+set role authenticated; select pg_temp.login('11111111-1111-1111-1111-111111111111');
+
+-- ④ ★★ 계정 지우기 — 따라 지워지는가
+select pg_temp.ok(public.api_delete_account(), '★ 계정을 지운다');
+reset role; select pg_temp.login(null);
+select pg_temp.ok(
+  not exists (select 1 from auth.users where id = '11111111-1111-1111-1111-111111111111'),
+  '★ auth.users 에서 사라졌다');
+select pg_temp.ok(
+  not exists (select 1 from public.profiles where id = '11111111-1111-1111-1111-111111111111'),
+  '★★ **프로필도 따라갔다**(cascade) — 안 따라가면 이름이 남는다');
+select pg_temp.ok(
+  not exists (select 1 from public.pins where user_id = '11111111-1111-1111-1111-111111111111'),
+  '★★ **기록도 따라갔다** — 지운 표시가 아니라 **행 자체가** 사라진다');
+select pg_temp.ok(
+  exists (select 1 from public.pins where user_id = '22222222-2222-2222-2222-222222222222'),
+  '★ 남의 기록은 그대로다 — cascade 가 넓게 물면 남까지 지운다');
+
+-- ④-b ★★ **운영자도 자기 계정을 지울 수 있어야 한다**
+--     신고를 처리한 적이 있거나 남에게 운영자를 준 적이 있으면 참조가 남는데,
+--     그 참조가 `no action` 이면 **영영 못 지운다.** 평범한 사용자는 안 걸려서
+--     스모크도 통과했었다 — 빗장을 빼 보다가 드러났다(§13.138).
+reset role; select pg_temp.login(null);
+insert into public.operators (user_id, granted_by)
+  values ('22222222-2222-2222-2222-222222222222', '22222222-2222-2222-2222-222222222222')
+  on conflict do nothing;
+/* ★ 신고한 사람과 **처리한 사람을 다르게** 둔다. 같은 사람으로 두면
+   그를 지울 때 `reports` 가 cascade 로 따라가고 `report_actions` 도 같이
+   사라져서, *"행적이 남는가"* 를 **못 재게 된다.** 한 번 그렇게 재고 있었다. */
+insert into public.reports (id, reporter_id, target_type, target_id, reason)
+  values ('dd000000-0000-0000-0000-00000000000e',
+          '33333333-3333-3333-3333-333333333333', 'pin',
+          'dd000000-0000-0000-0000-00000000000b', 'ZZ 처리 흔적용')
+  on conflict do nothing;
+insert into public.report_actions (report_id, actor_id, action, note)
+  values ('dd000000-0000-0000-0000-00000000000e',
+          '22222222-2222-2222-2222-222222222222', 'resolve', 'ZZ');
+set role authenticated; select pg_temp.login('22222222-2222-2222-2222-222222222222');
+select pg_temp.ok(public.api_delete_account(),
+  '★★ **신고를 처리한 적 있는 운영자도** 자기 계정을 지운다');
+reset role; select pg_temp.login(null);
+select pg_temp.ok(
+  not exists (select 1 from public.profiles where id = '22222222-2222-2222-2222-222222222222'),
+  '★ 실제로 지워졌다');
+select pg_temp.ok(
+  exists (select 1 from public.report_actions
+           where report_id = 'dd000000-0000-0000-0000-00000000000e' and actor_id is null),
+  '★★ **행적은 남고 이름만 빠진다**(set null) — 운영 기록을 지우면 안 되고 개인정보는 지워야 한다');
+set role authenticated;
+
+-- ⑤ 로그인 안 하면 못 부른다
+set role anon;
+do $$ begin
+  begin
+    perform public.api_delete_account();
+    raise exception 'FAIL  ★ 비로그인이 계정 삭제를 불렀다';
+  exception when insufficient_privilege then
+    raise notice '  OK   ★ 비로그인은 계정 삭제를 **부르지도 못한다**(067)';
+  end;
+end $$;
+
+reset role; select pg_temp.login(null);
+delete from public.report_actions where note = 'ZZ';
+delete from public.reports where reason like 'ZZ%';
+delete from public.media where id::text like 'dd000000%';
+delete from public.pins  where id::text like 'dd000000%';
+delete from public.places where id = 'dd000000-0000-0000-0000-0000000000da';
+set role authenticated;
+
 reset role;
 rollback;   -- 아무것도 남기지 않는다
