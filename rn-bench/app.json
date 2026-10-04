@@ -1,11 +1,12 @@
 {
   "expo": {
-    "name": "rn-bench",
-    "slug": "rn-bench",
+    "name": "트립픽",
+    "slug": "trippic",
     "version": "1.0.0",
+    "scheme": "app.trippic.bench",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "app.trippic.bench",
@@ -18,7 +19,8 @@
         "NSMicrophoneUsageDescription": "동영상을 찍을 때 소리를 함께 담습니다. 사진만 찍으실 때는 쓰지 않습니다.",
         "NSLocationWhenInUseUsageDescription": "지도에서 지금 계신 곳을 보여 드리고, 사진을 찍어 올리실 때 그 순간의 위치로 어느 장소인지 찾습니다. 찍은 순간의 좌표는 '현장 인증'의 근거가 됩니다. 앱을 쓰지 않는 동안에는 위치를 보지 않습니다."
       },
-      "usesAppleSignIn": true
+      "usesAppleSignIn": true,
+      "buildNumber": "1"
     },
     "android": {
       "adaptiveIcon": {
@@ -28,7 +30,8 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "app.trippic.bench"
+      "package": "app.trippic.bench",
+      "versionCode": 1
     },
     "web": {
       "favicon": "./assets/favicon.png"
