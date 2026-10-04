@@ -67,8 +67,8 @@ function make(kind, s) {
   if (kind === "bg")       { x.fillStyle = BG; x.fillRect(0,0,s,s); }
   /* ★ 적응형 아이콘은 **가운데 66%만 보인다**(기기마다 다른 모양으로 깎는다).
      그래서 전경은 더 작게 그린다 — 안 그러면 꼭지점이 잘린다. */
-  if (kind === "fg")       { mark(x, s, 0.44, {}); }
-  if (kind === "mono")     { mark(x, s, 0.48, { solid: "#fff" }); }
+  if (kind === "fg")       { mark(x, s, 0.52, {})  /* ★ 0.44 였는데 **원 안에서 작아 보였다**(§13.148): 0.52×512=266px, 보장 영역(원 지름 341px)의 78% — Gmail·Chrome 과 비슷한 무게. 341 보다 작으므로 어떤 마스크에도 안 잘린다 */; }
+  if (kind === "mono")     { mark(x, s, 0.52, { solid: "#fff" }); }
   if (kind === "splash")   { mark(x, s, 0.76, {}); }
   c.style.width = "120px"; c.style.imageRendering = "auto";
   c.title = kind; document.body.appendChild(c);
