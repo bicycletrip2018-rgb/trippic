@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator, Image, Pressable, RefreshControl, ScrollView,
   StyleSheet, Text, View,
+  Linking,
 } from "react-native";
 import * as API from "../api";
 import { C, CAT } from "../theme";
@@ -16,6 +17,8 @@ import { regionName } from "../regionName";
 import { distM } from "../course";
 import { useSkeletonPulse, SkelBar, SkelBox } from "../Skeleton";
 import { ReportSheet, type Target } from "../ReportSheet";
+import { sitePage } from "../siteLinks";
+import { INVITE_BASE } from "../config";
 import { openSocial } from "../oauth";
 import { isAvailable as appleAvailable, signInWithApple } from "../appleAuth";
 import { Alert } from "react-native";
@@ -380,7 +383,35 @@ export function MyTab({ authTick = 0 }: { authTick?: number }) {
       ))}
 
       <BlockedList tick={authTick} />
+      <SiteLinks />
     </ScrollView>
+  );
+}
+
+/**
+ * 약관·개인정보·문의 (§13.136)
+ *
+ * ★ 심사가 요구하는 **공개된 연락처**가 여기다. 그리고 동의한 약관을 **나중에
+ *   다시 볼 길**이 있어야 한다 — 처음에 한 번 보이고 영영 못 찾으면 동의가
+ *   형식이 된다.
+ * ★ 주소를 못 만들면 **안 그린다.** 눌러도 아무 일이 없는 글자는 고장으로 읽힌다.
+ */
+function SiteLinks() {
+  const items: [string, string | null][] = [
+    ["이용약관", sitePage(INVITE_BASE, "terms")],
+    ["개인정보처리방침", sitePage(INVITE_BASE, "privacy")],
+    ["문의", sitePage(INVITE_BASE, "support")],
+  ];
+  const live = items.filter(([, u]) => !!u) as [string, string][];
+  if (!live.length) return null;
+  return (
+    <View style={{ paddingHorizontal: 18, paddingTop: 26, flexDirection: "row", gap: 16 }}>
+      {live.map(([t, u]) => (
+        <Pressable key={t} onPress={() => void Linking.openURL(u)}>
+          <Text style={s.siteLink}>{t}</Text>
+        </Pressable>
+      ))}
+    </View>
   );
 }
 
@@ -426,6 +457,7 @@ const s = StyleSheet.create({
              paddingVertical: 11, borderTopWidth: 1, borderTopColor: C.line },
   blockedN: { color: C.text, fontSize: 14 },
   unblock: { color: C.accent, fontSize: 13, fontWeight: "600" },
+  siteLink: { color: C.muted, fontSize: 12.5, textDecorationLine: "underline" },
   wrap: { flex: 1, backgroundColor: C.bg },
   h1: { color: C.text, fontSize: 19, fontWeight: "700", paddingHorizontal: 18, paddingTop: 58 },
   sub: { color: C.muted, fontSize: 11.5, lineHeight: 18, paddingHorizontal: 18, paddingTop: 5, paddingBottom: 8 },

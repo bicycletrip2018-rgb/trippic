@@ -12,6 +12,8 @@ import { StatusBar } from "expo-status-bar";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { TabBar, type Tab } from "./src/TabBar";
 import { installErrorLog, logError } from "./src/errorLog";
+import { TermsGate } from "./src/TermsGate";
+import { needsAgreement } from "./src/terms";
 import { MapTab } from "./src/tabs/MapTab";
 import { FeedTab } from "./src/tabs/FeedTab";
 import { NewsTab, MyTab } from "./src/tabs/RecordTabs";
@@ -39,6 +41,9 @@ export default function App() {
   if (CALIB) return <QualityCalib />;
   const [tab, setTab] = useState<Tab>("map");
   const [ready, setReady] = useState(false);
+  /* ★ 약관 동의 (§13.136). `null` 은 **아직 모른다** — 모르는 동안 화면을 그리면
+     동의한 사람에게 약관이 깜빡이고, 안 한 사람에게는 앱이 먼저 보인다. */
+  const [agreed, setAgreed] = useState<boolean | null>(null);
   const [reg, setReg] = useState(false);
   /* ★ (+) 는 이제 **두 갈래다.** 지금 찍기(현장 인증)와 앨범 정리(소급)는
      기준 좌표부터 다르다(§6.5) — 한 버튼에 묶으면 사용자가 그 차이를 모른 채
@@ -71,6 +76,7 @@ export default function App() {
     /* ★ **제일 먼저 건다**(§13.120). 뒤에 걸면 켜는 중에 난 오류를 놓치는데,
        켜는 중에 터지는 것이 **사용자가 가장 못 넘기는 것**이다. */
     installErrorLog();
+    void needsAgreement().then((need) => setAgreed(!need));
     API.setConfig(SUPABASE_URL, SUPABASE_ANON_KEY);
     void API.loadSession().then(async () => {
       /* ★ `ready` 는 **`ensureSession` 뒤에** 올린다. 앞에 올리면 지도가 토큰이
@@ -147,6 +153,19 @@ export default function App() {
   const badge = !pending ? null
     : pending.cards > 0 ? `${pending.cards}${more ? "+" : ""}`
     : more ? "•" : null;
+
+  /* ★ **동의 전에는 아무것도 안 보인다.** 뒤에 띄우면 그 한 프레임 동안 남의
+     사진이 먼저 보이고, 그러면 *"쓰기 전에 동의"* 가 아니다.
+     ★ 아직 모를 때(`null`)도 안 그린다 — 깜빡임이 생긴다. 파일 한 번 읽는 시간이다. */
+  if (agreed === null) return <View style={s.root} />;
+  if (!agreed) {
+    return (
+      <View style={s.root}>
+        <StatusBar style="light" />
+        <TermsGate onDone={() => setAgreed(true)} />
+      </View>
+    );
+  }
 
   return (
     <View style={s.root}>

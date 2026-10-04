@@ -43,7 +43,8 @@
     "test:singleflight": "tsc src/singleFlight.ts --ignoreConfig --outDir build-test --module commonjs --target es2020 --skipLibCheck && node test/singleflight.test.cjs",
     "test:invite": "tsc src/inviteBase.ts --ignoreConfig --outDir build-test --module commonjs --target es2020 --skipLibCheck && node test/invite.test.cjs",
     "test:taprule": "tsc src/tapRule.ts --ignoreConfig --outDir build-test --module commonjs --target es2020 --skipLibCheck && node test/taprule.test.cjs",
-    "test:shapes": "node test/shapes.test.cjs"
+    "test:shapes": "node test/shapes.test.cjs",
+    "test:site": "tsc src/siteLinks.ts --ignoreConfig --outDir build-test --module commonjs --target es2020 --skipLibCheck && node test/site.test.cjs"
   },
   "private": true
 }
