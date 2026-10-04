@@ -2900,5 +2900,170 @@ delete from public.pins  where id::text like 'dd000000%';
 delete from public.places where id = 'dd000000-0000-0000-0000-0000000000da';
 set role authenticated;
 
+
+-- ── 31. 운영자가 **실제로 지운다** (074) ────────────────────────────
+-- ★ §13.144 에서 잰 것: 앱은 "신고가 들어오면 24시간 안에 지우거나 정지한다"고
+--   약속하는데 운영자 API 에 **지우는 길이 없었다.** 그 약속을 코드가 지키는지 센다.
+reset role; select pg_temp.login(null);
+/* ★ **자기 사용자를 따로 심는다.** 30절이 `2222` 를 진짜로 지워 버려서
+   거기 기대면 외래키에서 멎는다 — 실제로 멎었다. 절은 자기 발로 선다. */
+insert into auth.users (id, email) values
+  ('ee111111-1111-1111-1111-111111111111', 'op@t.io'),    -- 운영자
+  ('ee222222-2222-2222-2222-222222222222', 'bad@t.io'),   -- 신고당한 사람
+  ('ee333333-3333-3333-3333-333333333333', 'any@t.io')    -- 남남
+on conflict (id) do nothing;
+insert into public.places (id, name, category, geom, source)
+  values ('ee000000-0000-0000-0000-0000000000da', 'ZZ신고장소', 'etc',
+          ST_SetSRID(ST_MakePoint(127.1, 37.5), 4326), 'tour_api')
+  on conflict (id) do nothing;
+insert into public.pins (id, user_id, place_id, geom, visited_at, is_public,
+                        verification, memo)
+  values ('ee000000-0000-0000-0000-00000000000b',
+          'ee222222-2222-2222-2222-222222222222',
+          'ee000000-0000-0000-0000-0000000000da',
+          ST_SetSRID(ST_MakePoint(127.1, 37.5), 4326), now(), true,
+          'exif', 'ZZ신고된 기록')
+  on conflict (id) do nothing;
+insert into public.media (id, pin_id, url, thumb_url, is_main, width, height,
+                          focus_score, contrast_score)
+  values ('ee000000-0000-0000-0000-00000000000c',
+          'ee000000-0000-0000-0000-00000000000b',
+          'https://x.supabase.co/storage/v1/object/public/photos/2222/aa.webp',
+          'https://x.supabase.co/storage/v1/object/public/photos/2222/aa-t.webp',
+          true, 1200, 900, 500, 40)
+  on conflict (id) do nothing;
+insert into public.operators (user_id) values ('ee111111-1111-1111-1111-111111111111')
+  on conflict (user_id) do nothing;
+set role authenticated;
+
+-- ① 운영자가 아니면 못 부른다 — **이게 유일한 벽이다**(definer 라 RLS 를 지나간다)
+select pg_temp.login('ee333333-3333-3333-3333-333333333333');
+do $$ begin
+  begin
+    perform public.api_mod_remove_pin('ee000000-0000-0000-0000-00000000000b', 'ZZ장난');
+    raise exception 'FAIL  ★ 남남이 남의 기록을 내렸다';
+  exception when insufficient_privilege then
+    raise notice '  OK   ★ 운영자가 아니면 기록을 못 내린다';
+  end;
+end $$;
+
+-- ② 이유를 안 적으면 거절한다
+select pg_temp.login('ee111111-1111-1111-1111-111111111111');
+do $$ begin
+  begin
+    perform public.api_mod_remove_pin('ee000000-0000-0000-0000-00000000000b', '   ');
+    raise exception 'FAIL  ★ 이유 없이 지웠다';
+  exception when sqlstate '22023' then
+    raise notice '  OK   ★ 왜 지우는지 안 적으면 거절한다';
+  end;
+end $$;
+
+-- ③ 운영자가 내리면 **줄이 숨고 파일 경로가 돌아온다**
+do $$
+declare paths text[];
+begin
+  paths := public.api_mod_remove_pin(
+    'ee000000-0000-0000-0000-00000000000b', 'ZZ음란물 신고 확인됨');
+  if array_length(paths, 1) is distinct from 2 then
+    raise exception 'FAIL  ★ 파일 경로가 2개여야 하는데 % 개다 — 파일이 안 지워진다',
+      coalesce(array_length(paths,1), 0);
+  end if;
+  if not (paths @> array['2222/aa.webp', '2222/aa-t.webp']) then
+    raise exception 'FAIL  ★ 경로가 틀렸다: %', paths;
+  end if;
+  raise notice '  OK   ★★ 본판과 **작은 판까지** 경로를 돌려준다 — 둘 다 지워야 지운 것이다';
+end $$;
+
+/* ★ 이 확인은 **superuser 로** 해야 한다. `authenticated` 로 보면
+   `pins_read` 가 `deleted_at is null` 로 걸러 **운영자에게도 안 보인다** —
+   처음에 그렇게 썼다가 "안 내려갔다"는 **거짓 실패**를 봤다.
+   눈금이 가리는 것을 코드 탓으로 돌릴 뻔했다. */
+reset role; select pg_temp.login(null);
+select pg_temp.ok(
+  exists (select 1 from public.pins
+           where id = 'ee000000-0000-0000-0000-00000000000b'
+             and deleted_at is not null and is_public = false),
+  '★★ `deleted_at` 과 `is_public` 을 **둘 다** 내린다 — 하나만 되돌려도 안 되살아난다');
+set role authenticated;
+
+-- ④ 내려간 기록은 **아무에게도 안 보인다**(신고한 사람에게도)
+select pg_temp.login('ee333333-3333-3333-3333-333333333333');
+select pg_temp.ok(
+  not exists (select 1 from public.pins where id = 'ee000000-0000-0000-0000-00000000000b'),
+  '★ 내려간 기록은 남남에게 안 보인다');
+select pg_temp.login('ee222222-2222-2222-2222-222222222222');
+select pg_temp.ok(
+  not exists (select 1 from public.pins where id = 'ee000000-0000-0000-0000-00000000000b'),
+  '★ **주인에게도** 안 보인다');
+
+-- ⑤ 흔적이 남는다
+reset role; select pg_temp.login(null);
+select pg_temp.ok(
+  exists (select 1 from public.operator_log
+           where action = 'remove_pin' and note like 'ZZ음란물%'
+             and actor_id = 'ee111111-1111-1111-1111-111111111111'),
+  '★ 누가 왜 내렸는지 `operator_log` 에 남는다');
+set role authenticated;
+
+-- ⑥ 계정 정지 — 운영자는 **정지하지 못한다**
+select pg_temp.login('ee111111-1111-1111-1111-111111111111');
+do $$ begin
+  begin
+    perform public.api_mod_suspend_user('ee111111-1111-1111-1111-111111111111', 7, 'ZZ자해');
+    raise exception 'FAIL  ★ 운영자를 정지시켰다 — 전부 잠길 수 있다';
+  exception when insufficient_privilege then
+    raise notice '  OK   ★★ 운영자는 정지 못 한다 — 하나가 넘어가도 **되돌릴 사람이 남는다**';
+  end;
+end $$;
+
+do $$
+declare til timestamptz;
+begin
+  til := public.api_mod_suspend_user('ee222222-2222-2222-2222-222222222222', 7, 'ZZ반복 신고');
+  if til is null or til < now() then
+    raise exception 'FAIL  ★ 정지 기한이 과거다: %', til;
+  end if;
+  raise notice '  OK   ★ 일반 계정은 정지된다(기한 %)', til::date;
+end $$;
+
+reset role; select pg_temp.login(null);
+select pg_temp.ok(
+  (select banned_until from auth.users where id = 'ee222222-2222-2222-2222-222222222222') > now(),
+  '★ `auth.users.banned_until` 이 실제로 찍힌다 — 토큰이 안 나간다');
+set role authenticated;
+
+select pg_temp.login('ee111111-1111-1111-1111-111111111111');
+select pg_temp.ok(public.api_mod_unsuspend_user('ee222222-2222-2222-2222-222222222222', 'ZZ오인'),
+  '★ 풀 수도 있다');
+reset role; select pg_temp.login(null);
+select pg_temp.ok(
+  (select banned_until from auth.users where id = 'ee222222-2222-2222-2222-222222222222') is null,
+  '★ 풀면 기한이 비워진다');
+
+-- ⑦ 스토리지 정책이 **운영자에게 삭제를 연다**
+/* ★ 로컬 검증 DB 에는 storage 스키마가 없다. **건너뛴다고 말하고** 넘어간다 —
+   조용히 통과시키면 "쟀다"는 착각이 남고, 진짜로 비어 있는 날에도 초록불이 뜬다.
+   운영(verify.sh with DB_URL)에서는 storage 가 있으므로 **실제로 센다.** */
+do $$
+begin
+  if to_regclass('storage.objects') is null then
+    raise notice '  SKIP ★ storage 스키마 없음 — 운영자 삭제 정책은 **로컬에서 못 잰다**(진짜 Supabase 에서 센다)';
+  elsif exists (select 1 from pg_policies
+                 where schemaname = 'storage' and tablename = 'objects'
+                   and policyname = 'photos_delete_operator') then
+    raise notice '  OK   ★★ 운영자 삭제 정책이 있다 — 없으면 ③ 이 경로를 줘도 **파일을 못 지운다**(photos_delete 는 주인만)';
+  else
+    raise exception 'FAIL  ★★ 운영자 삭제 정책이 없다 — 경로만 받고 파일은 그대로 남는다';
+  end if;
+end $$;
+
+delete from public.operator_log where note like 'ZZ%';
+delete from public.media  where id::text like 'ee000000%';
+delete from public.pins   where id::text like 'ee000000%';
+delete from public.places where id = 'ee000000-0000-0000-0000-0000000000da';
+delete from public.operators where user_id = 'ee111111-1111-1111-1111-111111111111';
+delete from auth.users where id::text like 'ee%';
+set role authenticated;
+
 reset role;
 rollback;   -- 아무것도 남기지 않는다
