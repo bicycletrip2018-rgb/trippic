@@ -2181,6 +2181,62 @@ select pg_temp.ok(
      from public.client_errors order by id desc limit 1),
   '★ 길어도 잘라서 넣는다 — 거절하면 그 오류를 영영 못 본다');
 
+-- ── 067 anon 허용 목록 (§13.121) ─────────────────────────────────────
+-- ★ 이 절이 지키는 것은 **기본값이 닫힘**이라는 성질이다. 006 의
+--   `lock_function_privileges` 는 이름이 "잠근다"인데 모든 함수를 anon 에게
+--   내주고 있었다 — 새 함수를 만들며 `grant` 를 빠뜨려도 **인터넷 전체에 열렸다.**
+\echo ''
+\echo '── 27. anon 허용 목록 (067) ──'
+select pg_temp.ok(
+  not has_function_privilege('anon', 'public.api_operator_grant(uuid,text)', 'execute'),
+  '★ 운영자 주기를 **로그인도 안 한 사람이** 못 부른다');
+select pg_temp.ok(
+  not has_function_privilege('anon', 'public.api_operator_revoke(uuid,text)', 'execute'),
+  '★ 운영자 빼기도 마찬가지다');
+select pg_temp.ok(
+  not has_function_privilege('anon', 'public.api_rotate_invite(uuid)', 'execute'),
+  '★ 초대 링크 돌리기 — 남의 링크를 죽이는 일이다');
+
+-- ★ 열어 둔 것은 **그대로 열려 있어야** 한다. 조이다가 제품을 깨면 안 된다.
+select pg_temp.ok(
+  has_function_privilege('anon', 'public.api_invite_preview(text)', 'execute'),
+  '★ 초대받은 사람은 로그인 전에 무엇을 수락하는지 본다(§13.38)');
+select pg_temp.ok(
+  has_function_privilege('anon', 'public.api_log_client_error(text,text,text,text,text)', 'execute'),
+  '★ 세션이 안 서는 것 자체가 오류다 — 그때도 보낼 수 있어야 한다(§13.120)');
+select pg_temp.ok(
+  has_function_privilege('anon', 'public.api_search(text,int,double precision,double precision,double precision)', 'execute')
+  or exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+              where n.nspname='public' and p.proname='api_search'
+                and has_function_privilege('anon', p.oid, 'execute')),
+  '★ 검색은 로그인 앞에 있다(§13.100)');
+
+-- ★ **PUBLIC 은 아무것도 못 한다.** anon 을 조여도 PUBLIC 이 열려 있으면 소용없다.
+select pg_temp.ok(
+  not has_function_privilege('public', 'public.api_operator_grant(uuid,text)', 'execute'),
+  '★ PUBLIC 에게도 안 준다 — 이게 006 이 원래 고치려던 것이다');
+
+-- ★ **authenticated 는 그대로다.** anon 과 authenticated 는 사실상 같은 사람들이라
+--   (공개 키만 있으면 누구나 익명 가입) 여기서 빼면 **진짜 운영자가 못 쓴다.**
+--   안쪽 `is_operator()` 빗장이 여전히 유일한 벽이고, 그 사실은 안 바뀐다.
+select pg_temp.ok(
+  has_function_privilege('authenticated', 'public.api_operator_grant(uuid,text)', 'execute'),
+  '★ 운영자도 평범한 로그인 사용자다 — authenticated 에서 빼면 아무도 못 쓴다');
+
+-- ★ 새로 만든 함수는 **기본이 닫힘**이다
+reset role;   -- 함수를 만드는 것은 세션 사용자로
+create or replace function public.zz_new_function_test() returns int
+  language sql stable as $$ select 1 $$;
+select public.lock_function_privileges();
+select pg_temp.ok(
+  not has_function_privilege('anon', 'public.zz_new_function_test()', 'execute'),
+  '★★ 새 함수는 **anon 에게 닫힌 채로 태어난다** — 열려면 목록에 적어야 한다');
+select pg_temp.ok(
+  has_function_privilege('authenticated', 'public.zz_new_function_test()', 'execute'),
+  '새 함수도 로그인한 사람은 쓴다 — 앱이 안 깨지게');
+drop function public.zz_new_function_test();
+set role authenticated;
+
 -- ── 038 초대 링크로 합류 ─────────────────────────────────────────────
 -- ★ §3 이 "초대 수락률이 핵심 지표"라고 적어 뒀는데 수락 경로가 없었다.
 --   여기서 지킬 것: ① 무엇을 수락하는지 먼저 보인다 ② 여러 링크가 한 계정에 쌓인다

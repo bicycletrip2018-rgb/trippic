@@ -60,6 +60,18 @@ echo "=== 1. 문법·구조 ($DB) ==="
 psql -X -h $PGH -p $PGP -q -d $DB -f "$ROOT/db/local/000_supabase_shim.sql" >/dev/null 2>&1 && green "  OK   000_supabase_shim.sql" || { red "  FAIL shim"; exit 1; }
 psql -X -h $PGH -p $PGP -q -d $DB -f "$ROOT/db/local/001_postgis_stub.sql"  >/dev/null 2>&1 && green "  OK   001_postgis_stub.sql"  || { red "  FAIL stub"; exit 1; }
 for f in "$ROOT"/db/migrations/*.sql; do run "$f"; done
+
+# ★ 스텁은 PostGIS 를 **public 안의 평범한 함수**로 흉내 낸다. 실서버에서는
+#   `extensions` 스키마의 **확장 소유** 함수라 067 의 `anon` 회수에서 제외되는데,
+#   스텁에서는 제외가 안 돼 `st_x` 같은 것이 anon 에게서 회수된다.
+#   → **스텁이 보정한다.** 067 을 스텁에 맞춰 흐리면 실서버 규칙이 거짓이 된다.
+psql -X -h $PGH -p $PGP -q -d $DB -c "
+do \$\$ declare f record; begin
+  for f in select p.oid::regprocedure as sig from pg_proc p
+           join pg_namespace n on n.oid=p.pronamespace
+           where n.nspname='public' and p.proname ~ '^(st_|_st_|geography|geometry|postgis)'
+  loop execute format('grant execute on function %s to anon', f.sig); end loop;
+end \$\$;" >/dev/null 2>&1
 [ $FAIL -eq 0 ] || { echo; red "=== 문법 실패 $FAIL건 ==="; exit 1; }
 psql -X -h $PGH -p $PGP -At -d $DB -c "
   select '  테이블 '||(select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE')
