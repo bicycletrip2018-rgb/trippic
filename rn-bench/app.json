@@ -19,7 +19,8 @@
         "NSMicrophoneUsageDescription": "동영상을 찍을 때 소리를 함께 담습니다. 사진만 찍으실 때는 쓰지 않습니다.",
         "NSLocationWhenInUseUsageDescription": "지도에서 지금 계신 곳을 보여 드리고, 사진을 찍어 올리실 때 그 순간의 위치로 어느 장소인지 찾습니다. 찍은 순간의 좌표는 '현장 인증'의 근거가 됩니다. 앱을 쓰지 않는 동안에는 위치를 보지 않습니다.",
         "NSLocationAlwaysUsageDescription": "트립픽은 앱을 쓰시는 동안에만 위치를 봅니다. 백그라운드 위치는 요청하지 않습니다.",
-        "NSMotionUsageDescription": "지도에서 지금 보고 계신 방향(나침반)을 표시할 때만 씁니다."
+        "NSMotionUsageDescription": "지도에서 지금 보고 계신 방향(나침반)을 표시할 때만 씁니다.",
+        "ITSAppUsesNonExemptEncryption": false
       },
       "usesAppleSignIn": true,
       "buildNumber": "1"
