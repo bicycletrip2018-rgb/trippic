@@ -33,7 +33,7 @@ import {
 } from "@maplibre/maplibre-react-native";
 import * as API from "../api";
 import { whereAmI, watchHere, watchHeading, type Here } from "../live";
-import { MapSheet, SHEET_PEEK, SHEET_BOTTOM, SHEET_HALF, type Snap } from "../MapSheet";
+import { MapSheet, SHEET_PEEK, SHEET_BOTTOM, useSheetHalf, type Snap } from "../MapSheet";
 import { PlaceSheet } from "../PlaceSheet";
 import { sawCover, openedCover, researchedCover, flushCovers } from "../coverLog";
 import { MapSearch, type Hit } from "../MapSearch";
@@ -445,6 +445,8 @@ export function MapTab(
   } = {},
 ) {
   const topPad = useTopPad(0);
+  /* 폴더블에서 접었다 펴면 시트의 `half` 가 바뀐다 — 지도 위 버튼들도 따라간다 */
+  const sheetHalf = useSheetHalf();
   const mapRef = useRef<MapRef>(null);
   /* 받아서 고친 배경 스타일. null 이면 아직 못 받았다 — 그동안 지도를 안 그린다
      (`mapStyle` 을 나중에 바꾸면 지도가 통째로 다시 만들어진다). */
@@ -1519,9 +1521,9 @@ export function MapTab(
             버튼 네 개로 어수선해진다.
           ★ 끝에 닿으면 **흐려진다**. 눌러도 아무 일 없는 버튼을 멀쩡한 얼굴로
             두지 않는다(§13.67 의 *"죽은 버튼"*). */}
-      {!open && !openPlace && !!style && sheetH < SHEET_HALF + 40 && (
+      {!open && !openPlace && !!style && sheetH < sheetHalf + 40 && (
         <View style={[st.zoom,
-                      { bottom: SHEET_BOTTOM + Math.min(sheetH, SHEET_HALF) + 118 }]}>
+                      { bottom: SHEET_BOTTOM + Math.min(sheetH, sheetHalf) + 118 }]}>
           <Pressable
             style={st.zoomBtn}
             disabled={!canZoomIn(zoom)}
@@ -1557,8 +1559,8 @@ export function MapTab(
 
       {/* ★ 내 위치 버튼. `(+)` 위에 둔다 — `(+)` 는 App 이 지도 위에 띄우므로
           자리를 비켜 준다. 시트가 떠 있으면 같이 감춘다. */}
-      {!open && !!style && sheetH < SHEET_HALF + 40 && (
-        <Pressable style={[st.locate, { bottom: SHEET_BOTTOM + Math.min(sheetH, SHEET_HALF) + 64 }]}
+      {!open && !!style && sheetH < sheetHalf + 40 && (
+        <Pressable style={[st.locate, { bottom: SHEET_BOTTOM + Math.min(sheetH, sheetHalf) + 64 }]}
                    onPress={() => { void goHere(); }}>
           {locating
             ? <ActivityIndicator size="small" color={C.text} />
@@ -1573,7 +1575,7 @@ export function MapTab(
       {!!style && !open && !openPlace && (() => {
         const sc = pickScale(metersPerPx(zoom, atLat));
         return (
-          <View style={[st.scale, { bottom: SHEET_BOTTOM + Math.min(sheetH, SHEET_HALF) + 14 }]}>
+          <View style={[st.scale, { bottom: SHEET_BOTTOM + Math.min(sheetH, sheetHalf) + 14 }]}>
             <Text style={st.scaleT}>{sc.label}</Text>
             <View style={[st.scaleBar, { width: sc.px }]} />
           </View>
