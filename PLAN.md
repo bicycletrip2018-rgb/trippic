@@ -15908,3 +15908,74 @@ xcrun simctl addmedia <device> photo.jpg
 079 로 나눴다** — 규칙이 원래 이렇게 생겼다.
 
 표류 검사가 이걸 전부 잡아 줬다(`적용 후 파일이 수정됐다`). **벽이 일했다.**
+
+---
+
+## §13.152 *"PostGIS 표라 거짓 경보겠지"* — **아니었다**
+
+Supabase 가 경고 메일을 보냈다:
+
+> **CRITICAL · Table publicly accessible** (`rls_disabled_in_public`)
+> *"Anyone with your project URL can read, edit, and delete all data in this table"*
+
+걸린 표는 `public.spatial_ref_sys` — **PostGIS 확장이 만든 좌표계 정의표**다.
+주인은 `supabase_admin`, 내용은 EPSG 공개 정의(WGS 84, Korea 2000…).
+**우리 표는 전부 RLS 가 켜져 있다**(확인함).
+
+★ 여기까지 보고 *"우리 데이터도 아니고 전 세계 PostGIS 에 똑같이 있는 표다.
+  알려진 거짓 경보다"* 로 넘길 뻔했다. **메일이 '고치고 지울 수 있다'고
+  했으니 그것만 재 보자** 하고 눌러 봤다.
+
+### 거짓이 아니었다
+
+```
+anon 권한: DELETE, INSERT, SELECT, TRUNCATE, UPDATE   ← 전부
+anon 으로 delete from spatial_ref_sys where srid = 4326;  → 된다
+```
+
+지운 뒤(롤백해서 확인):
+
+```
+거리 계산        → Cannot find SRID (4326) in spatial_ref_sys
+api_feed_rails   → 같은 오류
+```
+
+★★ anon 키는 **앱 번들에 들어 있다** — 그렇게 설계했고 공개 값이 맞다.
+   즉 **누구나 한 줄로 앱 전체를 멈출 수 있었다.** 되돌리려면 그 줄을 다시
+   넣어야 하는데, 그 사실을 아는 사람은 우리뿐이다.
+
+### 권한으로는 못 막았다
+
+```
+revoke insert,update,delete,truncate on spatial_ref_sys from anon;
+→ WARNING: no privileges could be revoked
+```
+
+권한을 준 것은 `supabase_admin`(표 주인)이고 우리는 `postgres` 로 붙는다.
+`REVOKE` 는 **자기가 준 것만** 뺀다. `postgres` 는 `supabase_admin` 의 멤버도
+아니다(확인함).
+
+### 그래서 **표가 스스로 거절하게** 했다
+
+`supabase_admin` 이 `postgres` 에게 **TRIGGER 권한은 줬다.** 068 이 운영자 벽에서
+쓴 것과 **같은 수법**이다 — *"권한으로 못 막으면 표에 벽을 건다."*
+
+| | |
+|---|---|
+| `security definer` 로 안 만든다 | 068 에서 definer 안의 `current_user` 가 함수 주인으로 바뀌어 뚫렸다. 트리거는 **부른 사람 권한**으로 돌아야 한다 |
+| 관리 역할은 지나가게 둔다 | PostGIS 를 올리면 이 표를 다시 채운다. 막으면 **확장 업그레이드가 깨진다** |
+| 읽기는 안 막는다 | PostGIS 가 SRID 를 찾을 때 읽는다 — 막으면 거리 계산이 전부 멈춘다(실측) |
+| `TRUNCATE` 는 **따로** 건다 | 행 트리거로 안 잡힌다. 한 줄씩만 막고 통째로 비우는 것을 열어 두면 벽이 아니다 |
+
+### 운영에서 확인
+
+```
+✅ 삭제 막힘   ✅ 수정 막힘   ✅ 삽입 막힘   ✅ TRUNCATE 막힘
+피드 48줄 (앱은 멀쩡)
+```
+
+### ★ 배운 것
+
+**경보가 귀찮게 느껴질 때가 가장 위험하다.** *"알려진 거짓 경보"* 는 내가 아니라
+**인터넷이 하는 말**이었고, 우리 설정에서는 참이 아니었다.
+**눌러 보는 데 1분 걸렸다.**

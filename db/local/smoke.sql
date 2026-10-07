@@ -3235,5 +3235,26 @@ select pg_temp.ok(
             and p.proconfig @> array['enable_indexscan=off']),
   '★★ 피드 함수에 `enable_indexscan=off` 가 붙어 있다 — 없으면 차가운 첫 호출이 4배 무거워진다(§13.151)');
 
+-- ── 33. 좌표계 표는 읽기 전용 (080) ─────────────────────────────────
+-- ★ 재는 것: **공개 키로 앱을 멈출 수 있나.** anon 이 srid 4326 을 지우면
+--   거리 계산과 피드가 전부 깨진다 — 실제로 그랬다(§13.152).
+do $$
+declare has_trg boolean;
+begin
+  if to_regclass('public.spatial_ref_sys') is null then
+    raise notice '  SKIP ★ spatial_ref_sys 없음 — **로컬에서는 못 잰다**(진짜 Supabase 에서 센다)';
+    return;
+  end if;
+  select exists (select 1 from pg_trigger t
+                  where t.tgrelid = 'public.spatial_ref_sys'::regclass
+                    and t.tgname in ('srid_readonly','srid_readonly_trunc')
+                    and not t.tgisinternal)
+    into has_trg;
+  if not has_trg then
+    raise exception 'FAIL  ★★ 좌표계 표에 벽이 없다 — 공개 키 한 줄로 앱이 멈춘다';
+  end if;
+  raise notice '  OK   ★★ 좌표계 표에 벽이 서 있다 — anon 이 지우면 앱 전체가 멈춘다(§13.152)';
+end $$;
+
 reset role;
 rollback;   -- 아무것도 남기지 않는다
