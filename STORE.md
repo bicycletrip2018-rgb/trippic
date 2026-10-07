@@ -51,7 +51,7 @@
 |---|---|
 | 로그인 필요? | **아니요** — 회원가입 없이 바로 씁니다(익명 계정 자동) |
 | 소셜 로그인 | 카카오 · **애플**(4.8 조항 때문에 **필수**) |
-| 심사용 계정 | 필요 없음. 그래도 **"로그인 없이 바로 쓸 수 있습니다"** 를 심사 메모에 적을 것 |
+| 심사용 계정 | **필요 없음이고, 만들 수도 없다.** 이메일/비밀번호 경로가 앱에 아예 없다(`SOCIALS = ["kakao","apple"]`). `App.tsx:103` 이 켤 때 `ensureSession()` 을 부르고 그게 `api.ts:245` 에서 **익명 로그인**으로 떨어진다 — 로그인 벽이 없다. 아래 심사 메모를 적는 것으로 끝난다 |
 | 수출 규정 | 표준 HTTPS 만 씀 → **면제**(`ITSAppUsesNonExemptEncryption = false`) |
 | 연령 등급 | 사용자 생성 콘텐츠가 있으므로 **12+** 가 보통 |
 | 개인정보처리방침 URL | `https://bicycletrip2018-rgb.github.io/trippic-web/privacy.html` ✅ 공개됨 |
@@ -130,8 +130,102 @@
 ## 아직 못 정한 것 (⬜)
 
 - **연령 등급** — 12+ 가 기본이지만 App Store Connect 설문에 직접 답해야 한다
-- **심사 메모** — *"회원가입 없이 바로 쓸 수 있습니다"* 를 적을 것
+- ~~**심사 메모**~~ — ✅ 아래에 그대로 붙여넣을 수 있게 써 뒀다
 
 ★ 그 밖의 빈 칸(운영 주체·문의·보관 기간·14세 미만)은 **§13.139 에서 다 채웠고
   공개됐다.** 이 목록은 그 뒤로도 한참 *"못 정했다"* 고 말하고 있었다 —
   **문서는 코드보다 먼저 낡는다.**
+
+---
+
+## 심사 메모 (App Review Information → Notes)
+
+★ **계정을 달라는 칸은 비워 둔다.** 줄 계정이 없다 — 앱에 이메일/비밀번호
+  로그인 경로가 없고, 켜면 익명 계정이 자동으로 생겨 바로 쓸 수 있다.
+
+★ **진짜 위험은 계정이 아니라 빈 화면이다.** 이 앱의 주 흐름은 *"내 앨범의
+  위치정보 있는 사진을 훑어 여행으로 묶는다"* 인데, **심사 기기의 앨범에는
+  그런 사진이 없다.** 그대로 두면 심사자는 아무것도 못 보고 "기능이 없다"
+  (4.2) 로 판단할 수 있다. 그래서 메모의 절반은 **앨범 없이 끝까지 가 보는
+  길**을 알려 주는 데 쓴다 — `(+)` → **지금 찍기**는 카메라와 현재 GPS 만
+  쓰므로(`src/AddSheet.tsx:26` → `src/live.ts:51` `capture()`) 쿠퍼티노에서도
+  된다.
+
+★ **문구를 코드에서 확인하고 적었다.** 처음엔 *"(+) 를 누르면 지금 찍기"* 라고
+  썼는데, 실제로는 `(+)` → **`AddSheet`("여행 추억 남기기")** → 두 갈래다.
+  버튼 이름도 "지금 찍기" 가 아니라 **"지금 여기서 찍기"** 였다. 심사자는 우리가
+  적어 준 글자를 화면에서 찾는다 — **한 글자 틀리면 못 찾는다.**
+
+### 영어 (실제로 읽는 쪽)
+
+```text
+No sign-in is required. The app creates an anonymous account on first launch,
+so every feature below is reachable immediately. We cannot provide a demo
+account because the app has no email/password sign-in at all.
+
+IMPORTANT — how to see the app working on a review device:
+
+The main flow groups the user's OWN geotagged photos into trips. A review
+device typically has no geotagged travel photos, so that flow will correctly
+find nothing. To exercise the app end to end, please use the on-the-spot path
+instead:
+
+  1. Tap the (+) button on the main screen.
+  2. A sheet titled "여행 추억 남기기" opens with two options. Choose the
+     FIRST one, "지금 여기서 찍기" (Capture here, now) — the one with the
+     camera icon.
+  3. Allow Camera, take a photo, then allow Location when asked.
+  4. The app reads your current coordinates, finds the nearby place, and
+     creates a record. This works anywhere in the world.
+
+Notes:
+- Please test on a real device. This path opens the camera, which the
+  iOS Simulator does not have.
+- Location is requested AFTER the photo is taken, on purpose, so the reason
+  is clear. We only use When In Use. We never request Always/background.
+- Sign in with Apple works with your own Apple ID if you wish to test it.
+  Kakao sign-in requires a Korean Kakao account and cannot be tested from
+  outside Korea; it is optional and no feature is gated behind it.
+- Photos stay on the device. Nothing is uploaded unless the user explicitly
+  chooses to publish a record.
+- User-generated content: every record that shows another user's photo has a
+  Report and Block button (the place detail sheet, and the records list).
+  Reports go to an operator queue that we review; we can hide content and
+  suspend accounts. See our Terms for the zero-tolerance clause required by
+  Guideline 1.2.
+```
+
+### 한국어 (우리가 확인용으로 읽는 쪽)
+
+```text
+로그인이 필요 없습니다. 켜면 익명 계정이 자동으로 만들어져 모든 기능을 바로
+쓸 수 있습니다. 앱에 이메일/비밀번호 로그인 경로 자체가 없어 심사용 계정을
+드릴 수 없습니다.
+
+심사 기기에서 앱이 도는 것을 보시려면:
+
+주 흐름은 사용자 본인 앨범의 '위치정보가 있는 사진'을 여행으로 묶는 것입니다.
+심사 기기 앨범에는 그런 사진이 없을 수 있고, 그때는 아무것도 묶이지 않는 것이
+정상 동작입니다. 끝까지 해 보시려면 아래 경로를 써 주십시오.
+
+  1. 메인 화면의 (+) 를 누릅니다
+  2. "여행 추억 남기기" 시트가 열립니다. 두 갈래 중 첫 번째 "지금 여기서 찍기"
+     (📷 아이콘) 를 고릅니다
+  3. 카메라를 허용하고 사진을 찍은 뒤, 이어서 위치를 허용합니다
+  4. 현재 좌표로 근처 장소를 찾아 기록이 만들어집니다 — 어느 나라에서도 됩니다
+
+- 실기기에서 봐 주십시오. 이 경로는 카메라를 열고, 시뮬레이터에는 카메라가 없습니다
+- 위치는 사진을 찍은 **뒤에** 묻습니다(의도된 순서입니다). '앱을 사용하는 동안'
+  만 쓰며 백그라운드 위치는 요청하지 않습니다
+- 애플 로그인은 심사자님 본인 Apple ID 로 바로 되십니다. 카카오 로그인은 한국
+  카카오 계정이 있어야 해서 해외에서는 안 되지만, 선택 사항이고 로그인으로
+  막히는 기능은 없습니다
+- 사진은 기기에 남습니다. 사용자가 직접 공개를 고르기 전에는 올라가지 않습니다
+- 사용자 생성 콘텐츠: 남의 사진이 보이는 모든 자리(장소 상세 시트, 기록 목록)에
+  신고·차단 버튼이 있고, 신고는 운영자 큐로 들어가 우리가 처리합니다.
+  숨김과 계정 정지가 가능합니다
+```
+
+★ **시뮬레이터 이야기를 숨기지 않는다.** "실기기에서 봐 달라" 는 부탁은
+  약점처럼 보이지만, **안 적으면 심사자가 시뮬레이터에서 카메라를 못 열고
+  '버그' 로 적는다.** 아는 한계를 먼저 말하는 편이 싸다.
