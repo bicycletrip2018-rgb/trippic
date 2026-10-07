@@ -141,23 +141,29 @@ https://bicycletrip2018-rgb.github.io/trippic-web/support.html
 
 ---
 
-## 6단계 · 애플 로그인 켜기 (30분)
+## 6단계 · 애플 로그인 켜기 (5분)
 
 ★ **이게 없으면 심사에서 반려됩니다.** 카카오 로그인이 있으면 애플도 있어야 한다는
   규정(4.8)입니다.
 
-### 6-1. 키 만들기
+### 6-1. App ID 에 애플 로그인 켜기
 
-1. https://developer.apple.com/account/resources/authkeys/list
-2. `＋` → Key Name 에 `TRIPPIC Sign in with Apple`
-3. **`Sign in with Apple` 체크** → Configure → Primary App ID 에 `app.trippic` → Save
-4. Continue → Register → **`Download`**
+5단계에서 만든 App ID `app.trippic` 에 **`Sign in with Apple` 체크**가 되어
+있어야 합니다. 그것만 되어 있으면 끝입니다.
 
-   ⚠ **`AuthKey_XXXXXXXXXX.p8` 파일은 한 번만 받을 수 있습니다.**
-   잃어버리면 키를 새로 만들어야 합니다. 받는 즉시 안전한 곳에 두십시오.
+1. https://developer.apple.com/account/resources/identifiers/list
+2. `app.trippic` 클릭 → Capabilities 목록에서 **Sign in with Apple** 체크 확인
+3. 안 되어 있으면 체크 → Save
 
-5. 같은 화면에서 **Key ID**(10자)를 적어 두십시오
-6. 오른쪽 위 계정 이름 옆의 **Team ID**(10자)도 적어 두십시오
+> **`.p8` 키(Keys 메뉴)는 만들지 않아도 됩니다.**
+> 그 키는 **웹 OAuth**(브라우저로 애플 로그인 페이지를 띄우는 방식)에서
+> client secret 을 서명하는 데 쓰입니다. 트립픽은 **네이티브 방식**만 씁니다
+> (`src/appleAuth.ts` → `grant_type=id_token`). 네이티브는 애플이 기기에서
+> 직접 발급한 `identityToken` 을 Supabase 가 애플 공개키로 검증하므로
+> 우리 쪽 비밀키가 끼어들 자리가 없습니다(§13.44, §13.153).
+>
+> 이미 키를 만들어 두셨다면 그냥 두십시오. 해는 없고, 나중에 웹 로그인을
+> 붙일 때 쓰입니다. 단 **`.p8` 내용을 채팅·이슈·커밋에 붙여넣지 마십시오.**
 
 ### 6-2. Supabase 에 넣기
 
@@ -168,13 +174,16 @@ https://bicycletrip2018-rgb.github.io/trippic-web/support.html
 | 칸 | 값 |
 |---|---|
 | Client IDs | `app.trippic` |
-| Secret Key | ↓ 아래 설명 |
-| Team ID | 6-1 의 Team ID |
-| Key ID | 6-1 의 Key ID |
+| Secret Key (for OAuth) | **비워 두기** |
 
-4. **Secret Key** 칸에는 받으신 `.p8` 파일을 **텍스트 편집기로 열어**
-   `-----BEGIN PRIVATE KEY-----` 부터 `-----END PRIVATE KEY-----` 까지 **전부** 붙여넣으십시오
-5. Save
+4. Save
+
+   ⚠ **Secret Key 는 비워 둬야 합니다.** 현재 Supabase UI 는 이 칸에
+   **JWT 형식의 client secret** 을 받습니다. `.p8` 원문을 넣으면
+   `Secret key should be a JWT` 오류가 나고 저장이 안 됩니다.
+   네이티브 로그인은 이 칸이 비어 있어도 정상 동작합니다.
+
+   Team ID / Key ID 칸은 지금 UI 에 **없습니다**. 안 보이는 게 정상입니다.
 
 **끝났는지 확인**: 아래를 터미널에 붙여 `"apple":true` 가 나오면 됩니다.
 
@@ -187,9 +196,16 @@ curl -s "https://ziwsvnkxytqifkfhiulu.supabase.co/auth/v1/settings" -H "apikey: 
 ## 7단계 · 빌드 도구 준비 (10분)
 
 ```bash
-npm install -g eas-cli
+mkdir -p ~/.npm-global && npm config set prefix ~/.npm-global && npm install -g eas-cli
+echo 'export PATH="$HOME/.npm-global/bin:$PATH"' >> ~/.zshrc
+export PATH="$HOME/.npm-global/bin:$PATH"
 eas login
 ```
+
+> `npm install -g eas-cli` 를 그냥 돌리면 `EACCES`(권한 없음)가 납니다.
+> `sudo` 를 쓰지 말고 위처럼 **홈 디렉터리에 설치**하십시오.
+> 설치 후 `eas` 를 쓰려면 **터미널 탭을 새로 열거나** 위 `export PATH` 줄을
+> 먼저 한 번 돌려야 합니다. 안 그러면 `zsh: command not found: eas` 가 납니다.
 
 `eas login` 은 **Expo 계정**입니다(애플 계정 아닙니다). 없으면
 https://expo.dev/signup 에서 무료로 만드십시오.
