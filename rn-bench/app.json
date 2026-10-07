@@ -17,7 +17,9 @@
         "NSPhotoLibraryUsageDescription": "찍으신 사진의 촬영 시각과 위치만 읽어 여행을 자동으로 묶습니다. 사진은 기기 밖으로 나가지 않으며, 올릴 사진은 직접 고르십니다.",
         "NSCameraUsageDescription": "지금 이 자리에서 찍어 올릴 때만 카메라를 엽니다. 이 경로로 찍은 것에만 '현장 인증'이 붙습니다 — 앨범에서 고른 사진에는 붙지 않습니다.",
         "NSMicrophoneUsageDescription": "동영상을 찍을 때 소리를 함께 담습니다. 사진만 찍으실 때는 쓰지 않습니다.",
-        "NSLocationWhenInUseUsageDescription": "지도에서 지금 계신 곳을 보여 드리고, 사진을 찍어 올리실 때 그 순간의 위치로 어느 장소인지 찾습니다. 찍은 순간의 좌표는 '현장 인증'의 근거가 됩니다. 앱을 쓰지 않는 동안에는 위치를 보지 않습니다."
+        "NSLocationWhenInUseUsageDescription": "지도에서 지금 계신 곳을 보여 드리고, 사진을 찍어 올리실 때 그 순간의 위치로 어느 장소인지 찾습니다. 찍은 순간의 좌표는 '현장 인증'의 근거가 됩니다. 앱을 쓰지 않는 동안에는 위치를 보지 않습니다.",
+        "NSLocationAlwaysUsageDescription": "트립픽은 앱을 쓰시는 동안에만 위치를 봅니다. 백그라운드 위치는 요청하지 않습니다.",
+        "NSMotionUsageDescription": "지도에서 지금 보고 계신 방향(나침반)을 표시할 때만 씁니다."
       },
       "usesAppleSignIn": true,
       "buildNumber": "1"
@@ -31,14 +33,35 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "app.trippic",
-      "versionCode": 1
+      "versionCode": 1,
+      "permissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.ACCESS_MEDIA_LOCATION",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ],
+      "blockedPermissions": [
+        "android.permission.READ_MEDIA_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "@maplibre/maplibre-react-native",
-      "expo-media-library",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "찍으신 사진의 촬영 시각과 위치만 읽어 여행을 자동으로 묶습니다. 사진은 기기 밖으로 나가지 않으며, 올릴 사진은 직접 고르십니다.",
+          "savePhotosPermission": "트립픽은 앨범에 사진을 추가하거나 바꾸지 않습니다. 읽기만 합니다.",
+          "isAccessMediaLocationEnabled": true
+        }
+      ],
       "expo-apple-authentication",
       [
         "expo-image-picker",
@@ -63,6 +86,12 @@
           "imageWidth": 180
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "a402e15e-e280-4c61-bb46-df57ef90acb9"
+      }
+    },
+    "owner": "nohhyeseong"
   }
 }

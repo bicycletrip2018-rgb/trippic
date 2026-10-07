@@ -16037,3 +16037,62 @@ apple: True · kakao: True · email: True · anonymous_users: True
 단계별로 적어 둔 곳은 모두 썩는다. 적어 둘 것은 **클릭 순서가 아니라
 "왜 이 값인가"** 이고, 끝에는 **결과를 눌러 보는 한 줄**을 둔다 — 그 한 줄이
 있었기 때문에 이번에도 틀린 것이 드러났다.
+
+---
+
+## §13.154 안드로이드에서 앱의 **본체 기능**이 조용히 전부 실패하고 있었다 — `ACCESS_MEDIA_LOCATION`
+
+### 어떻게 발견했나
+
+이걸 찾으려고 한 게 아니다. `eas init` 이 `app.json` 에 안드로이드 권한 배열을
+써 넣었고, 그 목록에 `RECORD_AUDIO` 같은 게 보여서 **"우리가 쓰지도 않는 권한
+아닌가"** 를 확인하다가 나왔다. 영상을 실제로 찍으므로 `RECORD_AUDIO` 는
+정당했고, 대신 **있어야 할 것이 없었다.**
+
+### 사슬
+
+| 자리 | 일어나는 일 |
+|---|---|
+| `app.json` | `expo-media-library` 플러그인에 `isAccessMediaLocationEnabled` 를 안 줬다 |
+| 플러그인 | 그래서 `ACCESS_MEDIA_LOCATION` 을 매니페스트에 **넣지 않는다** |
+| `MediaLibraryModule.kt:298` | *"ACCESS_MEDIA_LOCATION should not be requested if it's absent in android-manifest"* — **런타임 요청조차 안 한다** |
+| `AssetUtils.kt:175` | `MediaStore.setRequireOriginal(uri)` 가 던진다 |
+| `AssetUtils.kt:72` | 그 예외가 `UnableToLoadException` 이 되어 `getAssetInfoAsync` 가 **reject** |
+| `src/album.ts:98` | 우리 `catch { }` 가 **삼킨다** |
+
+결과: **모든 사진이 `gps: null`.** 스캔은 끝까지 돌고 "성공"으로 반환한다.
+여행이 하나도 안 묶이고, 핀이 하나도 안 생기고, **로그는 한 줄도 없다.**
+iOS 는 `PHAsset.location` 이라 영향이 없다 — 그래서 **시뮬레이터에서는 멀쩡했다.**
+
+### 왜 테스트에서 안 나왔나
+
+에뮬레이터를 띄워 화면까지 확인했지만, **그 에뮬레이터 앨범에 사진이 없었다.**
+사진을 넣느라 씨름한 것은 iOS 시뮬레이터 쪽이었다. 좌표를 읽는 코드가 한 번도
+안 돌았으니 드러날 방법이 없었다.
+
+### 고친 것
+
+```
+app.json  expo-media-library: isAccessMediaLocationEnabled: true
+          android.permissions 에 ACCESS_MEDIA_LOCATION 추가
+          READ_MEDIA_AUDIO 는 반대로 blockedPermissions 로 제거 (오디오를 읽는 곳이 없다)
+```
+
+prebuild 로 **생성된 매니페스트를 직접 확인**했다 — `ACCESS_MEDIA_LOCATION` 들어감,
+`READ_MEDIA_AUDIO` 는 `tools:node="remove"`.
+
+그리고 `album.ts` 가 **실패 비율을 센다.** 절반을 넘기면 경고를 찍는다.
+
+### ★ 배운 것 두 개
+
+**1. 스캔을 살리는 `catch` 가 스캔이 죽은 것을 숨겼다.**
+`catch { /* 한 장이 실패해도 멈추지 않는다 */ }` 는 옳은 의도였다. 다만
+*"한 장"* 과 *"전 장"* 을 구분하지 않았다. **한 장의 실패는 삼켜도 되지만,
+전부의 실패는 사건이다.** 삼키는 곳마다 **비율을 세어 둔다** — 세는 데 변수
+하나다.
+
+**2. §13.153 을 고치다가 §13.154 를 찾았다.**
+`eas init` 이 설정 파일을 건드린 것을 **읽어 봤기 때문에** 나왔다. 도구가
+내 파일에 쓴 것을 `git diff` 로 눌러 보는 데 1분 걸렸고, 그 1분이
+**출시된 안드로이드 앱이 아무 일도 안 하는 것**을 막았다.
+자동 생성물을 그냥 커밋하지 않는다.
