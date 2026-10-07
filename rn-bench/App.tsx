@@ -19,7 +19,7 @@ import { FeedTab } from "./src/tabs/FeedTab";
 import { NewsTab, MyTab } from "./src/tabs/RecordTabs";
 import { RegisterFlow } from "./src/RegisterFlow";
 import { LiveCapture } from "./src/LiveCapture";
-import { SHEET_BOTTOM, SHEET_HALF } from "./src/MapSheet";
+import { SHEET_BOTTOM, useSheetHalf } from "./src/MapSheet";
 import { AddSheet } from "./src/AddSheet";
 import { UploadPill } from "./src/UploadPill";
 import * as Q from "./src/uploadQueue";
@@ -57,6 +57,8 @@ function AppInner() {
   const [ready, setReady] = useState(false);
   /* ★ 약관 동의 (§13.136). `null` 은 **아직 모른다** — 모르는 동안 화면을 그리면
      동의한 사람에게 약관이 깜빡이고, 안 한 사람에게는 앱이 먼저 보인다. */
+  /* 폴더블에서 접었다 펴면 시트 높이가 바뀐다 — (+) 도 같이 따라가야 한다 */
+  const sheetHalf = useSheetHalf();
   const [agreed, setAgreed] = useState<boolean | null>(null);
   const [reg, setReg] = useState(false);
   /* ★ (+) 는 이제 **두 갈래다.** 지금 찍기(현장 인증)와 앨범 정리(소급)는
@@ -218,8 +220,8 @@ function AppInner() {
       {/* ★ 시트를 끝까지 올리면 (+) 를 **감춘다.** 그 상태는 지도를 덮은 몰입형
           목록이라 등록할 지도가 없고, 따라 올라간 버튼은 상단 칩과 겹친다
           (실제로 겹쳤다 — §13.66). */}
-      {tab === "map" && !sheet && sheetH < SHEET_HALF + 40 && (
-        <Pressable style={[s.fab, { bottom: SHEET_BOTTOM + Math.min(sheetH, SHEET_HALF) + 12 }]} onPress={() => setAdd(true)}>
+      {tab === "map" && !sheet && sheetH < sheetHalf + 40 && (
+        <Pressable style={[s.fab, { bottom: SHEET_BOTTOM + Math.min(sheetH, sheetHalf) + 12 }]} onPress={() => setAdd(true)}>
           <Text style={s.fabT}>＋</Text>
           {badge ? (
             <View style={s.fabBadge}>

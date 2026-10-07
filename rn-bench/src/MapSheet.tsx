@@ -13,17 +13,16 @@
  * ★ `Animated` 로 쓴다. `reanimated` 가 깔려 있지만 여기서 필요한 것은
  *   **값 하나를 끄는 일**뿐이라, 새 개념을 들일 이유가 없다.
  */
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Animated, Dimensions, Image, PanResponder, Pressable,
-  ScrollView, StyleSheet, Text, View,
+  Animated, Image, PanResponder, Pressable,
+  ScrollView, StyleSheet, Text, View, useWindowDimensions,
 } from "react-native";
 import { C, CAT } from "./theme";
 
 /** 시트가 설 수 있는 세 자리. 화면 바닥에서의 높이(pt). */
 export type Snap = "peek" | "half" | "full";
 
-const H = Dimensions.get("window").height;
 /* ★ 시트를 **탭바 위에 얹는다.** 탭바는 `bottom:26` 에 약 52pt 를 차지하는
    떠 있는 알약이다(TabBar.tsx). 시트를 바닥(0)에 붙였더니 **요약 문구가 탭바에
    그대로 가렸다** — §13.55 에서 *"하단이 이미 붐빈다"* 고 짚어 놓고도 숫자를
@@ -32,13 +31,22 @@ const H = Dimensions.get("window").height;
      안 열린 것보다 나쁘다 — 사용자는 다시 끌어 본다. */
 export const SHEET_BOTTOM = 86;          // 탭바(26 + 52) 위로 8pt
 
-const SNAP: Record<Snap, number> = {
-  peek: 96,
-  half: Math.round(H * 0.42),
-  /* `full` 도 화면을 다 덮지 않는다 — 위에 칩과 지도가 한 뼘 남아야
-     *"지도를 보다가 목록을 연 것"* 이지 *"다른 화면으로 넘어온 것"* 이 아니다. */
-  full: Math.round(H * 0.72),
-};
+/* ★ **화면 높이를 모듈 로드 때 한 번 재면 안 된다.** 예전에는
+   `const H = Dimensions.get("window").height` 를 파일 맨 위에서 한 번 읽고
+   그 값으로 세 자리를 정했는데, **폴더블에서는 그 숫자가 틀린다.**
+   `AndroidManifest` 의 `configChanges` 에 `screenSize|screenLayout|
+   smallestScreenSize` 가 있어 접었다 펴도 **액티비티가 다시 만들어지지 않고**,
+   따라서 모듈도 다시 읽히지 않는다 — 접고 켠 뒤 펴면 시트가 그대로 작고,
+   펴고 켠 뒤 접으면 화면을 넘친다. 높이는 **쓸 때 받는다**(§13.156). */
+export function snapsFor(h: number): Record<Snap, number> {
+  return {
+    peek: SHEET_PEEK,
+    half: Math.round(h * 0.42),
+    /* `full` 도 화면을 다 덮지 않는다 — 위에 칩과 지도가 한 뼘 남아야
+       *"지도를 보다가 목록을 연 것"* 이지 *"다른 화면으로 넘어온 것"* 이 아니다. */
+    full: Math.round(h * 0.72),
+  };
+}
 const ORDER: Snap[] = ["peek", "half", "full"];
 
 export type SheetItem = {
@@ -61,9 +69,25 @@ export function MapSheet(
     onPick: (id: string) => void;
   },
 ) {
+  /* 접었다 펴면 이 값이 바뀌고, 아래 세 자리가 전부 다시 계산된다. */
+  const { height } = useWindowDimensions();
+  const SNAP = useMemo(() => snapsFor(height), [height]);
+  /* ★ `PanResponder` 는 `useRef(...).current` 라 **첫 렌더의 클로저를 평생 쓴다.**
+     그 안에서 `SNAP` 을 직접 읽으면 화면이 바뀌어도 옛 숫자로 끈다 —
+     ref 를 거쳐 **지금 값**을 읽는다. */
+  const snapRef = useRef(SNAP);
+  snapRef.current = SNAP;
+
   const h = useRef(new Animated.Value(SNAP[snap])).current;
   const at = useRef(SNAP[snap]);
   const [live, setLive] = useState(SNAP[snap]);
+
+  /* 화면이 바뀌면 **지금 단에 맞는 새 높이로 다시 앉힌다.** 안 하면 시트가
+     옛 높이에 남아, 펴자마자 어색해진다(끌기 전까지 고쳐지지 않는다). */
+  useEffect(() => {
+    at.current = SNAP[snap];
+    h.setValue(SNAP[snap]);
+  }, [height]);
 
   /* 높이가 바뀌는 동안 계속 알려 준다 — (+) 가 시트와 **같이** 움직여야
      한다. 끝나고 한 번만 알리면 (+) 가 뒤늦게 튄다. */
@@ -87,19 +111,21 @@ export function MapSheet(
          시트 안의 스크롤과 탭이 전부 먹힌다. */
       onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 4,
       onPanResponderMove: (_, g) => {
-        const next = Math.max(SNAP.peek, Math.min(SNAP.full, at.current - g.dy));
+        const S = snapRef.current;
+        const next = Math.max(S.peek, Math.min(S.full, at.current - g.dy));
         h.setValue(next);
       },
       onPanResponderRelease: (_, g) => {
-        const cur = Math.max(SNAP.peek, Math.min(SNAP.full, at.current - g.dy));
+        const S = snapRef.current;
+        const cur = Math.max(S.peek, Math.min(S.full, at.current - g.dy));
         /* ★ **빠르게 튕기면 방향을 따른다.** 느리게 끌면 가장 가까운 자리로.
            속도를 안 보면 살짝 올렸다 놓을 때 늘 제자리로 돌아가 답답하다. */
         let to: Snap;
         if (Math.abs(g.vy) > 0.6) {
-          const i = ORDER.indexOf(nearest(cur));
+          const i = ORDER.indexOf(nearest(cur, S));
           to = ORDER[Math.max(0, Math.min(ORDER.length - 1, i + (g.vy < 0 ? 1 : -1)))];
         } else {
-          to = nearest(cur);
+          to = nearest(cur, S);
         }
         settle(to);
       },
@@ -159,7 +185,7 @@ export function MapSheet(
   );
 }
 
-function nearest(v: number): Snap {
+function nearest(v: number, SNAP: Record<Snap, number>): Snap {
   let best: Snap = "peek", d = Infinity;
   for (const s of ORDER) {
     const dd = Math.abs(SNAP[s] - v);
@@ -168,11 +194,17 @@ function nearest(v: number): Snap {
   return best;
 }
 
-export const SHEET_PEEK = SNAP.peek;
+/* `peek` 만은 화면과 무관한 고정값이다 — 손잡이와 요약 한 줄이 들어갈 자리. */
+export const SHEET_PEEK = 96;
 /* ★ (+) 와 위치 버튼이 시트를 따라 올라가되 **여기까지만** 올라간다(§13.66).
    끝까지 따라가면 상단 칩 줄과 겹친다 — 실제로 겹쳤다. 그리고 `full` 은
-   지도를 덮는 몰입형 목록이라, 그때는 지도 위 버튼이 있을 이유가 없다. */
-export const SHEET_HALF = SNAP.half;
+   지도를 덮는 몰입형 목록이라, 그때는 지도 위 버튼이 있을 이유가 없다.
+   ★ 상수가 아니라 **훅**이다. 상수로 두면 폴더블에서 시트는 고쳐져도
+      (+) 와 위치 버튼만 옛 높이에 남는다 — 반만 고치면 더 이상해 보인다. */
+export function useSheetHalf(): number {
+  const { height } = useWindowDimensions();
+  return useMemo(() => snapsFor(height).half, [height]);
+}
 
 const st = StyleSheet.create({
   sheet: {
