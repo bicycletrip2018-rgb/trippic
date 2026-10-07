@@ -74,7 +74,7 @@ export async function scanAlbum(
   });
   const assets = page.assets;
   const out: Photo[] = new Array(assets.length);
-  let done = 0, next = 0;
+  let done = 0, next = 0, failed = 0;
 
   async function worker() {
     for (;;) {
@@ -96,7 +96,7 @@ export async function scanAlbum(
           if (Number.isFinite(la) && Number.isFinite(lo)) gps = { lat: la, lng: lo };
         }
         if (info?.localUri) uri = info.localUri;
-      } catch { /* 한 장이 실패해도 스캔 전체를 멈추지 않는다 */ }
+      } catch { failed++; /* 한 장이 실패해도 스캔 전체를 멈추지 않는다 */ }
       out[i] = {
         id: a.id, ts: Number(a.creationTime) || Number(a.modificationTime) || Date.now(),
         gps, uri, w: a.width, h: a.height,
@@ -110,5 +110,18 @@ export async function scanAlbum(
   }
   await Promise.all(Array.from({ length: CONC }, worker));
   onProgress?.(assets.length, assets.length);
+
+  /* ★ **전부 실패한 것과 좌표가 없는 것은 다르다.** 위의 `catch` 는 한 장이
+     깨져도 스캔을 살리려고 있는데, 그 덕에 **모든 장이 깨져도 스캔은
+     "성공"으로 끝난다.** 안드로이드에서 `ACCESS_MEDIA_LOCATION` 이 매니페스트에
+     없던 동안 `getAssetInfoAsync` 가 장마다 reject 했고(`setRequireOriginal` →
+     `UnableToLoadException`), 결과는 "여행이 하나도 안 묶임" 이었다 — 로그 한 줄도
+     없이. 비율을 세어 두면 다음에는 **조용하지 않다**(§13.154). */
+  if (assets.length > 0 && failed / assets.length > 0.5) {
+    console.warn(
+      `[album] ${failed}/${assets.length} 장의 상세 정보를 못 읽었습니다. ` +
+      `안드로이드라면 ACCESS_MEDIA_LOCATION 권한을 확인하십시오.`,
+    );
+  }
   return out.filter(Boolean);
 }

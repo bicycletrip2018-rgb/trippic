@@ -292,10 +292,14 @@ TestFlight → `외부 테스팅` → 그룹 만들기 → 메일 주소로 초�
 이건 `expo-dev-client` 의 개발 메뉴가 쓰는 것이고 **출시 앱에는 필요 없습니다.**
 구글 플레이에서 권한 설명을 요구할 수 있고, 권한 목록을 보는 사람에게 놀랍게 보입니다.
 
-`app.json` 의 `android` 에 한 줄 넣으면 빠집니다:
+`app.json` 의 `android.blockedPermissions` 에 **한 줄 더** 넣으면 빠집니다
+(이미 `READ_MEDIA_AUDIO` 가 들어 있습니다):
 
 ```json
-"blockedPermissions": ["android.permission.SYSTEM_ALERT_WINDOW"]
+"blockedPermissions": [
+  "android.permission.READ_MEDIA_AUDIO",
+  "android.permission.SYSTEM_ALERT_WINDOW"
+]
 ```
 
 ★ **지금 넣지 않은 이유**: 넣으면 **지금 쓰시는 개발 빌드의 개발 메뉴**가 같이
@@ -303,6 +307,11 @@ TestFlight → `외부 테스팅` → 그룹 만들기 → 메일 주소로 초�
 
 ★ 같이 들어 있는 `RECORD_AUDIO` 는 **빼면 안 됩니다** — 15초 동영상을 찍는
   기능이 실제로 마이크를 씁니다. 안 쓰는 줄 알고 뺄 뻔했는데, 코드를 보고 알았습니다.
+
+★ `READ_MEDIA_AUDIO` 는 **이미 뺐습니다** — 오디오 파일을 읽는 코드가 없습니다.
+  반대로 **`ACCESS_MEDIA_LOCATION` 은 없어서 넣었습니다.** 그게 없으면 안드로이드가
+  사진의 좌표를 지워서 주고, **앱이 여행을 하나도 못 묶습니다**(§13.154).
+  권한 목록은 *"많으면 뺀다"* 만이 아니라 *"없으면 넣는다"* 도 봐야 합니다.
 
 ---
 
