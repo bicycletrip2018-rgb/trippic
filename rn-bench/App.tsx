@@ -59,6 +59,11 @@ function AppInner() {
      동의한 사람에게 약관이 깜빡이고, 안 한 사람에게는 앱이 먼저 보인다. */
   /* 폴더블에서 접었다 펴면 시트 높이가 바뀐다 — (+) 도 같이 따라가야 한다 */
   const sheetHalf = useSheetHalf();
+  /* ★ 등록 화면을 닫으면 **지도에게 다시 읽으라고 말한다**(§13.157). 핀은 지도를
+     움직이면 다시 읽히지만 **집계는 재시도가 없어** 저장해도 전국 줌이 비어
+     있었다. 저장했는지 아닌지는 따지지 않는다 — 안 했어도 한 번 더 읽을 뿐이고,
+     "저장했는가" 를 전달하려면 두 화면의 성공 경로를 전부 묶어야 한다. */
+  const [mapTick, setMapTick] = useState(0);
   const [agreed, setAgreed] = useState<boolean | null>(null);
   const [reg, setReg] = useState(false);
   /* ★ (+) 는 이제 **두 갈래다.** 지금 찍기(현장 인증)와 앨범 정리(소급)는
@@ -190,7 +195,7 @@ function AppInner() {
       {/* 탭을 갈아 끼우지 않고 **감춘다** — 지도를 다시 만들면 아틀라스를 다시 굽는다 */}
       <View style={[s.page, tab !== "map" && s.hidden]} pointerEvents={tab === "map" ? "auto" : "none"}>
         <MapTab ready={ready} onSheet={setSheet} onAdd={() => setAdd(true)}
-                onSheetHeight={setSheetH}
+                onSheetHeight={setSheetH} reloadKey={mapTick}
                 onCenter={setCenter}
                 jumpTo={jumpTo} onJumpedTo={() => setJumpTo(null)} />
       </View>
@@ -236,8 +241,8 @@ function AppInner() {
           onLive={() => { setAdd(false); setLive(true); }}
           onAlbum={() => { setAdd(false); setReg(true); }} />
       )}
-      {live && <LiveCapture onClose={() => setLive(false)} />}
-      {reg && <RegisterFlow onClose={() => setReg(false)} />}
+      {live && <LiveCapture onClose={() => { setLive(false); setMapTick((n) => n + 1); }} />}
+      {reg && <RegisterFlow onClose={() => { setReg(false); setMapTick((n) => n + 1); }} />}
       <UploadPill />
       <StatusScrim />
       <TabBar tab={tab} onChange={setTab} />

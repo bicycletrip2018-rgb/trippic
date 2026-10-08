@@ -221,7 +221,10 @@ export function RegisterFlow({ onClose }: { onClose: () => void }) {
           <Intro onScan={scan} />
         ) : step === "trips" ? (
           <TripList trips={trips} done={doneCount}
-                    perStop={perStop} measured={nSamples} onOpen={openTrip} />
+                    perStop={perStop} measured={nSamples}
+                    gps={{ total: album.length,
+                           withGps: album.reduce((n, p) => n + (p.gps ? 1 : 0), 0) }}
+                    onOpen={openTrip} />
         ) : step === "stops" ? (
           <StopList
             stops={stops} picks={picks} memos={memos} placeOf={placeOf}
@@ -288,8 +291,10 @@ function Intro({ onScan }: { onScan: () => void }) {
 
 /* ── S2 여행 목록 ────────────────────────────────────────────── */
 function TripList(
-  { trips, done, perStop, measured, onOpen }: {
+  { trips, done, perStop, measured, gps, onOpen }: {
     trips: Trip[]; done: number;
+    /** 훑은 사진 수와 그중 좌표가 있던 수. 둘 다 0이면 아직 안 훑은 것이다 */
+    gps: { total: number; withGps: number };
     /** 잰 초/정거장. `measured` 가 0이면 아직 추정값이다(§13.80) */
     perStop: number; measured: number;
     onOpen: (t: Trip) => void;
@@ -305,6 +310,28 @@ function TripList(
   const real = trips.filter((t) => !t.isOrphan);
   const stops = real.reduce((n, t) => n + t.stops.length, 0);
 
+  /* ★ **좌표가 한 장도 없으면 그렇다고 말한다**(§13.157). 전에는 아무 설명 없이
+     *"묶이지 않은 사진이 남아 있습니다"* 만 나왔다 — 사용자는 **앱이 고장 난
+     줄로 읽는다.** 원인이 우리 쪽이 아니라 **카메라 설정**인데, 그걸 말해 주지
+     않으면 사용자는 고칠 수가 없다.
+     ★ 삼성·안드로이드는 카메라의 '위치 태그'가 **기본 꺼짐**이다. 흔한 일이지
+     예외가 아니다. */
+  const noneHaveGps = gps.total > 0 && gps.withGps === 0;
+  const GpsNotice = () => !noneHaveGps ? null : (
+    <View style={s.gpsNote}>
+      <Text style={s.gpsNoteT}>위치가 담긴 사진이 없습니다</Text>
+      <Text style={s.gpsNoteB}>
+        사진 {gps.total}장을 봤는데 촬영 위치가 들어 있는 것이 한 장도 없었습니다.
+        앱의 문제가 아니라 <Text style={s.gpsNoteB2}>카메라의 '위치 태그'가 꺼져
+        있어서</Text>입니다.{"\n\n"}
+        카메라 앱 → 설정 → <Text style={s.gpsNoteB2}>위치 태그</Text>를 켜시면
+        앞으로 찍는 사진은 자동으로 묶입니다. 이미 찍으신 사진은 아래에서
+        장소를 직접 지정하시면 등록됩니다.
+      </Text>
+    </View>
+  );
+
+
   if (!trips.length)
     return (
       <View style={s.center}>
@@ -319,17 +346,20 @@ function TripList(
             </Text>
           </>
         ) : (
+          noneHaveGps ? <GpsNotice /> : (
           <>
             <Text style={s.empty}>여행으로 묶을 사진을 찾지 못했습니다</Text>
             <Text style={s.hint}>
               좌표가 있는 사진이 이틀 안에 두 장 이상이어야 한 여행이 됩니다.
             </Text>
           </>
+          )
         )}
       </View>
     );
   return (
     <ScrollView contentContainerStyle={s.body}>
+      <GpsNotice />
       <Text style={s.tidy}>
         {real.length
           ? `아직 지도에 없는 여행 ${real.length}개 · ${minutesFrom(stops, perStop)}분이면 끝납니다`
@@ -660,6 +690,16 @@ const s = StyleSheet.create({
   entryS: { color: C.muted, fontSize: 12, marginTop: 2 },
   entryArrow: { color: C.muted, fontSize: 20 },
 
+  /* 좌표 0장 안내 — 경고가 아니라 **안내**다. 빨강을 쓰지 않는다:
+     사용자가 잘못한 것이 아니고, 고칠 길이 있다는 말이 요점이다. */
+  gpsNote: {
+    backgroundColor: "rgba(90,140,255,0.10)",
+    borderWidth: 1, borderColor: "rgba(90,140,255,0.35)",
+    borderRadius: 12, padding: 14, marginBottom: 14,
+  },
+  gpsNoteT: { color: C.text, fontSize: 15, fontWeight: "700", marginBottom: 6 },
+  gpsNoteB: { color: C.muted, fontSize: 13, lineHeight: 20 },
+  gpsNoteB2: { color: C.text, fontWeight: "700" },
   note: { backgroundColor: C.surface, borderRadius: 12, padding: 14, gap: 6 },
   noteT: { color: C.text, fontSize: 13, fontWeight: "700" },
   noteB: { color: C.muted, fontSize: 12, lineHeight: 19 },
