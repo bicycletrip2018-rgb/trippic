@@ -1670,6 +1670,21 @@ export function MapTab(
         </Pressable>
       )}
 
+      {/* ★ **경계 출처를 경계가 보이는 화면에 적는다**(§13.162).
+          `regions.geom_source = 'osm'` 이다 — 시군구 경계는 OSM 에서 왔고
+          **ODbL 은 보여 주는 자리에 표기를 요구한다.**
+          `push_osm_regions.py` 의 머리글이 그 의무를 적어 뒀는데, 정작 표기는
+          **소식 탭에만** 있었다(`FeedTab.tsx:334`) — 경계를 그리는 화면은 여기다.
+          ★ 지도 ⓘ(MapLibre 기본)는 **배경지도 스타일**의 출처만 덮는다.
+            우리가 얹은 경계는 그 안에 없다 — 우리 데이터다.
+          ★ 지역 색칠이 켜져 있을 때만 띄운다. 안 보이는 것의 출처를 적으면
+            화면만 어지럽다. */}
+      {region && !!style && (
+        <Text style={st.credit} pointerEvents="none">
+          경계 © OpenStreetMap contributors
+        </Text>
+      )}
+
       {/* ★ 축척 막대(§13.97 ②). **왼쪽 아래** — 오른쪽에는 내 위치와 (+) 가 있다.
           시트를 따라 올라간다(위치 버튼과 같은 기준) — 안 그러면 시트에 가린다.
           ★ 막대 길이는 **고른 거리에 정확히 맞춘다**. "100px 에 3.7km" 라고 쓰면
@@ -2091,6 +2106,11 @@ const st = StyleSheet.create({
     borderWidth: 1, borderColor: C.line,
   },
   locateT: { color: C.text, fontSize: 20, lineHeight: 24 },
+  /* 출처 표기 — 읽히되 방해하지 않는다. 지도 저작권 표기의 관례 크기다 */
+  credit: {
+    position: "absolute", left: 10, bottom: 2,
+    color: "rgba(255,255,255,0.45)", fontSize: 9, lineHeight: 12,
+  },
   /* ★ 아이콘을 **글자로 쓰지 않는다.** `⤢` 같은 글리프는 기기 폰트에 없으면
      두부(□)가 된다 — 안드로이드에서 실제로 겪는 일이다. 네모와 점은 View 로
      그리면 어디서나 같게 나온다. */
