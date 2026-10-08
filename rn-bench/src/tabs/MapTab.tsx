@@ -66,7 +66,12 @@ const Z_REGION = 9;    // 이 아래는 시·군·구 집계
    경계만 사라지고 끝난다"* 고 한 자리다. 시군구(z<9) 다음이 **읍·면·동**이고,
    그다음이 핀·사진이다.
    ★ 리(里)까지는 못 간다 — 자유롭게 쓸 수 있는 리 경계 자료가 없다(§13.162). */
-const Z_EMD_END = 12;  // 9 ≤ z < 12 사이에 읍·면·동 경계와 숫자를 그린다
+const Z_EMD_END = 11;  // 9 ≤ z < 11 사이에 읍·면·동
+/* ★ **리(里)** — 사용자가 처음부터 원했던 단계다(§13.165). 사용자가 직접 받아 준
+   국토교통부 법정구역정보(CC BY) 15,175개.
+   ★ 줌별 1픽셀: z11 61m · **z12 30.5m** · z13 15.3m. 경계를 **30m 로 단순화**해
+     뒀으므로 z12 에서 딱 1픽셀이다 — 이 띠(11~14)가 그 정밀도에 맞는 자리다. */
+const Z_RI_END = 14;   // 11 ≤ z < 14 사이에 리
 const Z_ALL = 13;      // 이 위는 전부
 /* ★ 상호는 **가까이서만** 켠다(§13.60). 멀리서 켜면 글자가 죽이 되고,
    그 줌에서 답해야 하는 질문(*어느 지역에 많나*)과도 어긋난다. */
@@ -577,6 +582,9 @@ export function MapTab(
   /* 읍·면·동 집계 — 지금 보고 있는 시군구 하나만 센다(087) */
   const [subAgg, setSubAgg] = useState<API.SubAgg[]>([]);
   const [subRegion, setSubRegion] = useState<string | null>(null);
+  /* 리 — 숫자와 경계를 한 번에 받는다(089) */
+  const [riAgg, setRiAgg] = useState<API.VillageAgg[]>([]);
+  const [riKeyLoaded, setRiKeyLoaded] = useState<string | null>(null);
   const [into, setInto] = useState<string | null>(null);   // 들어온 지역 이름
   const camRef = useRef<CameraRef>(null);
   /* 화면이 잡히기 전에는 모른다. 그때까지는 안 건다(막연한 숫자를 박느니 안 건다) */
@@ -1255,6 +1263,39 @@ export function MapTab(
     return ["match", ["get", "code"], ...pairs, 0] as any;
   }, [emdOn, subAgg]);
 
+  /* ── 리(里) ─────────────────────────────────────────────────────
+     ★ 읍면동과 달리 **경계를 앱에 번들하지 않았다** — GeoJSON 으로 22 MB 다.
+       089 가 **가 본 리**의 숫자와 경계를 한 번에 준다. 받는 것이 그리는 것과
+       같아서, 지도를 밀어도 안 쓰는 바이트가 0이다. */
+  const riOn = zoom >= Z_EMD_END && zoom < Z_RI_END;
+  useEffect(() => {
+    if (!riOn || !emdRegions.length) { setRiAgg([]); setRiKeyLoaded(null); return; }
+    const key = `${emdKey}|${scope}|${cat ?? ""}|${space ?? ""}`;
+    if (key === riKeyLoaded) return;
+    setRiKeyLoaded(key);
+    void Promise.all(emdRegions.map((rc) => API.pinsByVillage(rc, scope, cat, space)))
+      .then((rs) => setRiAgg(rs.flatMap((r) => (r.ok ? (r.data ?? []) : []))));
+  }, [riOn, emdKey, scope, cat, space]);
+
+  /* 서버가 준 GeoJSON 문자열을 피처로 — **가 본 리만** 들어 있다 */
+  const riFC = useMemo(() => {
+    if (!riOn || !riAgg.length) return EMPTY_FC;
+    const fs: GeoJSON.Feature[] = [];
+    for (const a of riAgg) {
+      try {
+        const g = JSON.parse(a.geojson);
+        if (g) fs.push({ type: "Feature", properties: { code: a.village_code }, geometry: g });
+      } catch { /* 한 줄이 깨져도 나머지는 그린다 */ }
+    }
+    return { type: "FeatureCollection", features: fs } as GeoJSON.FeatureCollection;
+  }, [riOn, riAgg]);
+
+  const riLabels = useMemo(
+    () => (riOn ? riAgg.map((a) => ({
+      code: a.village_code, name: a.name, cx: a.cx, cy: a.cy, n: a.n,
+    })) : []),
+    [riOn, riAgg]);
+
   /* 읍·면·동 라벨 — 기록이 있는 곳만. 0곳까지 적으면 글자가 지도를 덮는다 */
   const emdLabels = useMemo(() => {
     if (!emdOn || !subAgg.length) return [];
@@ -1487,10 +1528,28 @@ export function MapTab(
                  }} />
         </GeoJSONSource>
 
+        {/* ★ **리** — 여기 들어오는 것은 이미 «가 본 리» 뿐이라 `match` 가 필요 없다.
+            089 가 그것만 보내 준다. */}
+        <GeoJSONSource id="ri" data={riFC as any}>
+          <Layer id="ri-fill" type="fill" beforeId="place_other"
+                 paint={{ "fill-color": C.accent, "fill-opacity": 0.16 }} />
+          <Layer id="ri-line" type="line" beforeId="place_other"
+                 paint={{ "line-color": "rgba(255,255,255,0.8)", "line-width": 1.8 }} />
+        </GeoJSONSource>
+
         {/* 집계 줌에서는 핀을 내린다 — 둘 다 "이 카페가 어디냐"에 답하는 것들이다 */}
         {/* ★ 읍·면·동 이름과 수. **기록이 있는 곳만** 적는다 — 0곳까지 적으면
             양평군 하나에 12개 글자 뭉치가 생겨 지도를 덮는다.
             *"어디를 가 봤나"* 가 질문이지 *"여기 뭐가 있나"* 가 아니다. */}
+        {riLabels.map((l) => (
+          <Marker key={`ri-${l.code}`} lngLat={[l.cx, l.cy]}>
+            <View style={st.lab}>
+              <Text style={st.labN}>{l.name}</Text>
+              <Text style={st.labC}>{l.n}곳</Text>
+            </View>
+          </Marker>
+        ))}
+
         {emdLabels.map((l) => (
           <Marker key={`emd-${l.code}`} lngLat={[l.cx, l.cy]}>
             <View style={st.lab}>
@@ -1792,9 +1851,13 @@ export function MapTab(
             우리가 얹은 경계는 그 안에 없다 — 우리 데이터다.
           ★ 지역 색칠이 켜져 있을 때만 띄운다. 안 보이는 것의 출처를 적으면
             화면만 어지럽다. */}
-      {region && !!style && (
+      {/* ★ 출처는 **보이는 것만** 적는다. 시군구 경계는 OSM(ODbL),
+          읍·면·동/리는 국토교통부(CC BY) — 둘 다 표기 의무가 있고 **출처가 다르다.**
+          한 줄에 뭉뚱그리면 어느 것이 어디서 왔는지 틀리게 말하는 셈이다. */}
+      {!!style && (region || emdOn || riOn) && (
         <Text style={st.credit} pointerEvents="none">
-          경계 © OpenStreetMap contributors
+          {region ? "경계 © OpenStreetMap contributors"
+                  : "경계 © 국토교통부 법정구역정보"}
         </Text>
       )}
 

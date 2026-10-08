@@ -91,3 +91,12 @@ create or replace function ST_Envelope(point) returns point
 language sql immutable as $$ select $1 $$;
 create or replace function ST_PointOnSurface(point) returns point
 language sql immutable as $$ select $1 $$;
+
+-- ── 088: 리 경계를 뷰포트로 내려줄 때 쓴다 ──────────────────────────
+-- ★ 스텁이라 **모양만** 맞춘다. 실제 GeoJSON 이 아니다 — 로컬 검증은
+--   "문법이 맞는가 · 권한이 걸렸는가" 만 보고 공간 연산의 정확성은 안 본다
+--   (`db/local/verify.sh` 머리글이 그렇게 적어 뒀다).
+create or replace function public.ST_AsGeoJSON(g point, maxdecimaldigits int)
+returns text language sql immutable as $$ select g::text $$;
+create or replace function public.ST_Area(point)
+returns double precision language sql immutable as $$ select 0::double precision $$;

@@ -553,6 +553,19 @@ export const pinsBySubregion = (
 ) => rpc<SubAgg[]>("api_pins_by_subregion",
       { p_region: region, p_scope: scope, p_cat: safeCat(cat), p_space: space ?? null });
 
+/* ★ **가 본 리**의 수와 경계(089). 숫자와 경계를 **한 번에** 받는다 —
+   상자로 경계를 받으면 안 그릴 것까지 받는다(리 하나가 1~3 KB, 상자 안 120개면
+   150~350 KB 가 지도를 밀 때마다 오간다). 받는 것이 그리는 것과 같아야 한다. */
+export type VillageAgg = {
+  village_code: string; name: string; n: number; n_mine: number; n_shared: number;
+  cx: number; cy: number; geojson: string;
+};
+export const pinsByVillage = (
+  region: string, scope: Scope = "mine_all",
+  cat?: string | null, space?: string | null,
+) => rpc<VillageAgg[]>("api_pins_by_village",
+      { p_region: region, p_scope: scope, p_cat: safeCat(cat), p_space: space ?? null });
+
 export const pinsByRegion = (
   scope: Scope = "mine_all", cat?: string | null, space?: string | null,
 ) => rpc<RegionAgg[]>("api_pins_by_region",
