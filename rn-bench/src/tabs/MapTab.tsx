@@ -68,6 +68,18 @@ const Z_CARDS = 15;
 /* ★ 몇 장이나. 네이버도 전부 안 띄운다. 8장이면 @3x 로 썸네일 8장이라
    `thumb_url`(480px, §13.58)이 있어야 감당된다. */
 const MAX_CARDS = 8;
+
+/* ★ **핀이 작아서 안 보였다**(§13.157). 예전 값은 2.5px(밀린 핀) / 5px(대표)였다.
+   2.5px 는 어두운 지도에서 눈에 안 띄고, 손가락으로 누를 수도 없다 —
+   터치 목표 권장(44pt)의 20분의 1이다. 사용자가 *"확대해도 하나도 안 보인다"*
+   고 한 자리가 여기다.
+   ★ 줌에 따라 키운다. 멀리서는 *"저기에 뭔가 있다"* 만 보이면 되고(작게),
+     가까이서는 **누를 수 있어야** 한다(크게). 대표 핀은 1.35배. */
+const PIN_R = [
+  "*",
+  ["interpolate", ["linear"], ["zoom"], 5, 4, 10, 5.5, 14, 7, 17, 9],
+  ["case", ["==", ["get", "top"], 1], 1.35, 1],
+];
 /* ★ **세 단계다.** 웹은 처음부터 셋이었는데(§13.11) 앱은 둘뿐이라, z9 를 넘는 순간
    300개가 한꺼번에 쏟아졌다. 가운데가 빠지면 *"이 근처에 뭐가 있나"* 에 답하는
    줌이 없어진다 — 지역에서 바로 골목으로 떨어진다(§13.54). */
@@ -428,7 +440,7 @@ const inside = (inner: API.BBox, outer: API.BBox | null) =>
 /** ★ 시트가 열린 것을 App 에 알린다. `(+)` 는 App 이 지도 **위에** 띄우므로
     MapTab 안에서는 가릴 수 없다 — 그대로 두면 닫기(✕)를 덮는다. */
 export function MapTab(
-  { ready, onSheet, onAdd, onSheetHeight,
+  { ready, onSheet, onAdd, onSheetHeight, reloadKey,
     onCenter, jumpTo, onJumpedTo }: {
     ready?: boolean;
     onSheet?: (open: boolean) => void;
@@ -436,6 +448,11 @@ export function MapTab(
     onAdd?: () => void;
     /** 바텀시트가 지금 몇 pt 인가 — (+) 가 그 위에 앉는다(§13.66 A안) */
     onSheetHeight?: (h: number) => void;
+    /** ★ 기록을 하나 올리면 이 숫자가 바뀐다 — 지도와 **집계**를 다시 읽는다.
+        집계(`loadAgg`)는 여는 순간·스코프·카테고리 변경 때만 돌았고 **저장
+        뒤에는 한 번도 안 돌았다.** 그래서 한 곳을 올리고 전국으로 나가면
+        *"아직 기록이 없습니다"* 가 떴다 — 있는 것을 없다고 말했다(§13.157). */
+    reloadKey?: number;
     /** 스페이스 탭에서 *"지도 ›"* 를 눌렀다 — 그 방으로 맞춘다(§13.67) */
     /** ★ 지금 보고 있는 자리. `갈 곳` 의 *"여기서 가까운"* 이 이 값을 쓴다(§13.74) */
     onCenter?: (c: { lng: number; lat: number }) => void;
@@ -734,6 +751,18 @@ export function MapTab(
        늘어나는 순간(초대 수락)은 §13.38 이 이미 스코프를 바꿔 준다. */
     void API.mySpaces().then((r) => setSpaces(r.ok ? (r.data ?? []) : []));
   }, [ready]);
+
+  /* ★ **기록을 올린 뒤 다시 읽는다.** 핀 목록은 지도를 움직이면 `onRegionDidChange`
+     가 살려 주지만 **집계는 재시도가 없다** — 위 `[ready]` 에서 한 번 읽은 뒤로
+     저장을 해도 그대로다. 그 결과가 "전국 줌에서 내 기록이 없다고 나오는 것"
+     이었다. 첫 렌더에서는 건너뛴다(위 effect 가 이미 읽는다). */
+  const firstReload = useRef(true);
+  useEffect(() => {
+    if (firstReload.current) { firstReload.current = false; return; }
+    if (!ready) return;
+    void load(true, scope);
+    void loadAgg(scope, cat, space);
+  }, [reloadKey]);
 
   /* 스코프를 바꾼다. ★ 이전 스코프의 핀을 **걷어낸다.** 안 걷으면 '내 지도'를 골랐는데
      남의 핀이 남아 있고, 그건 필터가 아니라 그냥 더하기다(§13.37). */
@@ -1456,16 +1485,18 @@ export function MapTab(
               레이어는 그대로 두고 **paint 만** 바꾼다(끼웠다 빼면 앱이 죽는다). */}
           <Layer id="pin-halo" type="circle"
                  paint={{
-                   "circle-radius": ["case", ["==", ["get", "top"], 1], 8, 4] as any,
+                   "circle-radius": ["+", PIN_R, 3] as any,
                    "circle-color": "#000",
-                   "circle-opacity": ["case", ["==", ["get", "top"], 1], 0.35, 0.18] as any,
+                   "circle-opacity": ["case", ["==", ["get", "top"], 1], 0.35, 0.22] as any,
                  }} />
           <Layer id="pin-dot" type="circle"
                  paint={{
-                   "circle-radius": ["case", ["==", ["get", "top"], 1], 5, 2.5] as any,
+                   "circle-radius": PIN_R as any,
                    "circle-color": ["get", "color"] as any,
-                   "circle-opacity": ["case", ["==", ["get", "top"], 1], 1, 0.5] as any,
-                   "circle-stroke-width": ["case", ["==", ["get", "top"], 1], 1.5, 0] as any,
+                   /* ★ 밀린 핀도 **보이게** 둔다. 0.5 는 어두운 바탕에서 사실상
+                      안 보였다 — *"더 있다"* 를 말하려면 보여야 말이 된다. */
+                   "circle-opacity": ["case", ["==", ["get", "top"], 1], 1, 0.75] as any,
+                   "circle-stroke-width": ["case", ["==", ["get", "top"], 1], 1.5, 0.8] as any,
                    "circle-stroke-color": "rgba(255,255,255,0.85)",
                  }} />
         </GeoJSONSource>
@@ -1555,6 +1586,19 @@ export function MapTab(
             </Text>
           </Pressable>
         </View>
+      )}
+
+      {/* ★ **내 기록 전체 보기**(§13.157). 사용자가 *"부산 여행 루트를 한눈에
+          보려면 엄청 확대해서 여기저기 찾아다녀야 한다"* 고 한 자리다.
+          `flyToAgg` 는 **이미 있었다** — 스페이스에서 넘어올 때만 쓰고 있었고,
+          정작 자기 기록을 찾아갈 길이 없었다. 버튼 하나를 안 붙였을 뿐이다.
+          ★ 집계가 비면 숨긴다 — 눌러도 갈 데가 없는 버튼은 고장으로 읽힌다. */}
+      {!open && !!style && !!agg.length && sheetH < sheetHalf + 40 && (
+        <Pressable style={[st.locate, { bottom: SHEET_BOTTOM + Math.min(sheetH, sheetHalf) + 116 }]}
+                   onPress={() => flyToAgg(agg)}
+                   accessibilityLabel="내 기록 전체 보기">
+          <View style={st.fitBox}><View style={st.fitDot} /></View>
+        </Pressable>
       )}
 
       {/* ★ 내 위치 버튼. `(+)` 위에 둔다 — `(+)` 는 App 이 지도 위에 띄우므로
@@ -1989,6 +2033,15 @@ const st = StyleSheet.create({
     borderWidth: 1, borderColor: C.line,
   },
   locateT: { color: C.text, fontSize: 20, lineHeight: 24 },
+  /* ★ 아이콘을 **글자로 쓰지 않는다.** `⤢` 같은 글리프는 기기 폰트에 없으면
+     두부(□)가 된다 — 안드로이드에서 실제로 겪는 일이다. 네모와 점은 View 로
+     그리면 어디서나 같게 나온다. */
+  fitBox: {
+    width: 17, height: 17, borderRadius: 3,
+    borderWidth: 1.6, borderColor: C.text,
+    alignItems: "center", justifyContent: "center",
+  },
+  fitDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: C.text },
   /* 줌 버튼 — 내 위치와 **같은 폭·같은 바탕**이다. 오른쪽 기둥이 한 줄로 보여야 한다 */
   zoom: {
     position: "absolute", right: 22,   /* bottom 은 시트 높이를 따라간다 */
