@@ -508,6 +508,10 @@ function StopList(p: {
   );
 }
 
+/* 거리를 사람이 읽는 단위로. 320,000m 는 거리가 아니라 숫자다 */
+const fmtDist = (m: number) =>
+  m < 1000 ? `${Math.round(m)}m` : `${(m / 1000).toFixed(m < 10000 ? 1 : 0)}km`;
+
 /* ── 장소 고르기 — 서버가 순서를 정한다 (§13.20) ───────────────── */
 function PlacePicker(
   { stop, onPick, onClose }: { stop: Stop; onPick: (p: any) => void; onClose: () => void },
@@ -600,11 +604,21 @@ function PlacePicker(
                 })}>
                 <View style={{ flex: 1 }}>
                   <Text style={s.cardT}>{c.name}</Text>
+                  {/* ★ **분류 · 거리 · 주소.** 전에는 `sub`(=`강동구 · food`)로
+                      떨어져 **영어가 그대로 보였고**, 주소가 없어 같은 이름의
+                      가게를 가릴 수가 없었다 — 사용자가 *"어딘지 모를 곳이
+                      떴다"* 고 한 자리다(§13.158). 081 이 셋을 따로 준다.
+                      ★ 주소는 **두 줄까지** 허용한다. 한 줄로 자르면
+                        `경기 양평군 양서면 양수로118번길 9` 가 `경기 양평군…`
+                        이 되어 **구분하라고 넣은 정보가 구분을 못 한다.** */}
                   <Text style={s.cardS}>
-                    {(CAT[c.category]?.k) || c.category || c.sub || "기타"}
-                    {c.dist_m != null ? ` · ${Math.round(c.dist_m)}m` : ""}
-                    {c.region_name ? ` · ${c.region_name}` : ""}
+                    {[(CAT[c.category]?.k) || c.category || null,
+                      c.dist_m != null ? fmtDist(c.dist_m) : null,
+                     ].filter(Boolean).join(" · ") || c.sub || "기타"}
                   </Text>
+                  {c.address ? (
+                    <Text style={s.cardAddr} numberOfLines={2}>{c.address}</Text>
+                  ) : null}
                 </View>
               </Pressable>
             ))}
@@ -697,6 +711,7 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: "rgba(90,140,255,0.35)",
     borderRadius: 12, padding: 14, marginBottom: 14,
   },
+  cardAddr: { color: C.muted, fontSize: 12, lineHeight: 17, marginTop: 2, opacity: 0.85 },
   gpsNoteT: { color: C.text, fontSize: 15, fontWeight: "700", marginBottom: 6 },
   gpsNoteB: { color: C.muted, fontSize: 13, lineHeight: 20 },
   gpsNoteB2: { color: C.text, fontWeight: "700" },

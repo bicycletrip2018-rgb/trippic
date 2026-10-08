@@ -62,12 +62,28 @@ const Z_ALL = 13;      // 이 위는 전부
 /* ★ 상호는 **가까이서만** 켠다(§13.60). 멀리서 켜면 글자가 죽이 되고,
    그 줌에서 답해야 하는 질문(*어느 지역에 많나*)과도 어긋난다. */
 const Z_PLACES = 14;
-/* ★ 표지 카드(사진 + 이름)를 켜는 줌. 상호 이름보다 **한 칸 더 가까이** 간다 —
-   카드는 무겁고(이미지) 자리를 많이 차지해서, 이름이 먼저 나오고 그다음이 사진이다. */
-const Z_CARDS = 15;
+/* ★ 표지 카드(사진 + 이름)를 켜는 줌.
+   ★ 15 였다 → **13**(§13.158). 15 는 *"엄청 확대해야 그제서야 보인다"* 였고,
+     사용자가 *"부산 여행 루트를 한눈에"* 보려는 것과 정면으로 어긋났다.
+     상호 이름(`Z_PLACES=14`)보다 **오히려 먼저** 켠다 — 뒤집은 것이 맞다:
+     남의 가게 이름보다 **내가 찍은 사진**이 이 지도의 주인공이다.
+     카드는 `MAX_CARDS`(8장)로 묶여 있어 줌을 낮춰도 수가 늘지 않는다. */
+const Z_CARDS = 13;
 /* ★ 몇 장이나. 네이버도 전부 안 띄운다. 8장이면 @3x 로 썸네일 8장이라
    `thumb_url`(480px, §13.58)이 있어야 감당된다. */
 const MAX_CARDS = 8;
+
+/* ★ **오른쪽 기둥의 자리를 한곳에서 정한다**(§13.158). 전에는 버튼마다
+   `+12` `+64` `+118` 을 **따로** 적어 두었고, 내가 거기에 `+116` 을 끼워 넣어
+   줌 묶음(118~203)과 **정면으로 겹쳤다.** 흩어진 숫자에 새 숫자를 더하면
+   겹치는지 알 방법이 없다 — 한 줄에 모아 두면 눈으로 보인다.
+   아래로부터: (+) 54 · 내 위치 44 · 내 기록 전체 44 · 줌 85. 사이 8pt. */
+const RAIL = {
+  fab: 12,                    //  12 ~  66  (App.tsx 가 그린다)
+  locate: 12 + 54 + 8,        //  74 ~ 118
+  fit: 12 + 54 + 8 + 44 + 8,  // 126 ~ 170
+  zoom: 12 + 54 + 8 + 44 + 8 + 44 + 8, // 178 ~ 263
+} as const;
 
 /* ★ **핀이 작아서 안 보였다**(§13.157). 예전 값은 2.5px(밀린 핀) / 5px(대표)였다.
    2.5px 는 어두운 지도에서 눈에 안 띄고, 손가락으로 누를 수도 없다 —
@@ -1554,7 +1570,7 @@ export function MapTab(
             두지 않는다(§13.67 의 *"죽은 버튼"*). */}
       {!open && !openPlace && !!style && sheetH < sheetHalf + 40 && (
         <View style={[st.zoom,
-                      { bottom: SHEET_BOTTOM + Math.min(sheetH, sheetHalf) + 118 }]}>
+                      { bottom: SHEET_BOTTOM + Math.min(sheetH, sheetHalf) + RAIL.zoom }]}>
           <Pressable
             style={st.zoomBtn}
             disabled={!canZoomIn(zoom)}
@@ -1594,7 +1610,7 @@ export function MapTab(
           정작 자기 기록을 찾아갈 길이 없었다. 버튼 하나를 안 붙였을 뿐이다.
           ★ 집계가 비면 숨긴다 — 눌러도 갈 데가 없는 버튼은 고장으로 읽힌다. */}
       {!open && !!style && !!agg.length && sheetH < sheetHalf + 40 && (
-        <Pressable style={[st.locate, { bottom: SHEET_BOTTOM + Math.min(sheetH, sheetHalf) + 116 }]}
+        <Pressable style={[st.locate, { bottom: SHEET_BOTTOM + Math.min(sheetH, sheetHalf) + RAIL.fit }]}
                    onPress={() => flyToAgg(agg)}
                    accessibilityLabel="내 기록 전체 보기">
           <View style={st.fitBox}><View style={st.fitDot} /></View>
@@ -1604,7 +1620,7 @@ export function MapTab(
       {/* ★ 내 위치 버튼. `(+)` 위에 둔다 — `(+)` 는 App 이 지도 위에 띄우므로
           자리를 비켜 준다. 시트가 떠 있으면 같이 감춘다. */}
       {!open && !!style && sheetH < sheetHalf + 40 && (
-        <Pressable style={[st.locate, { bottom: SHEET_BOTTOM + Math.min(sheetH, sheetHalf) + 64 }]}
+        <Pressable style={[st.locate, { bottom: SHEET_BOTTOM + Math.min(sheetH, sheetHalf) + RAIL.locate }]}
                    onPress={() => { void goHere(); }}>
           {locating
             ? <ActivityIndicator size="small" color={C.text} />

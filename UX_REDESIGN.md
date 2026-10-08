@@ -165,18 +165,26 @@ order by length(pl.name), pl.name
 
 외부 API 없이도 네이버식 순위를 상당 부분 흉내 낼 수 있다.
 
-| 신호 | 어디 있나 | 뜻 |
-|---|---|---|
-| **`places.source`** | `002_tables.sql` | `tour_api` = 관광지·해수욕장·문화재. `public_data` = 상가업소정보 |
-| **`places.image_url`** | `025_place_image_event.sql` | TourAPI 가 이미지를 준 곳 = 알려진 곳 |
-| **`places.public_pin_count`** | `008_map_overview.sql` | 공개 기록이 몇 개나 달렸나 — **우리 자체 인기도** |
+> ⚠️ **아래 "출처로 갈린다" 는 틀렸다.** 081 을 적용한 뒤 **운영에서 세어 보고**
+> 알았다 — `tour_api` 안에 **상점 14,177곳 · 음식점 13,085곳**이 있다.
+> TourAPI 는 관광지**만** 주는 곳이 아니라 **관광지도** 주는 곳이었다.
+> `image_url` 도 tour_api shop 의 97%가 갖고 있어 신호가 못 된다.
+> **실제로 가르는 것은 카테고리의 희소성**이다(082 · §13.158).
+> 틀린 채로 지우지 않고 남겨 둔다 — 무엇을 믿고 틀렸는지가 다음에 쓸모 있다.
 
-`db/import/02_tourapi.py` 의 주석이 이걸 그대로 말해 준다:
+| 신호 | 어디 있나 | 실제로 쓸모 있나 |
+|---|---|---|
+| ~~`places.source`~~ | `002_tables.sql` | ❌ tour_api 안에 상점 14,177곳. 못 가른다 |
+| ~~`places.image_url`~~ | `025_place_image_event.sql` | ❌ tour_api shop 의 97%가 갖고 있다 |
+| **`places.category` 의 희소성** | — | ✅ **beach 480곳 vs shop 165,696곳.** 이게 목적지를 가른다 |
+| **`places.public_pin_count`** | `008_map_overview.sql` | ✅ 지금은 전부 0이지만, 쓸수록 똑똑해진다 |
+
+`db/import/02_tourapi.py` 의 주석은 맞다 —
 
 > 상가업소정보에는 **관광지·자연·해수욕장·문화재가 단 하나도 없다**
 
-즉 **광안리해수욕장은 `tour_api`, 광안리(강북구 bar)는 `public_data`** 다.
-**출처만 봐도 갈린다.**
+다만 **그 역은 아니었다.** 상가 데이터에 관광지가 없다고 해서 TourAPI 에
+가게가 없는 것은 아니다. **한 방향만 읽고 양방향으로 썼다.**
 
 **새 순위식 (제안)**
 
