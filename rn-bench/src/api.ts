@@ -541,6 +541,18 @@ export type RegionAgg = {
   bw: number; bs: number; be: number; bn: number;
 };
 
+/* ★ 읍·면·동별 기록 수(087). **한 시군구 안만** 센다 — 이 집계가 보이는 줌에서는
+   한 시군구가 화면을 가득 채우고, 전국 3,482개를 늘 세는 것은 낭비다. */
+export type SubAgg = {
+  subregion_code: string; n: number; n_mine: number; n_shared: number;
+  bw: number; bs: number; be: number; bn: number;
+};
+export const pinsBySubregion = (
+  region: string, scope: Scope = "mine_all",
+  cat?: string | null, space?: string | null,
+) => rpc<SubAgg[]>("api_pins_by_subregion",
+      { p_region: region, p_scope: scope, p_cat: safeCat(cat), p_space: space ?? null });
+
 export const pinsByRegion = (
   scope: Scope = "mine_all", cat?: string | null, space?: string | null,
 ) => rpc<RegionAgg[]>("api_pins_by_region",
