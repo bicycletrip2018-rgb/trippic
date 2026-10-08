@@ -26,6 +26,8 @@ export type Hit = {
   lng: number; lat: number;
   /** 081 이 따로 준다 — `sub` 를 잘라 쓰지 않는다 */
   category?: string | null; address?: string | null; dist_m?: number | null;
+  /** 086 — 읍·면·리다. 가게가 아니라 **범위**라 다르게 보여 준다 */
+  is_area?: boolean | null;
 };
 
 /** 타이핑이 멎기를 기다리는 시간. 글자마다 부르면 한 단어에 대여섯 번 간다 */
@@ -43,6 +45,9 @@ const catOf = (h: Hit) => CAT[catKey(h)] ?? CAT.etc;
    `구 · 분류` 만으로는 같은 이름의 가게를 가릴 수 없다. */
 const subText = (h: Hit) => {
   if (h.kind === "region") return h.sub ?? "";
+  /* ★ 지역은 `category='etc'` 라 그냥 두면 *"양수리 · 기타 · 경기도…"* 가 된다 —
+     **맞는 답을 찾아 주고도 틀린 것처럼 보인다.** 분류를 떼고 주소만 쓴다. */
+  if (h.is_area) return h.address || h.sub || "";
   const bits = [
     CAT[catKey(h)]?.k ?? null,
     h.dist_m != null ? fmtDist(h.dist_m) : null,
@@ -136,13 +141,16 @@ export function MapSearch(
                            onPress={() => { Keyboard.dismiss(); onPick(h); clear(); }}>
                   {/* 지역인지 장소인지 **한눈에** — 누르면 가는 곳이 다르다 */}
                   <View style={[s.dot, {
-                    backgroundColor: h.kind === "region" ? C.muted : catOf(h).c,
+                    backgroundColor: h.kind === "region" || h.is_area
+                      ? C.muted : catOf(h).c,
                   }]} />
                   <View style={{ flex: 1 }}>
                     <Text style={s.name} numberOfLines={1}>{h.name}</Text>
                     {h.sub ? <Text style={s.sub} numberOfLines={1}>{subText(h)}</Text> : null}
                   </View>
-                  <Text style={s.kind}>{h.kind === "region" ? "지역" : "장소"}</Text>
+                  <Text style={s.kind}>
+                    {h.kind === "region" ? "지역" : h.is_area ? "읍·면·리" : "장소"}
+                  </Text>
                 </Pressable>
               ))}
             </ScrollView>
