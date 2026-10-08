@@ -24,21 +24,34 @@ export type Hit = {
   kind: "region" | "place";
   id: string; name: string; sub: string | null;
   lng: number; lat: number;
+  /** 081 이 따로 준다 — `sub` 를 잘라 쓰지 않는다 */
+  category?: string | null; address?: string | null; dist_m?: number | null;
 };
 
 /** 타이핑이 멎기를 기다리는 시간. 글자마다 부르면 한 단어에 대여섯 번 간다 */
 const DEBOUNCE_MS = 220;
 
-/* ★ 서버는 `지역 · 카테고리` 를 주는데 카테고리가 **enum 원문**(`food`)이다.
-   화면에 그대로 뿌리면 *"기장군 · food"* 가 된다 — 한국어 화면에 영어 토큰이
-   섞이는 것은 번역을 안 한 것이지 간결한 것이 아니다. `CAT` 이 이미 한국어를 안다. */
-const catKey = (h: Hit) => (h.sub ?? "").split(" · ")[1]?.trim() ?? "";
+/* ★ 전에는 서버가 이어 붙인 `지역 · food` 를 **잘라서** 한국어로 바꿨다
+     (`sub.split(" · ")[1]`). 이어 붙인 것을 다시 자르는 것은 두 곳이 같은 규칙을
+     나눠 갖는 것이라, 한쪽만 고치면 갈라진다 — 실제로 `PlacePicker` 는 그 보정이
+     없어 **영어가 그대로 샜다.** 081 이 `category` 와 `address` 를 따로 준다.
+   ★ 옛 서버가 돌아올 때를 대비해 `sub` 파싱을 **폴백으로만** 남긴다. */
+const catKey = (h: Hit) =>
+  h.category ?? (h.sub ?? "").split(" · ")[1]?.trim() ?? "";
 const catOf = (h: Hit) => CAT[catKey(h)] ?? CAT.etc;
+/* 주소를 보여 준다. *"어딘지 모를 곳"* 을 없애는 가장 싼 길이다 —
+   `구 · 분류` 만으로는 같은 이름의 가게를 가릴 수 없다. */
 const subText = (h: Hit) => {
-  if (h.kind === "region" || !h.sub) return h.sub ?? "";
-  const k = catKey(h);
-  return k ? h.sub.replace(` · ${k}`, ` · ${catOf(h).k}`) : h.sub;
+  if (h.kind === "region") return h.sub ?? "";
+  const bits = [
+    CAT[catKey(h)]?.k ?? null,
+    h.dist_m != null ? fmtDist(h.dist_m) : null,
+    h.address || null,
+  ].filter(Boolean);
+  return bits.length ? bits.join(" · ") : (h.sub ?? "");
 };
+const fmtDist = (m: number) =>
+  m < 1000 ? `${Math.round(m)}m` : `${(m / 1000).toFixed(m < 10000 ? 1 : 0)}km`;
 
 export function MapSearch(
   { at, onPick, onOpen }: {
