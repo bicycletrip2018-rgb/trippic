@@ -1210,25 +1210,50 @@ export function MapTab(
     return { type: "FeatureCollection", features: fs } as GeoJSON.FeatureCollection;
   }, [emdOn, zoom, atLng, atLat]);
 
-  /* 지금 화면의 시군구 — 보이는 읍·면·동 중 가장 흔한 `rc` 로 정한다.
-     경계에 걸치면 둘이 섞이는데, **더 많이 보이는 쪽**이 사용자가 보는 곳이다. */
-  const emdRegion = useMemo(() => {
+  /* ★ **보이는 시군구를 전부 묻는다**(§13.164). 처음에는 *"가장 많이 보이는
+     하나"* 로 했는데, 이 줌에서는 화면에 **시군구가 서너 개 걸친다** —
+     양평·가평·남양주·광주·여주가 같이 보이는 화면에서 양평이 1등이 아니면
+     **숫자가 아예 안 떴다.** 실기기에서 그랬다.
+     ★ 네 개로 끊는다. 더 넓게 보이면 그건 시군구 줌이 답할 질문이다. */
+  const emdRegions = useMemo(() => {
     const c: Record<string, number> = {};
     for (const f of emdFC.features as any[]) {
       const rc = f.properties?.rc; if (rc) c[rc] = (c[rc] ?? 0) + 1;
     }
-    let best: string | null = null;
-    for (const k of Object.keys(c)) if (!best || c[k] > c[best]) best = k;
-    return best;
+    return Object.keys(c).sort((a, b) => c[b] - c[a]).slice(0, 4);
   }, [emdFC]);
+  const emdKey = emdRegions.join(",");
 
   useEffect(() => {
-    if (!emdOn || !emdRegion) { setSubAgg([]); setSubRegion(null); return; }
-    if (emdRegion === subRegion) return;          // 같은 시군구면 다시 안 묻는다
-    setSubRegion(emdRegion);
-    void API.pinsBySubregion(emdRegion, scope, cat, space)
-      .then((r) => setSubAgg(r.ok ? (r.data ?? []) : []));
-  }, [emdOn, emdRegion, scope, cat, space]);
+    if (!emdOn || !emdRegions.length) { setSubAgg([]); setSubRegion(null); return; }
+    const key = `${emdKey}|${scope}|${cat ?? ""}|${space ?? ""}`;
+    if (key === subRegion) return;                // 같은 조합이면 다시 안 묻는다
+    setSubRegion(key);
+    void Promise.all(emdRegions.map((rc) => API.pinsBySubregion(rc, scope, cat, space)))
+      .then((rs) => setSubAgg(rs.flatMap((r) => (r.ok ? (r.data ?? []) : []))));
+  }, [emdOn, emdKey, scope, cat, space]);
+
+  /* ★ **가 본 읍·면·동만 그린다**(§13.164). 처음에는 화면에 걸치는 3,482개를
+     전부 점선으로 그렸는데, 사용자가 *"각진 점선이 너무 눈을 불편하게 만든다"*
+     고 했다. 맞는 지적이고, **시군구 레이어는 처음부터 그러지 않았다** —
+     거기는 `match` 로 **가 본 곳만** 진하게 하고 나머지는 흐리게 둔다.
+     읍면동만 지도책처럼 전부 그린 것이 어긋났다.
+     ★ 그리고 **점선을 뺀다.** 이 밀도에서 점선은 선이 아니라 **톱니**로 읽힌다.
+     ★ 안 가 본 곳은 width 0 — 흐리게도 안 그린다. 이 줌의 질문은
+       *"어디를 가 봤나"* 이지 *"행정구역이 어떻게 생겼나"* 가 아니다. */
+  const emdLineWidth = useMemo(() => {
+    if (!emdOn || !subAgg.length) return 0 as any;
+    const pairs: any[] = [];
+    for (const a of subAgg) pairs.push(a.subregion_code, 1.8);
+    return ["match", ["get", "code"], ...pairs, 0] as any;
+  }, [emdOn, subAgg]);
+
+  const emdFillOpacity = useMemo(() => {
+    if (!emdOn || !subAgg.length) return 0 as any;
+    const pairs: any[] = [];
+    for (const a of subAgg) pairs.push(a.subregion_code, 0.14);
+    return ["match", ["get", "code"], ...pairs, 0] as any;
+  }, [emdOn, subAgg]);
 
   /* 읍·면·동 라벨 — 기록이 있는 곳만. 0곳까지 적으면 글자가 지도를 덮는다 */
   const emdLabels = useMemo(() => {
@@ -1452,12 +1477,13 @@ export function MapTab(
             ★ 면을 칠하지 않고 **선만** 긋는다. 시군구 면이 이미 땅 색을 깔았고,
               그 위에 또 칠하면 두 겹이 되어 어느 것이 경계인지 흐려진다. */}
         <GeoJSONSource id="emd" data={emdFC as any}>
+          {/* 가 본 곳만 옅게 채운다 — 선만 있으면 *"안이 어디까지인가"* 가 안 읽힌다 */}
+          <Layer id="emd-fill" type="fill" beforeId="place_other"
+                 paint={{ "fill-color": C.accent, "fill-opacity": emdFillOpacity }} />
           <Layer id="emd-line" type="line" beforeId="place_other"
                  paint={{
-                   "line-color": "rgba(140,170,210,0.55)",
-                   "line-width": ["interpolate", ["linear"], ["zoom"],
-                                  Z_REGION, 0.6, Z_EMD_END, 1.6] as any,
-                   "line-dasharray": [3, 2] as any,
+                   "line-color": "rgba(255,255,255,0.72)",
+                   "line-width": emdLineWidth,
                  }} />
         </GeoJSONSource>
 
