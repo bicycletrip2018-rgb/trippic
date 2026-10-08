@@ -612,9 +612,15 @@ function PlacePicker(
                         `경기 양평군 양서면 양수로118번길 9` 가 `경기 양평군…`
                         이 되어 **구분하라고 넣은 정보가 구분을 못 한다.** */}
                   <Text style={s.cardS}>
-                    {[(CAT[c.category]?.k) || c.category || null,
-                      c.dist_m != null ? fmtDist(c.dist_m) : null,
-                     ].filter(Boolean).join(" · ") || c.sub || "기타"}
+                    {/* ★ 지역(읍·면·리)은 `category='etc'` 라 그냥 두면 "기타" 가
+                        된다(§13.161). 범위라는 것을 말해 주는 편이 낫다 —
+                        좌표가 **그 안의 중심**이지 정확한 지점이 아니다. */}
+                    {c.is_area
+                      ? ["읍·면·리", c.dist_m != null ? fmtDist(c.dist_m) : null]
+                          .filter(Boolean).join(" · ")
+                      : [(CAT[c.category]?.k) || c.category || null,
+                         c.dist_m != null ? fmtDist(c.dist_m) : null,
+                        ].filter(Boolean).join(" · ") || c.sub || "기타"}
                   </Text>
                   {c.address ? (
                     <Text style={s.cardAddr} numberOfLines={2}>{c.address}</Text>
