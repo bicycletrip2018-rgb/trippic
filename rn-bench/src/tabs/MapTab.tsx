@@ -17,7 +17,7 @@
  *   개발 서버에 매달리면 그건 제품이 아니다. 사진은 여전히 URL 로 받는다 —
  *   번들을 42MB 로 불리지 않는다는 원칙(§13)은 그대로다.
  */
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTopPad } from "../safeArea";
 import {
   ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
@@ -53,11 +53,20 @@ import { metersPerPx, pickScale } from "../scaleBar";
    250개 중 DB 와 맞는 것이 9개뿐이라 지역 숫자를 폴리곤에 붙일 수 없었다.
    배경만 그릴 때는 코드가 필요 없어서 드러나지 않던 결함이다. */
 const SGG = require("../../assets/korea-regions.json") as GeoJSON.FeatureCollection;
+/* ★ 읍·면·동 3,482개(087). 통계청 2013 센서스 경계 — Free to share or remix.
+   1.77 MB 로 시군구(858 KB)의 2배라 **번들해도 된다.** 1단계 기획서에
+   *"14배라 번들이 막힌다"* 고 썼는데 그건 **단순화 안 한 추정**이었다. */
+const EMD = require("../../assets/korea-subregions.json") as GeoJSON.FeatureCollection;
 
 /* ★ 줌에 따라 **단위 자체가 바뀐다**(§13.11). 전국 줌에서 답해야 하는 질문은
    *"어느 지역에 볼 곳이 많나"* 이지 *"이 카페가 어디냐"* 가 아니다.
    핀 개수만 깎는 것은 같은 질문에 더 작게 답하는 것일 뿐 질문을 바꾸지 못한다. */
 const Z_REGION = 9;    // 이 아래는 시·군·구 집계
+/* ★ **집계가 한 단계 더 이어진다**(§13.163). 사용자가 *"양평군에서 더 확대하면
+   경계만 사라지고 끝난다"* 고 한 자리다. 시군구(z<9) 다음이 **읍·면·동**이고,
+   그다음이 핀·사진이다.
+   ★ 리(里)까지는 못 간다 — 자유롭게 쓸 수 있는 리 경계 자료가 없다(§13.162). */
+const Z_EMD_END = 12;  // 9 ≤ z < 12 사이에 읍·면·동 경계와 숫자를 그린다
 const Z_ALL = 13;      // 이 위는 전부
 /* ★ 상호는 **가까이서만** 켠다(§13.60). 멀리서 켜면 글자가 죽이 되고,
    그 줌에서 답해야 하는 질문(*어느 지역에 많나*)과도 어긋난다. */
@@ -565,6 +574,9 @@ export function MapTab(
   const [atLng, setAtLng] = useState(127.8);
   const [zoom, setZoom] = useState(5.6);
   const [agg, setAgg] = useState<API.RegionAgg[]>([]);
+  /* 읍·면·동 집계 — 지금 보고 있는 시군구 하나만 센다(087) */
+  const [subAgg, setSubAgg] = useState<API.SubAgg[]>([]);
+  const [subRegion, setSubRegion] = useState<string | null>(null);
   const [into, setInto] = useState<string | null>(null);   // 들어온 지역 이름
   const camRef = useRef<CameraRef>(null);
   /* 화면이 잡히기 전에는 모른다. 그때까지는 안 건다(막연한 숫자를 박느니 안 건다) */
@@ -1183,6 +1195,53 @@ export function MapTab(
      없는 코드면 `cx`·`cy` 가 **undefined** 가 되어 마커가 좌표 없이 그려졌다 —
      타입이 *"항상 있다"* 고 되어 있어서 **타입 검사가 못 잡던 자리**다.
      표를 떼어 내자 `null` 이 될 수 있다고 적히면서 비로소 드러났다. */
+  /* ★ **읍·면·동 띠**(§13.163). 시군구(z<9) 다음 단계다.
+     ★ 3,482개를 통째로 소스에 먹이지 않는다 — 화면 상자에 걸치는 것만 추린다.
+       그 줌에서는 많아야 수십 개다(양평군 12개). */
+  const emdOn = zoom >= Z_REGION && zoom < Z_EMD_END;
+  const emdFC = useMemo(() => {
+    if (!emdOn) return EMPTY_FC;
+    const b = loaded.current.box;
+    if (!b) return EMPTY_FC;
+    const fs = (EMD.features as any[]).filter((f) => {
+      const bb = f.properties?.bbox;
+      return bb && bb[0] <= b.e && bb[2] >= b.w && bb[1] <= b.n && bb[3] >= b.s;
+    });
+    return { type: "FeatureCollection", features: fs } as GeoJSON.FeatureCollection;
+  }, [emdOn, zoom, atLng, atLat]);
+
+  /* 지금 화면의 시군구 — 보이는 읍·면·동 중 가장 흔한 `rc` 로 정한다.
+     경계에 걸치면 둘이 섞이는데, **더 많이 보이는 쪽**이 사용자가 보는 곳이다. */
+  const emdRegion = useMemo(() => {
+    const c: Record<string, number> = {};
+    for (const f of emdFC.features as any[]) {
+      const rc = f.properties?.rc; if (rc) c[rc] = (c[rc] ?? 0) + 1;
+    }
+    let best: string | null = null;
+    for (const k of Object.keys(c)) if (!best || c[k] > c[best]) best = k;
+    return best;
+  }, [emdFC]);
+
+  useEffect(() => {
+    if (!emdOn || !emdRegion) { setSubAgg([]); setSubRegion(null); return; }
+    if (emdRegion === subRegion) return;          // 같은 시군구면 다시 안 묻는다
+    setSubRegion(emdRegion);
+    void API.pinsBySubregion(emdRegion, scope, cat, space)
+      .then((r) => setSubAgg(r.ok ? (r.data ?? []) : []));
+  }, [emdOn, emdRegion, scope, cat, space]);
+
+  /* 읍·면·동 라벨 — 기록이 있는 곳만. 0곳까지 적으면 글자가 지도를 덮는다 */
+  const emdLabels = useMemo(() => {
+    if (!emdOn || !subAgg.length) return [];
+    const byCode: Record<string, API.SubAgg> = {};
+    for (const a of subAgg) byCode[a.subregion_code] = a;
+    return (emdFC.features as any[]).flatMap((f) => {
+      const a = byCode[f.properties?.code];
+      return a ? [{ code: f.properties.code, name: f.properties.name,
+                    cx: f.properties.cx, cy: f.properties.cy, n: a.n }] : [];
+    });
+  }, [emdOn, emdFC, subAgg]);
+
   const labels = region
     ? [...agg].sort((a, b) => b.n - a.n).slice(0, 40)
         .flatMap((a) => {
@@ -1386,7 +1445,35 @@ export function MapTab(
                  paint={{ "line-color": strokeExpr, "line-width": widthExpr }} />
         </GeoJSONSource>
 
+        {/* ★ **읍·면·동 경계**(§13.163). 시군구 다음 단계다 — 사용자가
+            *"양평군에서 더 확대하면 경계만 사라지고 끝난다"* 고 한 자리.
+            ★ 레이어를 **끼웠다 빼지 않는다**(§13.47 — 그러면 앱이 죽는다).
+              빈 FeatureCollection 을 먹이고 **데이터로** 켜고 끈다.
+            ★ 면을 칠하지 않고 **선만** 긋는다. 시군구 면이 이미 땅 색을 깔았고,
+              그 위에 또 칠하면 두 겹이 되어 어느 것이 경계인지 흐려진다. */}
+        <GeoJSONSource id="emd" data={emdFC as any}>
+          <Layer id="emd-line" type="line" beforeId="place_other"
+                 paint={{
+                   "line-color": "rgba(140,170,210,0.55)",
+                   "line-width": ["interpolate", ["linear"], ["zoom"],
+                                  Z_REGION, 0.6, Z_EMD_END, 1.6] as any,
+                   "line-dasharray": [3, 2] as any,
+                 }} />
+        </GeoJSONSource>
+
         {/* 집계 줌에서는 핀을 내린다 — 둘 다 "이 카페가 어디냐"에 답하는 것들이다 */}
+        {/* ★ 읍·면·동 이름과 수. **기록이 있는 곳만** 적는다 — 0곳까지 적으면
+            양평군 하나에 12개 글자 뭉치가 생겨 지도를 덮는다.
+            *"어디를 가 봤나"* 가 질문이지 *"여기 뭐가 있나"* 가 아니다. */}
+        {emdLabels.map((l) => (
+          <Marker key={`emd-${l.code}`} lngLat={[l.cx, l.cy]}>
+            <View style={st.lab}>
+              <Text style={st.labN}>{l.name}</Text>
+              <Text style={st.labC}>{l.n}곳</Text>
+            </View>
+          </Marker>
+        ))}
+
         {labels.map((l) => (
           <Marker key={l.region_code} lngLat={[l.cx, l.cy]}>
             <View style={st.lab}>
