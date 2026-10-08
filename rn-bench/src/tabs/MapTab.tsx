@@ -67,11 +67,31 @@ const Z_PLACES = 14;
      사용자가 *"부산 여행 루트를 한눈에"* 보려는 것과 정면으로 어긋났다.
      상호 이름(`Z_PLACES=14`)보다 **오히려 먼저** 켠다 — 뒤집은 것이 맞다:
      남의 가게 이름보다 **내가 찍은 사진**이 이 지도의 주인공이다.
-     카드는 `MAX_CARDS`(8장)로 묶여 있어 줌을 낮춰도 수가 늘지 않는다. */
-const Z_CARDS = 13;
+   ★ 15 → 13 → **11**. 13 도 *"아무리 확대해도 안 보인다"* 였다 — 5km 눈금이
+     대략 줌 11이라 **13 은 거기서 한 칸 더 들어가야 켜진다.** 11이면 40km쯤
+     보는 화면에서도 켜진다.
+   ★ 줌을 낮춰도 **카드가 뭉치지 않는다.** 아래 `cards` 가 겹침을 화면 비율로
+     걸러내는데(`minSep = degPerPx * 110`), 멀리서 볼수록 `degPerPx` 가 커져
+     **자동으로 덜 뽑힌다.** 상한(`MAX_CARDS` 8장)과 별개로 그렇다. */
+const Z_CARDS = 11;
 /* ★ 몇 장이나. 네이버도 전부 안 띄운다. 8장이면 @3x 로 썸네일 8장이라
    `thumb_url`(480px, §13.58)이 있어야 감당된다. */
 const MAX_CARDS = 8;
+/* ★ 카드에 **글씨**(장소 이름·날짜)를 켜는 줌. 사진보다 두 칸 늦다 —
+   멀리서는 카드가 작고 촘촘해서 글씨를 붙이면 서로 겹쳐 **읽히지도 않고
+   사진도 가린다.** 가까이 왔을 때 *"여기가 어디였더라"* 에 답하면 된다. */
+const Z_CARD_TEXT = 14;
+
+/* 날짜를 **짧게**. 카드가 96pt 라 `2026. 10. 8.` 은 넘친다.
+   올해 것은 연도를 뺀다 — 같은 해면 연도가 구분에 보태는 것이 없다. */
+function fmtDay(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const now = new Date();
+  const md = `${d.getMonth() + 1}.${d.getDate()}`;
+  return d.getFullYear() === now.getFullYear() ? md : `${d.getFullYear()}.${md}`;
+}
 
 /* ★ **오른쪽 기둥의 자리를 한곳에서 정한다**(§13.158). 전에는 버튼마다
    `+12` `+64` `+118` 을 **따로** 적어 두었고, 내가 거기에 `+116` 을 끼워 넣어
@@ -428,6 +448,8 @@ type Pin = {
   /* 가운데 단계의 순위 재료. 서버는 계속 주고 있었는데 앱이 버리고 있었다. */
   like_count: number;
   save_count: number;
+  /** ★ 083 이 새로 준다. 장소 매칭이 실패한 핀은 **null** 이다 — 그때는 날짜만 쓴다 */
+  placeName: string | null;
 };
 
 const toFeature = (r: any): GeoJSON.Feature | null => {
@@ -648,6 +670,7 @@ export function MapTab(
       media_url: row.media_url, media_thumb: row.media_thumb ?? row.media_url,
       media_w: row.media_w ?? null, media_h: row.media_h ?? null,
       visited_at: row.visited_at ?? null, stay_sec: row.stay_sec ?? null,
+      placeName: row.place_name ?? null,
       verification: row.verification ?? null, is_public: !!row.is_public,
       comment_count: row.comment_count ?? 0,
       like_count: row.like_count ?? 0, save_count: row.save_count ?? 0,
@@ -1395,7 +1418,26 @@ export function MapTab(
                   onPress={() => { cardTapAt.current = Date.now(); setOpen(c); }}>
             <View style={st.card}>
               <Image source={{ uri: c.media_thumb! }} style={st.cardImg} />
-              {!!c.memo && (
+              {/* ★ **어디·언제**를 사진 밑에 붙인다(§13.159). 사진만으로는
+                  *"이게 어디였더라"* 에 답이 안 된다 — 특히 남에게 보여 줄 때.
+                  ★ 이름이 없는 핀이 있다(장소 매칭 실패 허용, 002). 그때는
+                    메모로, 그것도 없으면 날짜만 쓴다. **빈 줄을 만들지 않는다.** */}
+              {zoom >= Z_CARD_TEXT && (() => {
+                const title = c.placeName || c.memo || null;
+                const day = fmtDay(c.visited_at);
+                if (!title && !day) return null;
+                return (
+                  <View style={st.cardCap}>
+                    {title ? (
+                      <Text style={st.cardT} numberOfLines={1}>{title}</Text>
+                    ) : null}
+                    {day ? (
+                      <Text style={st.cardD} numberOfLines={1}>{day}</Text>
+                    ) : null}
+                  </View>
+                );
+              })()}
+              {zoom < Z_CARD_TEXT && !!c.memo && (
                 <Text style={st.cardT} numberOfLines={1}>{c.memo}</Text>
               )}
               {/* 카드가 가리키는 지점 — 없으면 사진이 공중에 뜬 것처럼 보인다 */}
@@ -2074,6 +2116,14 @@ const st = StyleSheet.create({
   zoomLine: { height: 1, backgroundColor: C.line },
   /* 표지 카드 — 사진이 주인공이라 테두리는 얇게, 배경은 거의 안 보이게 */
   card: { alignItems: "center", width: 96 },
+  /* 글씨는 사진 **아래**에 얹되 바탕을 깐다 — 지도 위 글자는 바탕이 없으면
+     밝은 지형에서 읽히지 않는다(어두운 스타일이라도 물·도로는 밝다). */
+  cardCap: {
+    marginTop: 3, maxWidth: 96, paddingHorizontal: 6, paddingVertical: 3,
+    borderRadius: 7, backgroundColor: "rgba(10,12,16,0.78)",
+    alignItems: "center",
+  },
+  cardD: { color: C.muted, fontSize: 10, lineHeight: 13 },
   cardImg: {
     width: 84, height: 84, borderRadius: 12,
     borderWidth: 2, borderColor: "rgba(255,255,255,0.92)",
