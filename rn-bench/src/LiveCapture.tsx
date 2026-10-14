@@ -9,7 +9,7 @@
  *   "카메라를 쓰겠다"까지다. *왜* 위치까지 받는지, 그래서 무엇이 달라지는지는
  *   우리가 말해야 한다 — 안 하면 사용자는 거절하고, 거절하면 이 기능이 없다.
  */
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useTopPad } from "./safeArea";
 import {
   ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable,
@@ -33,6 +33,12 @@ export function LiveCapture({ onClose }: { onClose: (saved?: boolean) => void })
      그건 메모라서 지도가 줌에 따라 상호와 번갈아 보여 주었다. */
   const [label, setLabel] = useState("");
   const [labelOn, setLabelOn] = useState(false);
+  /* ★ **적는 동안 찾아 준다**(§13.169). 사용자: *"텍스트로 장소 쓸 때 해당
+     위치가 위 목록에 있으면 자동으로 같은 검색어로 보이게 만드는 게 편하지
+     않을까."* 더 나아가 **목록에 없어도** 찾는다 — 「북한산」처럼 서 있는
+     자리에서 몇 km 떨어진 곳은 후보 반경에 애초에 안 들어온다. */
+  const [found, setFound] = useState<any[] | null>(null);
+  const seq = useRef(0);
   const [pub, setPub] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [result, setResult] = useState<any>(null);
@@ -71,6 +77,33 @@ export function LiveCapture({ onClose }: { onClose: (saved?: boolean) => void })
     const tied = second && (second.dist_m ?? 9999) <= (top?.dist_m ?? 0) + 15;
     if (near && !tied) setPlace(top);
   }
+
+  /* 적는 대로 찾는다. ★ **마지막 요청만** 쓴다 — 빨리 치면 앞선 응답이 나중에
+     와서 «세 글자 결과» 가 «다섯 글자 결과» 를 덮는다(§13.72 와 같은 자리). */
+  useEffect(() => {
+    const q = label.trim();
+    if (!labelOn || q.length < API.SEARCH_MIN || !shot) { setFound(null); return; }
+    const my = ++seq.current;
+    const keep = (rows: any[]) =>
+      /* 지역(읍·면·리)과 시군구는 뺀다 — 여기서 고르는 것은 **장소**다 */
+      rows.filter((h: any) => h.kind === "place" && !h.is_area);
+    const t = setTimeout(() => {
+      void (async () => {
+        const near = await API.search(q, 8, { lat: shot.lat, lng: shot.lng });
+        let rows = near.ok ? keep(near.data ?? []) : [];
+        /* ★ **가까이서 못 찾으면 전국에서 찾는다.** 「북한산」을 적는 사람이
+           늘 북한산 1.5km 안에 있지는 않다 — 산·공원은 점 하나가 수 km 를
+           대표한다. 멀면 거리를 **적어서** 보여 주고 판단은 사람이 한다. */
+        if (!rows.length) {
+          const far = await API.search(q, 8, null);
+          rows = far.ok ? keep(far.data ?? []) : [];
+        }
+        if (my !== seq.current) return;
+        setFound(rows);
+      })();
+    }, 250);
+    return () => clearTimeout(t);
+  }, [label, labelOn, shot]);
 
   async function save() {
     if (!shot) return;
@@ -229,6 +262,36 @@ export function LiveCapture({ onClose }: { onClose: (saved?: boolean) => void })
                 style={s.name} value={label} onChangeText={setLabel} maxLength={60}
                 placeholder="이 자리의 이름 — 예: 방이동 먹자골목"
                 placeholderTextColor={C.muted} />
+            )}
+            {/* ★ 적는 동안 찾아 준다. **고르면 진짜 장소**가 되어 「모두의 지도」에도
+                올릴 수 있다 — 직접 적은 이름으로는 못 올린다(009). */}
+            {labelOn && found !== null && (
+              found.length ? (
+                <>
+                  <Text style={s.hint}>이 이름으로 찾았습니다 — 맞으면 고르십시오</Text>
+                  {found.map((h: any) => (
+                    <Pressable key={h.id} style={s.card}
+                               onPress={() => {
+                                 setPlace({ place_id: h.id, id: h.id, name: h.name,
+                                            category: h.category });
+                                 setLabelOn(false); setPub(false);
+                               }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.cardT}>{h.name}</Text>
+                        <Text style={s.cardS}>
+                          {(CAT[h.category]?.k) || h.category || "기타"}
+                          {h.dist_m != null ? ` · ${h.dist_m >= 1000
+                            ? `${(h.dist_m / 1000).toFixed(1)}km` : `${Math.round(h.dist_m)}m`}` : ""}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  ))}
+                </>
+              ) : (
+                <Text style={s.hint}>
+                  찾은 장소가 없습니다 — 적으신 이름 그대로 남깁니다.
+                </Text>
+              )
             )}
 
             {/* ★ **이름 칸과 메모 칸이 구별이 안 됐다**(§13.168). 사용자:

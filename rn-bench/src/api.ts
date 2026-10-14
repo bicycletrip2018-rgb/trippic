@@ -523,11 +523,15 @@ export type PlaceRow = {
   id: string; name: string; category: string | null;
   lng: number; lat: number; pin_count: number; has_image: boolean;
 };
+/* ★ `zoom` 을 같이 보낸다(091·093). 서버가 **갈래마다 다른 줌 문턱**을 건다 —
+   해변 z10 · 자연 z11 · 문화재·행사 z13 · 액티비티·숙박 z14 · 가게 z15.
+   안 보내면 예전처럼 전부 온다(하위호환). */
 export const placesInBBox = (
-  b: BBox, opts?: { limit?: number; cat?: string | null },
+  b: BBox, opts?: { limit?: number; cat?: string | null; zoom?: number },
 ) => rpc<PlaceRow[]>("api_places_in_bbox", {
   p_w: b.w, p_s: b.s, p_e: b.e, p_n: b.n,
   p_limit: opts?.limit ?? 60, p_cat: safeCat(opts?.cat),
+  p_zoom: opts?.zoom ?? null,
 });
 
 /* ── 지역 집계 (§13.49 · 042) ─────────────────────────────────
