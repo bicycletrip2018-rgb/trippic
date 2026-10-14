@@ -86,8 +86,13 @@ const Z_PLACES = 14;
      보는 화면에서도 켜진다.
    ★ 줌을 낮춰도 **카드가 뭉치지 않는다.** 아래 `cards` 가 겹침을 화면 비율로
      걸러내는데(`minSep = degPerPx * 110`), 멀리서 볼수록 `degPerPx` 가 커져
-     **자동으로 덜 뽑힌다.** 상한(`MAX_CARDS` 8장)과 별개로 그렇다. */
-const Z_CARDS = 11;
+     **자동으로 덜 뽑힌다.** 상한(`MAX_CARDS` 8장)과 별개로 그렇다.
+   ★ 11 → **`Z_REGION`(9)**(§13.166). 사용자가 읍·면·동 줌에서 *"점만 달랑 하나
+     보인다 — 이미지가 좀 더 일찍 보였으면 좋겠다"* 고 했다. 숫자를 또 하나
+     고르는 대신 **있는 경계에 붙인다**: 핀 자체를 `z < 9` 에서는 읽지도 않으므로
+     (`load()` 가 그 줌에서 비운다) 9 가 **가능한 가장 이른 자리**다.
+     → 규칙이 하나로 줄었다 — *"핀을 읽는 줌부터 사진이 보인다."* */
+const Z_CARDS = Z_REGION;
 /* ★ 몇 장이나. 네이버도 전부 안 띄운다. 8장이면 @3x 로 썸네일 8장이라
    `thumb_url`(480px, §13.58)이 있어야 감당된다. */
 const MAX_CARDS = 8;
@@ -464,6 +469,8 @@ type Pin = {
   save_count: number;
   /** ★ 083 이 새로 준다. 장소 매칭이 실패한 핀은 **null** 이다 — 그때는 날짜만 쓴다 */
   placeName: string | null;
+  /** ★ 090 — 사용자가 **직접 적은** 장소 이름. 있으면 상호보다 **먼저** 선다. */
+  placeLabel: string | null;
 };
 
 const toFeature = (r: any): GeoJSON.Feature | null => {
@@ -578,6 +585,18 @@ export function MapTab(
   /* 서버에 보낼 기준점. 반경 안을 먼저 보게 해 빠르고 가까운 것을 준다(§13.100) */
   const [atLng, setAtLng] = useState(127.8);
   const [zoom, setZoom] = useState(5.6);
+
+  /* ★ **화면 상자를 핀 로더에서 빌려 오면 안 된다**(§13.166). 예전에는
+     `loaded.current.box` 를 봤다. 그건 **ref** 라 바뀌어도 리렌더가 안 나고
+     `useMemo` 의 의존 목록에도 못 들어간다. 게다가 전국 줌에서는 `null` 이다
+     (그 줌에서는 핀을 안 읽으니까 — `load()` 가 그렇게 비운다).
+     그래서 전국에서 확대해 들어오면:
+       ① 좌표·줌이 먼저 바뀌어 memo 가 **null 상자로** 한 번 돌고 → 빈 결과
+       ② 그 뒤 로더가 상자를 채우지만 **의존 값이 그대로라 다시 안 돈다**
+     → 읍·면·동 경계가 **영영 안 그려졌다.** 실기기에서 그랬다(양서면).
+     상자를 **상태로** 들면 채워지는 순간 다시 돈다. 그리고 핀을 읽는지 여부와
+     경계를 그리는지 여부는 **애초에 다른 질문**이라 같은 상자를 쓸 이유가 없다. */
+  const [viewBox, setViewBox] = useState<API.BBox | null>(null);
   const [agg, setAgg] = useState<API.RegionAgg[]>([]);
   /* 읍·면·동 집계 — 지금 보고 있는 시군구 하나만 센다(087) */
   const [subAgg, setSubAgg] = useState<API.SubAgg[]>([]);
@@ -691,6 +710,7 @@ export function MapTab(
       media_w: row.media_w ?? null, media_h: row.media_h ?? null,
       visited_at: row.visited_at ?? null, stay_sec: row.stay_sec ?? null,
       placeName: row.place_name ?? null,
+      placeLabel: row.place_label ?? null,
       verification: row.verification ?? null, is_public: !!row.is_public,
       comment_count: row.comment_count ?? 0,
       like_count: row.like_count ?? 0, save_count: row.save_count ?? 0,
@@ -1050,9 +1070,12 @@ export function MapTab(
     if (zoom < Z_CARDS) return [];
     const withPhoto = pins.filter((p) => p.media_thumb);
     if (!withPhoto.length) return [];
-    /* 화면 가로가 몇 도인지 — 카드 하나가 화면의 몇 분의 일인지로 최소 간격을 낸다 */
-    const box = loaded.current.box;
-    const degPerPx = box ? (box.e - box.w) / (size.current.w * (1 + API.PAD * 2)) : 0;
+    /* 화면 가로가 몇 도인지 — 카드 하나가 화면의 몇 분의 일인지로 최소 간격을 낸다.
+       ★ **핀 로더의 상자가 아니라 화면 상자**를 쓴다(§13.166). 로더 쪽은 패딩이
+         끼어 있어 한 번 나눠 줘야 했고, 무엇보다 전국 줌에서 `null` 이다 —
+         `Z_CARDS` 를 9 로 내린 지금은 **카드가 켜지는 첫 순간이 바로 그 자리**라,
+         `null` 이면 `minSep = 0` 이 되어 8장이 한 덩어리로 겹친다. */
+    const degPerPx = viewBox ? (viewBox.e - viewBox.w) / size.current.w : 0;
     const minSep = degPerPx * 110;                 // 카드 폭 ≈ 96pt + 여백
     const out: Pin[] = [];
     for (const p of [...withPhoto].sort((a, b) => b.like_count - a.like_count)) {
@@ -1207,16 +1230,30 @@ export function MapTab(
      ★ 3,482개를 통째로 소스에 먹이지 않는다 — 화면 상자에 걸치는 것만 추린다.
        그 줌에서는 많아야 수십 개다(양평군 12개). */
   const emdOn = zoom >= Z_REGION && zoom < Z_EMD_END;
-  const emdFC = useMemo(() => {
-    if (!emdOn) return EMPTY_FC;
-    const b = loaded.current.box;
-    if (!b) return EMPTY_FC;
-    const fs = (EMD.features as any[]).filter((f) => {
+
+
+  /* ★ 화면에 걸치는 읍·면·동만 추린다 — 3,482개를 통째로 먹이지 않는다.
+     ★ **리 띠도 이 결과를 쓴다.** 아래 `emdRegions` 가 *"지금 보이는 시군구"* 를
+       여기서 뽑고, 리 집계도 그 목록으로 묻기 때문이다. 예전에는 `emdOn` 일 때만
+       채웠는데 리 줌(11~14)에서는 `emdOn` 이 false 라 목록이 **빈 배열**이 되었고,
+       물어볼 시군구가 없어 **리가 한 번도 안 떴다** — 089 까지 다 만들어 놓고
+       호출이 한 줄 때문에 막혀 있었다. 조건을 두 띠의 합집합으로 넓힌다. */
+  const bandOn = emdOn || (zoom >= Z_EMD_END && zoom < Z_RI_END);
+  const visEmd = useMemo(() => {
+    if (!bandOn || !viewBox) return [] as any[];
+    const b = viewBox;
+    return (EMD.features as any[]).filter((f) => {
       const bb = f.properties?.bbox;
       return bb && bb[0] <= b.e && bb[2] >= b.w && bb[1] <= b.n && bb[3] >= b.s;
     });
-    return { type: "FeatureCollection", features: fs } as GeoJSON.FeatureCollection;
-  }, [emdOn, zoom, atLng, atLat]);
+  }, [bandOn, viewBox]);
+
+  /* 그리는 것은 읍·면·동 줌에서만 — 추리는 것과 그리는 것은 다른 질문이다 */
+  const emdFC = useMemo(
+    () => (emdOn && visEmd.length
+      ? ({ type: "FeatureCollection", features: visEmd } as GeoJSON.FeatureCollection)
+      : EMPTY_FC),
+    [emdOn, visEmd]);
 
   /* ★ **보이는 시군구를 전부 묻는다**(§13.164). 처음에는 *"가장 많이 보이는
      하나"* 로 했는데, 이 줌에서는 화면에 **시군구가 서너 개 걸친다** —
@@ -1225,11 +1262,11 @@ export function MapTab(
      ★ 네 개로 끊는다. 더 넓게 보이면 그건 시군구 줌이 답할 질문이다. */
   const emdRegions = useMemo(() => {
     const c: Record<string, number> = {};
-    for (const f of emdFC.features as any[]) {
+    for (const f of visEmd) {
       const rc = f.properties?.rc; if (rc) c[rc] = (c[rc] ?? 0) + 1;
     }
     return Object.keys(c).sort((a, b) => c[b] - c[a]).slice(0, 4);
-  }, [emdFC]);
+  }, [visEmd]);
   const emdKey = emdRegions.join(",");
 
   useEffect(() => {
@@ -1267,7 +1304,7 @@ export function MapTab(
      ★ 읍면동과 달리 **경계를 앱에 번들하지 않았다** — GeoJSON 으로 22 MB 다.
        089 가 **가 본 리**의 숫자와 경계를 한 번에 준다. 받는 것이 그리는 것과
        같아서, 지도를 밀어도 안 쓰는 바이트가 0이다. */
-  const riOn = zoom >= Z_EMD_END && zoom < Z_RI_END;
+  const riOn = bandOn && !emdOn;
   useEffect(() => {
     if (!riOn || !emdRegions.length) { setRiAgg([]); setRiKeyLoaded(null); return; }
     const key = `${emdKey}|${scope}|${cat ?? ""}|${space ?? ""}`;
@@ -1465,6 +1502,8 @@ export function MapTab(
                onCenter?.({ lng: (b[0] + b[2]) / 2, lat: (b[1] + b[3]) / 2 });
                setAtLat((b[1] + b[3]) / 2);
                setAtLng((b[0] + b[2]) / 2);
+               /* ★ 경계 띠가 보는 상자. 핀 로더와 **따로** 든다(§13.166) */
+               setViewBox({ w: b[0], s: b[1], e: b[2], n: b[3] });
              }).catch(() => {});
            }}>
         {/* ★ 줌 숫자가 아니라 **담을 범위**로 말한다. `zoom: 5.6` 은 벤치마크 화면에서
@@ -1594,9 +1633,16 @@ export function MapTab(
                   *"이게 어디였더라"* 에 답이 안 된다 — 특히 남에게 보여 줄 때.
                   ★ 이름이 없는 핀이 있다(장소 매칭 실패 허용, 002). 그때는
                     메모로, 그것도 없으면 날짜만 쓴다. **빈 줄을 만들지 않는다.** */}
-              {zoom >= Z_CARD_TEXT && (() => {
-                const title = c.placeName || c.memo || null;
-                const day = fmtDay(c.visited_at);
+              {/* ★ **줌이 바뀌어도 이름이 바뀌지 않는다**(§13.166). 예전에는
+                  가까이서 `placeName`, 멀리서 `memo` 를 썼다 — 그래서 확대만 했는데
+                  «방이동 먹자골목» 이 «오렌지전화방» 으로 **갈아끼워졌다.**
+                  사용자가 *"나는 전화방 같은 곳을 가본 적도 없는데"* 라고 한 자리다.
+                  이름은 하나다. 줌이 더 주는 것은 **날짜**뿐이다.
+                  ★ 순서: 직접 적은 이름(090) → 매칭된 상호 → 메모. 사용자가 적은
+                    것이 먼저다 — 기계가 고른 상호보다 사람이 적은 이름이 맞다. */}
+              {(() => {
+                const title = c.placeLabel || c.placeName || c.memo || null;
+                const day = zoom >= Z_CARD_TEXT ? fmtDay(c.visited_at) : null;
                 if (!title && !day) return null;
                 return (
                   <View style={st.cardCap}>
@@ -1609,9 +1655,6 @@ export function MapTab(
                   </View>
                 );
               })()}
-              {zoom < Z_CARD_TEXT && !!c.memo && (
-                <Text style={st.cardT} numberOfLines={1}>{c.memo}</Text>
-              )}
               {/* 카드가 가리키는 지점 — 없으면 사진이 공중에 뜬 것처럼 보인다 */}
               <View style={st.cardPin} />
             </View>

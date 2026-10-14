@@ -1135,7 +1135,8 @@ export async function pushLive(shot: {
   durationSec?: number; posterUri?: string;
   lat: number; lng: number; accuracyM: number; liveOk: boolean; takenAt: number;
 }, o?: { placeId?: string | null; category?: string | null; memo?: string | null;
-         isPublic?: boolean }) {
+         /** ★ 090 — 후보에 없는 자리를 사용자가 **직접 적은 이름** */
+         placeLabel?: string | null; isPublic?: boolean }) {
   if (!isOn()) return { ok: false, why: "서버 연결 없음" };
   if (!SESSION.access_token) return { ok: false, why: "로그인 필요" };
 
@@ -1148,6 +1149,9 @@ export async function pushLive(shot: {
     /* 한 장이면 체류 시간을 **모른다.** 0 이라고 쓰면 거짓말이다(§13.23 과 같은 규칙) */
     stay_sec: null,
     memo: o?.memo || null,
+    /* ★ 이름은 메모가 아니다(090). 메모에 적게 두면 지도가 줌에 따라 상호와
+       번갈아 보여 준다 — 사용자가 겪은 그 버그다. */
+    place_label: o?.placeLabel || null,
     /* 장소를 못 고르면 공개하지 않는다 — 좌표만 있는 점은 무엇인지 말할 수 없다(009) */
     is_public: !!o?.isPublic && !!o?.placeId,
     verification: shot.liveOk ? "live" : "manual",

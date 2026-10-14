@@ -12,8 +12,8 @@
 import React, { useState } from "react";
 import { useTopPad } from "./safeArea";
 import {
-  ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet,
-  Text, TextInput, View,
+  ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable,
+  ScrollView, StyleSheet, Text, TextInput, View,
 } from "react-native";
 import * as API from "./api";
 import { capture, isFail, LIVE_ACCURACY_M, VIDEO_MAX_SEC, type Shot } from "./live";
@@ -28,6 +28,11 @@ export function LiveCapture({ onClose }: { onClose: (saved?: boolean) => void })
   const [place, setPlace] = useState<any | null>(null);
   const [cands, setCands] = useState<any[] | null>(null);
   const [memo, setMemo] = useState("");
+  /* ★ **후보에 없는 자리를 부를 이름**(090). 먹자골목·공터·전망대 — 상호 표에
+     없는 곳은 많다. 이게 없던 동안 사용자는 «한 줄 남기기» 에 이름을 적었고,
+     그건 메모라서 지도가 줌에 따라 상호와 번갈아 보여 주었다. */
+  const [label, setLabel] = useState("");
+  const [labelOn, setLabelOn] = useState(false);
   const [pub, setPub] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [result, setResult] = useState<any>(null);
@@ -53,10 +58,18 @@ export function LiveCapture({ onClose }: { onClose: (saved?: boolean) => void })
          맞춘다 — 정확도가 20m 면 20m 안의 후보만 믿을 만하고, 120m 면
          무엇을 골라도 찍은 그 집이라는 보장이 없다.
        ★ 그래도 **사람이 바꿀 수 있다.** 미리 고른 것은 제안이지 결정이 아니다. */
-    const top = list[0];
-    if (top && (top.dist_m ?? 9999) <= Math.max(30, Math.min(r.accuracyM, 80))) {
-      setPlace(top);
-    }
+    /* ★ **1등이라는 사실에 뜻이 있을 때만** 고른다(§13.166).
+       예전 규칙은 *"정확도 안에 들면 1등을 고른다"* 였다. 먹자골목 한복판에서는
+       16m 안에 가게가 **열 곳**이다 — 그중 1등은 GPS 오차가 뽑은 제비일 뿐인데,
+       말없이 골라 두니 사용자 기록에 **가 본 적 없는 가게**가 붙었다.
+       사용자: *"나는 전화방 같은 곳을 가본 적도 없는데 이렇게 오류가 생겼어."*
+       → 2등이 1등과 **구별이 안 되게 가까우면**(15m 안) 고르지 않는다.
+         기계가 모르는 것을 아는 척하지 않는 것이 맞다. 대신 아래 버튼이
+         *"장소 없이 저장하기"* 라고 **적어서** 사용자가 알고 넘어가게 한다. */
+    const top = list[0], second = list[1];
+    const near = top && (top.dist_m ?? 9999) <= Math.max(30, Math.min(r.accuracyM, 80));
+    const tied = second && (second.dist_m ?? 9999) <= (top?.dist_m ?? 0) + 15;
+    if (near && !tied) setPlace(top);
   }
 
   async function save() {
@@ -66,6 +79,7 @@ export function LiveCapture({ onClose }: { onClose: (saved?: boolean) => void })
       placeId: place?.place_id ?? place?.id ?? null,
       category: place?.category ?? null,
       memo: memo.trim() || null,
+      placeLabel: labelOn ? (label.trim() || null) : null,
       isPublic: pub,
     });
     setResult(r);
@@ -73,9 +87,18 @@ export function LiveCapture({ onClose }: { onClose: (saved?: boolean) => void })
     setPhase("done");
   }
 
+  /* 지금 이 기록이 **무엇으로 불릴지.** 직접 적은 이름이 먼저다(090 과 같은 순서) */
+  const chosen = (labelOn ? label.trim() : "") || place?.name || "";
+
   return (
     <Modal visible animationType="slide" onRequestClose={() => onClose(false)}>
-      <View style={s.root}>
+      {/* ★ **키보드가 입력란을 통째로 가렸다**(§13.166). 사용자가 «한 줄 남기기» 를
+          누르자 키보드가 올라오면서 **적고 있는 칸이 그 아래로 들어갔다** —
+          무엇을 치는지 보이지 않는 채로 적어야 했다.
+          ★ 안드로이드의 `adjustResize` 는 **`Modal` 안에서는 안 듣는다** —
+            모달이 제 창을 따로 들기 때문이다. 그래서 직접 비켜 준다. */}
+      <KeyboardAvoidingView style={s.root}
+                            behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <View style={[s.head, { paddingTop: topPad }]}>
           <Pressable onPress={() => onClose(phase === "done")} hitSlop={12}>
             <Text style={s.headBtn}>✕</Text>
@@ -85,7 +108,7 @@ export function LiveCapture({ onClose }: { onClose: (saved?: boolean) => void })
         </View>
 
         {phase === "intro" && (
-          <ScrollView contentContainerStyle={s.body}>
+          <ScrollView contentContainerStyle={s.body} keyboardShouldPersistTaps="handled">
             {/* ★ 고지를 **팝업 뒤로 숨기지 않는다.** 권한 팝업은 거절 버튼이 먼저 눈에
                 들어온다 — 무엇을 얻는지 먼저 읽게 해야 허용을 누른다. */}
             <View style={s.note}>
@@ -135,7 +158,7 @@ export function LiveCapture({ onClose }: { onClose: (saved?: boolean) => void })
         )}
 
         {phase === "detail" && shot && (
-          <ScrollView contentContainerStyle={s.body}>
+          <ScrollView contentContainerStyle={s.body} keyboardShouldPersistTaps="handled">
             {/* ★ 뱃지를 받는지 **먼저** 말한다. 다 적고 나서 "인증 안 됐습니다"는 늦다. */}
             <View style={[s.badge, shot.liveOk ? s.badgeOk : s.badgeNo]}>
               <Text style={s.badgeT}>
@@ -160,7 +183,7 @@ export function LiveCapture({ onClose }: { onClose: (saved?: boolean) => void })
             </View>
 
             <Text style={s.rowK}>
-              장소{place ? "" : cands?.length ? " — 골라 주십시오" : ""}
+              장소{chosen ? "" : cands?.length ? " — 골라 주십시오" : ""}
             </Text>
             {cands === null ? (
               <ActivityIndicator color={C.accent} />
@@ -172,7 +195,10 @@ export function LiveCapture({ onClose }: { onClose: (saved?: boolean) => void })
                 return (
                   <Pressable key={c.place_id ?? c.id}
                              style={[s.card, on && s.cardOn]}
-                             onPress={() => setPlace(on ? null : c)}>
+                             onPress={() => {
+                               setPlace(on ? null : c); setLabelOn(false);
+                               if (on) setPub(false);   // 장소가 빠지면 공개도 빠진다
+                             }}>
                     <View style={{ flex: 1 }}>
                       <Text style={s.cardT}>{c.name}</Text>
                       <Text style={s.cardS}>
@@ -183,6 +209,24 @@ export function LiveCapture({ onClose }: { onClose: (saved?: boolean) => void })
                   </Pressable>
                 );
               })
+            )}
+
+            {/* ★ **후보에 없는 자리**를 부를 길(090). 목록 맨 뒤에 둔다 —
+                위에 두면 고를 수 있는 것이 있는데도 직접 적게 만든다. */}
+            <Pressable style={[s.card, labelOn && s.cardOn]}
+                       onPress={() => {
+                         setLabelOn(!labelOn);
+                         if (!labelOn) { setPlace(null); setPub(false); }
+                       }}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.cardT}>여기 없음 — 이름을 직접 적겠습니다</Text>
+                <Text style={s.cardS}>먹자골목·공터·전망대처럼 상호가 없는 자리</Text>
+              </View>
+            </Pressable>
+            {labelOn && (
+              <TextInput
+                style={s.name} value={label} onChangeText={setLabel} maxLength={60}
+                placeholder="예: 방이동 먹자골목" placeholderTextColor={C.muted} />
             )}
 
             <TextInput
@@ -196,20 +240,35 @@ export function LiveCapture({ onClose }: { onClose: (saved?: boolean) => void })
                 <Text style={s.rowK}>모두의 지도에 올리기</Text>
                 <Text style={s.hint}>
                   {place ? "이 장소를 찾는 사람에게 보입니다."
-                         : "장소를 고르셔야 올릴 수 있습니다 — 좌표만으로는 어디인지 말할 수 없습니다."}
+                   /* ★ 직접 적은 이름으로는 못 올린다(090·009). **왜인지 적는다** —
+                      "안 됩니다"만 쓰면 버그로 읽힌다. */
+                   : labelOn
+                     ? "직접 적으신 이름은 올릴 수 없습니다 — 그 자리가 맞는지 확인할 길이 없습니다. 내 지도에는 남습니다."
+                     : "장소를 고르셔야 올릴 수 있습니다 — 좌표만으로는 어디인지 말할 수 없습니다."}
                 </Text>
               </View>
             </Pressable>
 
             {!!err && <Text style={s.err}>{err}</Text>}
+            {/* ★ **버튼이 무엇을 할지 적는다**(§13.166). 고른 장소는 목록 맨 위에
+                있어서, 스크롤을 내린 사용자는 **무엇이 골라졌는지 볼 수조차 없었다.**
+                요약을 또 하나 얹는 대신 **누를 것 자체가 말하게** 한다 —
+                여기는 반드시 지나가는 자리다. */}
             <Pressable style={s.cta} onPress={save}>
-              <Text style={s.ctaT}>저장하기</Text>
+              <Text style={s.ctaT} numberOfLines={1}>
+                {chosen ? `${chosen}에 저장하기` : "장소 없이 저장하기"}
+              </Text>
             </Pressable>
+            {!chosen && (
+              <Text style={s.hint}>
+                좌표만 남습니다 — 지도에는 보이지만 «어디였는지» 는 적히지 않습니다.
+              </Text>
+            )}
           </ScrollView>
         )}
 
         {phase === "done" && (
-          <ScrollView contentContainerStyle={s.body}>
+          <ScrollView contentContainerStyle={s.body} keyboardShouldPersistTaps="handled">
             <Text style={s.doneT}>
               {result?.ok ? "남겼습니다." : "기록은 남았습니다."}
             </Text>
@@ -230,7 +289,7 @@ export function LiveCapture({ onClose }: { onClose: (saved?: boolean) => void })
             </Pressable>
           </ScrollView>
         )}
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -273,6 +332,11 @@ const s = StyleSheet.create({
   cardT: { color: C.text, fontSize: 14, fontWeight: "600" },
   cardS: { color: C.muted, fontSize: 12, marginTop: 3 },
   rowK: { color: C.text, fontSize: 13, fontWeight: "600" },
+  /* 이름은 **한 줄**이다 — 여러 줄 칸을 주면 메모와 구분이 안 간다 */
+  name: {
+    backgroundColor: C.surface, borderRadius: 12, padding: 13, color: C.text,
+    fontSize: 14, borderWidth: 1, borderColor: C.accent,
+  },
   memo: {
     backgroundColor: C.surface, borderRadius: 12, padding: 13, color: C.text,
     fontSize: 14, minHeight: 72, textAlignVertical: "top",
