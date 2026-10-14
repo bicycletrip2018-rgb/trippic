@@ -185,6 +185,7 @@ export function LiveCapture({ onClose }: { onClose: (saved?: boolean) => void })
             <Text style={s.rowK}>
               장소{chosen ? "" : cands?.length ? " — 골라 주십시오" : ""}
             </Text>
+            <Text style={s.hint}>여기가 어디인지. 아래에서 고르거나 직접 적습니다.</Text>
             {cands === null ? (
               <ActivityIndicator color={C.accent} />
             ) : !cands.length ? (
@@ -226,12 +227,25 @@ export function LiveCapture({ onClose }: { onClose: (saved?: boolean) => void })
             {labelOn && (
               <TextInput
                 style={s.name} value={label} onChangeText={setLabel} maxLength={60}
-                placeholder="예: 방이동 먹자골목" placeholderTextColor={C.muted} />
+                placeholder="이 자리의 이름 — 예: 방이동 먹자골목"
+                placeholderTextColor={C.muted} />
             )}
 
+            {/* ★ **이름 칸과 메모 칸이 구별이 안 됐다**(§13.168). 사용자:
+                *"한 줄 남기기는 장소를 선택하고도 쓸 수 있는 간단한 메모 느낌인가?
+                  위치 이름을 적는 건지 내 추억을 적는 건지 헷갈려할 사람이 많을 것 같아."*
+                맞는 지적이다 — 둘 다 «한 줄 적는 칸» 으로 생겼고, 안내 문구가 없었다.
+                애초에 사용자가 장소 이름을 **메모에 적었던** 것도 이 때문이다.
+                → 메모에도 **제목과 한 줄 설명**을 준다. 장소 칸과 같은 모양으로
+                  세워 두면 *"이건 다른 질문이구나"* 가 보인다. */}
+            <Text style={s.rowK}>이 순간 한 줄</Text>
+            <Text style={s.hint}>
+              장소 이름이 아니라, 그때 어땠는지 적는 곳입니다. 비워 두셔도 됩니다.
+            </Text>
             <TextInput
               style={s.memo} value={memo} onChangeText={setMemo} multiline
-              placeholder="한 줄 남기기 (선택)" placeholderTextColor={C.muted} />
+              placeholder="예: 노을 질 때 갔더니 사람이 없었다"
+              placeholderTextColor={C.muted} />
 
             {/* ★ 장소를 안 고르면 공개할 수 없다(009) — 버튼을 막고 **이유를 적는다.** */}
             <Pressable style={s.pubRow} onPress={() => place && setPub(!pub)}>
