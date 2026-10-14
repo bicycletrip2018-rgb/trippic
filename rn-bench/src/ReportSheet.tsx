@@ -16,7 +16,9 @@
  *   떠보는 수단이 된다. 받았다는 것까지만 말한다.
  */
 import { useState } from "react";
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View,
+} from "react-native";
 import { C } from "./theme";
 import * as API from "./api";
 
@@ -68,6 +70,10 @@ export function ReportSheet(
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={close}>
+      {/* ★ 키보드가 올라오면 **시트가 그 아래로 들어간다** — 적는 칸이 안 보인다.
+          `adjustResize` 는 `Modal` 안에서 안 듣는다(LiveCapture 와 같은 자리). */}
+      <KeyboardAvoidingView style={{ flex: 1 }}
+                            behavior={Platform.OS === "ios" ? "padding" : "height"}>
       <Pressable style={s.dim} onPress={close} />
       <View style={s.sheet}>
         <View style={s.grip} />
@@ -122,6 +128,7 @@ export function ReportSheet(
           </>
         )}
       </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

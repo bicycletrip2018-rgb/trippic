@@ -11,8 +11,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTopPad } from "./safeArea";
 import {
-  ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text,
-  TextInput, View,
+  ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, Pressable,
+  ScrollView, StyleSheet, Text, TextInput, View,
 } from "react-native";
 import { C, CAT } from "./theme";
 import * as API from "./api";
@@ -193,7 +193,10 @@ export function RegisterFlow({ onClose }: { onClose: () => void }) {
 
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
-      <View style={[s.root, { paddingTop: topPad }]}>
+      {/* ★ 한 줄 메모를 누르면 키보드가 그 칸을 덮었다 — `adjustResize` 는
+          `Modal` 안에서 안 듣는다(LiveCapture·ReportSheet 와 같은 자리). */}
+      <KeyboardAvoidingView style={[s.root, { paddingTop: topPad }]}
+                            behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <View style={s.head}>
           <Pressable
             onPress={step === "stops"
@@ -261,7 +264,7 @@ export function RegisterFlow({ onClose }: { onClose: () => void }) {
             }}
           />
         )}
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -269,7 +272,7 @@ export function RegisterFlow({ onClose }: { onClose: () => void }) {
 /* ── S1 진입 ─────────────────────────────────────────────────── */
 function Intro({ onScan }: { onScan: () => void }) {
   return (
-    <ScrollView contentContainerStyle={s.body}>
+    <ScrollView contentContainerStyle={s.body} keyboardShouldPersistTaps="handled">
       <Pressable style={s.entry} onPress={onScan}>
         <Text style={s.entryIcon}>🖼️</Text>
         <View style={{ flex: 1 }}>
@@ -358,7 +361,7 @@ function TripList(
       </View>
     );
   return (
-    <ScrollView contentContainerStyle={s.body}>
+    <ScrollView contentContainerStyle={s.body} keyboardShouldPersistTaps="handled">
       <GpsNotice />
       <Text style={s.tidy}>
         {real.length
@@ -575,7 +578,7 @@ function PlacePicker(
                길이라(§13.52) 사람이 "검색이 안 되는 건가" 하고 글자를 지웠다 다시 친다. */
           <View style={s.body}>{[0, 1, 2, 3].map((i) => <CardSkeleton key={i} />)}</View>
         ) : (
-          <ScrollView contentContainerStyle={s.body}>
+          <ScrollView contentContainerStyle={s.body} keyboardShouldPersistTaps="handled">
             {err && <Text style={s.err}>{err}</Text>}
             {noGeo && !list.length && !q && (
               <Text style={s.empty}>
@@ -639,7 +642,7 @@ function PlacePicker(
 function Done({ result, onClose }: { result: any; onClose: () => void }) {
   const failed = result?.failed || [];
   return (
-    <ScrollView contentContainerStyle={s.body}>
+    <ScrollView contentContainerStyle={s.body} keyboardShouldPersistTaps="handled">
       <Text style={s.doneT}>
         {result?.why ? result.why
           : `기록 ${result?.pins ?? 0}곳 · 사진 ${result?.media ?? 0}장을 올렸습니다`}
