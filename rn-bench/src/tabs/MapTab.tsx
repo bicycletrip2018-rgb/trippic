@@ -441,6 +441,96 @@ function koreanFirst(style: any) {
   };
   style.layers.splice(i < 0 ? style.layers.length : i, 0, peak);
 
+  /* ── ★ **도시에서는 동 이름이 한 글자도 안 나왔다** (§13.168) ──────────
+     사용자: *"바다 해수욕장은 잘 보이는데 이름(해운대)이 안 보이고 도로명 주소는
+              너무 잘 보여."*
+
+     타일을 열어서 셌다. `place` 겹에 이런 것들이 들어 있다:
+
+       서울 z14 → quarter 3 · neighbourhood 2 · borough 1
+       부산 z14 → quarter 3            (해운대구 = borough, 중동 = quarter)
+       z11~13  → island 1             (동백섬)
+
+     그런데 **이 스타일에는 그걸 그리는 겹이 하나도 없다.** `suburb`·`village`·
+     `town`·`city` 만 그린다 — 시골에서는 «양서면·조안면» 이 그 겹에 걸려 보였지만,
+     **도시로 들어오면 아무것도 안 걸린다.** 그래서 해운대 한복판에서 남는 글자가
+     도로명뿐이었다. 없는 데이터가 아니라 **안 그리고 있던 데이터**다(§13.95 와 같은 모양).
+
+     ★ `highway_name_other` **앞에** 꽂는다. MapLibre 는 스타일에서 **먼저 나온
+       겹부터** 글자를 놓고, 자리를 못 잡은 쪽을 버린다 — 뒤에 두면 지금처럼
+       도로명이 먼저 자리를 다 차지한다. 순서가 곧 우선순위다. */
+  const ri = style.layers.findIndex((l: any) => l.id === "highway_name_other");
+  style.layers.splice(ri < 0 ? style.layers.length : ri, 0, {
+    id: "place-admin", type: "symbol", source: "openmaptiles",
+    "source-layer": "place", minzoom: 10,
+    filter: ["all",
+      ["match", ["geometry-type"], ["Point", "MultiPoint"], true, false],
+      ["match", ["get", "class"],
+       ["borough", "quarter", "neighbourhood", "hamlet", "island"], true, false]],
+    layout: {
+      "text-field": ["coalesce", ["get", "name:ko"], ["get", "name"], ["get", "name:latin"]],
+      "text-font": ["Noto Sans Regular"],
+      "text-size": ["interpolate", ["linear"], ["zoom"], 10, 11, 14, 12.5, 17, 14],
+      "text-max-width": 6, "text-padding": 6,
+      /* 구 > 동·섬 > 통반 순으로 자리를 준다 — 작을수록 먼저다 */
+      "symbol-sort-key": ["match", ["get", "class"],
+        "borough", 0, "island", 1, "quarter", 2, "neighbourhood", 3, 4],
+    },
+    paint: {
+      "text-color": "rgba(198,205,220,0.88)",
+      "text-halo-color": "rgba(0,0,0,0.85)", "text-halo-width": 1.3,
+    },
+  } as any);
+
+  /* ── ★ **바다·호수 이름**(§13.168) ────────────────────────────────
+     이 겹은 있는데 두 군데가 막혀 있었다:
+       ① 필터가 `LineString` **만** 받는다 — 바다·만·호수 이름은 **점**이라 전부 버려졌다.
+       ② 글자색이 `hsla(0,0%,0%,0.7)` — **검정**이다. 어두운 지도에서 검은 글씨다.
+     ★ 다만 솔직히 적어 둔다: 해운대 타일에는 `water_name` 이 **비어 있다.**
+       OSM 에 그 바다 이름이 점으로 안 들어 있어서다 — 이 고침은 이름이 **있는
+       곳에서만** 효과가 있다. 「해운대해수욕장」 은 우리 `places` 표가 답한다. */
+  for (const l of style.layers) {
+    if (l.id !== "water_name") continue;
+    l.filter = ["match", ["geometry-type"],
+                ["Point", "MultiPoint", "LineString", "MultiLineString"], true, false];
+    l.layout = { ...l.layout, "symbol-placement": "point", "text-size": 12 };
+    l.paint = {
+      "text-color": "rgba(150,180,215,0.9)",
+      "text-halo-color": "rgba(0,0,0,0.85)", "text-halo-width": 1.2,
+    };
+  }
+
+  /* ── ★ **도로명이 지도를 먹고 있었다**(§13.168) ─────────────────────
+     `symbol-spacing: 350` 은 **한 도로에 350px 마다 이름을 다시 찍는다**는 뜻이다.
+     글자가 그것뿐일 때는 안 거슬렸는데, 땅이 밝아지고(§13.167) 경쟁할 글자가
+     없으니 화면이 도로명으로 덮였다. 간격을 두 배로 벌리고 한 급 낮춘다.
+     ★ 지우지는 않는다 — 골목에서 길 이름은 *"여기가 어디냐"* 에 답하는 것이 맞다. */
+  for (const l of style.layers) {
+    if (l.id === "highway_name_other") {
+      l.layout = { ...l.layout, "symbol-spacing": 800, "text-size": 9.5 };
+      l.paint = { ...l.paint, "text-color": "rgba(126,130,142,0.72)",
+                  "text-halo-color": "rgba(0,0,0,0.75)", "text-halo-width": 0.9 };
+      l.minzoom = 13;     // 멀리서는 길 이름이 할 말이 없다
+      /* ★ **골목 이름까지 다 적고 있었다.** 브라우저에 띄워 세어 보니 해운대
+         한 화면(z14.3)에 도로명이 **41개**였다 — 그중 19개가 `minor`(…번길),
+         3개가 `path` 다. 네이버는 이 줌에서 «로·대로» 만 적는다.
+         간격만 벌려서는 안 줄어든다(한 도로가 한 번씩만 나와도 41개다).
+         → **줌에 따라 급을 자른다.** 골목 이름은 골목에 들어가야 보인다.
+           실측: 41개 → **10개**. */
+      l.filter = ["all",
+        ["!=", ["get", "class"], "motorway"],
+        ["match", ["geometry-type"], ["LineString", "MultiLineString"], true, false],
+        ["step", ["zoom"],
+          ["match", ["get", "class"], ["trunk", "primary", "secondary"], true, false],
+          16, ["match", ["get", "class"],
+               ["trunk", "primary", "secondary", "tertiary"], true, false],
+          17, true]];
+    } else if (l.id === "highway_name_motorway") {
+      l.paint = { ...l.paint, "text-color": "rgba(120,126,140,0.8)" };
+      l.minzoom = 9;
+    }
+  }
+
   /* ── ★ **강과 숲에 색을 준다** (§13.95) ───────────────────────────
      레이어는 처음부터 있었는데 **색이 배경과 같아서 안 보였다**(실측):
        · `waterway`      line-color `rgb(27,27,29)`  ← 배경 `rgb(12,12,12)`·땅 `#282B36`
@@ -1226,6 +1316,15 @@ export function MapTab(
         id: q.id,
         name: q.name,
         color: CAT[q.category ?? "etc"]?.c ?? CAT.etc.c,
+        /* ★ **겹치면 랜드마크가 이긴다**(§13.168). 사용자가 *"해운대가 안 보인다"*
+           고 한 자리 — 서버는 「해운대해수욕장」 을 **1등으로 보내 주고 있었다**
+           (실측: 그 상자의 3,015곳 중 60개를 뽑는데 1번). 그런데 글자가 겹치면
+           MapLibre 가 **아무거나** 버린다. 정렬 키가 없었기 때문이다.
+           → 갈래로 순서를 준다. 「해변·자연·문화재」가 「안경점」보다 먼저다.
+             082 의 `place_tier` 와 **같은 생각**이고, 거기서는 검색 순위였다. */
+        tier: ({ beach: 0, nature: 0, heritage: 0,
+                 activity: 1, event: 1, stay: 2 } as Record<string, number>)
+              [q.category ?? "etc"] ?? 3,
       },
     })),
   };
@@ -1777,7 +1876,9 @@ export function MapTab(
                  layout={{
                    "text-field": ["get", "name"] as any,
                    "text-font": ["Noto Sans Regular"],
-                   "text-size": 10.5,
+                   /* 랜드마크는 한 급 크게 — 순서만으로는 «같은 무게의 60개» 로 읽힌다 */
+                   "text-size": ["step", ["get", "tier"], 12, 1, 11, 2, 10.5] as any,
+                   "symbol-sort-key": ["get", "tier"] as any,
                    "text-offset": [0, 0.9],
                    "text-anchor": "top",
                    "text-max-width": 7,
