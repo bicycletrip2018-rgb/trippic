@@ -73,9 +73,17 @@ const Z_EMD_END = 11;  // 9 ≤ z < 11 사이에 읍·면·동
      뒀으므로 z12 에서 딱 1픽셀이다 — 이 띠(11~14)가 그 정밀도에 맞는 자리다. */
 const Z_RI_END = 14;   // 11 ≤ z < 14 사이에 리
 const Z_ALL = 13;      // 이 위는 전부
-/* ★ 상호는 **가까이서만** 켠다(§13.60). 멀리서 켜면 글자가 죽이 되고,
-   그 줌에서 답해야 하는 질문(*어느 지역에 많나*)과도 어긋난다. */
-const Z_PLACES = 14;
+/* ★ 상호가 **처음 등장할 수 있는** 줌(§13.169). 예전에는 14 하나로 전부를
+   켜고 껐다 — 그래서 광안리해수욕장도 z14 가 되어야 떴고, 그 순간 가게 60개가
+   **같이** 떠서 사용자가 *"지저분하다"* 고 했다.
+   ★ 이제 **갈래마다 문턱이 다르다**(091, 서버가 건다):
+       해변 10 · 자연 11 · 문화재·행사 13 · 액티비티·숙박 14 · 가게 15
+     여기 숫자는 그중 **가장 이른 것**이다 — 이 아래로는 아예 안 묻는다.
+   ★ 갈래 칩이 켜져 있으면 서버가 문턱을 2 내린다. 「자연」만 보겠다는 사람에게
+     「자연」을 숨길 이유가 없다(사용자 지적). */
+const Z_PLACES = 10;
+/* 상호 **글자**를 켜는 줌. 점은 더 멀리서부터 찍어도 되지만 글자는 겹친다. */
+const Z_PLACE_TEXT = 11;
 /* ★ 표지 카드(사진 + 이름)를 켜는 줌.
    ★ 15 였다 → **13**(§13.158). 15 는 *"엄청 확대해야 그제서야 보인다"* 였고,
      사용자가 *"부산 여행 루트를 한눈에"* 보려는 것과 정면으로 어긋났다.
@@ -835,8 +843,8 @@ export function MapTab(
      확대만 하는 동안 상호가 **영영 안 뜬다**(실제로 그랬다, §13.60).
      핀은 줌이 바뀌어도 같은 집합이지만 상호는 **줌으로 켜고 끈다.** 기준이
      다르면 상자도 따로 가져야 한다. */
-  const placesBox = useRef<{ box: API.BBox | null; cat: string | null }>(
-    { box: null, cat: null });
+  const placesBox = useRef<{ box: API.BBox | null; cat: string | null; band: number }>(
+    { box: null, cat: null, band: -1 });
 
   const load = useCallback(async (force: boolean, sc: API.Scope, z?: number) => {
     const ct = catRef.current, sp = spaceRef.current;
@@ -898,7 +906,7 @@ export function MapTab(
   /* 화면 안의 상호. 줌이 낮으면 걷어낸다. */
   const loadPlaces = useCallback(async (z: number) => {
     if (z < Z_PLACES) {
-      placesBox.current = { box: null, cat: null };
+      placesBox.current = { box: null, cat: null, band: -1 };
       setPlaces((prev) => (prev.length ? [] : prev));
       return;
     }
@@ -906,11 +914,17 @@ export function MapTab(
     if (!b) return;
     const view: API.BBox = { w: b[0], s: b[1], e: b[2], n: b[3] };
     const ct = catRef.current;
-    if (placesBox.current.cat === ct && inside(view, placesBox.current.box)) return;
+    /* ★ **줌도 캐시 키다**(§13.169). 서버가 줌으로 갈래 문턱을 걸게 된 뒤로는,
+       같은 자리에서 확대만 해도 **답이 달라진다** — 상자만 보고 건너뛰면
+       z11 에서 받은 «자연뿐인 목록» 이 z15 까지 그대로 남는다.
+       한 칸 단위로 끊는다(소수점까지 보면 핀치 중에 매 프레임 다시 묻는다). */
+    const band = Math.floor(z);
+    if (placesBox.current.cat === ct && placesBox.current.band === band
+        && inside(view, placesBox.current.box)) return;
     const box = API.padBox(view);
-    const r = await API.placesInBBox(box, { limit: 60, cat: ct });
+    const r = await API.placesInBBox(box, { limit: 60, cat: ct, zoom: band });
     if (!r.ok) return;
-    placesBox.current = { box, cat: ct };
+    placesBox.current = { box, cat: ct, band };
     setPlaces(r.data ?? []);
   }, []);
 
@@ -1180,7 +1194,7 @@ export function MapTab(
     setPins([]);
     setMore(false);
     loaded.current = { box: null, scope, cat: v, space };
-    placesBox.current = { box: null, cat: v };   // 상호도 같은 필터를 탄다
+    placesBox.current = { box: null, cat: v, band: -1 };  // 상호도 같은 필터를 탄다
     void loadPlaces(zoom);
     setAgg([]);
     void load(true, scope);
@@ -1865,14 +1879,16 @@ export function MapTab(
                  paint={{
                    "circle-radius": [
                      "interpolate", ["linear"], ["zoom"],
-                     Z_PLACES, 4.5, 16, 6, 18, 7.5,
+                     /* 멀리서는 작게 — z10 의 해변 한 점이 z16 의 가게와 같은
+                        크기면 «큰 것» 이라는 뜻이 사라진다 */
+                     Z_PLACES, 3.2, 13, 4.5, 16, 6, 18, 7.5,
                    ],
                    "circle-color": ["get", "color"] as any,
                    "circle-opacity": 0.95,
                    "circle-stroke-width": 1.2,
                    "circle-stroke-color": "rgba(10,12,16,0.85)",
                  } as any} />
-          <Layer id="place-label" type="symbol"
+          <Layer id="place-label" type="symbol" minzoom={Z_PLACE_TEXT}
                  layout={{
                    "text-field": ["get", "name"] as any,
                    "text-font": ["Noto Sans Regular"],
