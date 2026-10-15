@@ -35,6 +35,7 @@ import * as API from "../api";
 import { whereAmI, watchHere, watchHeading, type Here } from "../live";
 import { MapSheet, SHEET_PEEK, SHEET_BOTTOM, useSheetHalf, type Snap } from "../MapSheet";
 import { PlaceSheet } from "../PlaceSheet";
+import { useBackClose } from "../backClose";
 import { sawCover, openedCover, researchedCover, flushCovers } from "../coverLog";
 import { MapSearch, type Hit } from "../MapSearch";
 import { dur, ymd } from "../course";
@@ -108,6 +109,27 @@ const MAX_CARDS = 8;
    멀리서는 카드가 작고 촘촘해서 글씨를 붙이면 서로 겹쳐 **읽히지도 않고
    사진도 가린다.** 가까이 왔을 때 *"여기가 어디였더라"* 에 답하면 된다. */
 const Z_CARD_TEXT = 14;
+
+/* ── ★ 큰 수를 **짧게** (§13.172) ────────────────────────────────
+   사용자: *"1곳, 4곳 이라고 지도에 표시되는데 나중에 수백, 수천장이어도
+            그렇게 표시할 거야? 이거 기획이 필요해 보여."*
+   맞는 지적이다. 라벨은 **폭이 고정**이라(지도 위 글자 뭉치) `12,847곳` 이 되면
+   옆 지역 이름을 덮는다. 그리고 사람은 그 자리에서 **정확한 수를 안 읽는다** —
+   *"많다"* 만 읽는다.
+   ★ 그래서 네 자리부터 **한국식 단위**로 줄인다. `1,200 → 1.2천`, `34,000 → 3.4만`.
+     ★ 999 까지는 **그대로 둔다.** 세 자리는 아직 읽히고, 「3곳」을 「0.0천」으로
+       적는 것이 더 나쁘다.
+   ★ 반올림이 아니라 **버린다.** 1,999 를 `2천` 이라고 적으면 2,000 을 넘은 것으로
+     읽힌다 — 지도 숫자는 적게 말하는 쪽이 안전하다. */
+const shortN = (n: number): string => {
+  if (!Number.isFinite(n) || n < 1000) return String(n ?? 0);
+  if (n < 10000) return `${Math.floor(n / 100) / 10}천`;
+  if (n < 100000000) {
+    const m = Math.floor(n / 1000) / 10;
+    return `${m >= 100 ? Math.floor(m) : m}만`;
+  }
+  return `${Math.floor(n / 10000000) / 10}억`;
+};
 
 /* 날짜를 **짧게**. 카드가 96pt 라 `2026. 10. 8.` 은 넘친다.
    올해 것은 연도를 뺀다 — 같은 해면 연도가 구분에 보태는 것이 없다. */
@@ -1462,7 +1484,22 @@ export function MapTab(
     coverKey.current = k;
     void API.publicCovers(viewBox, band).then((r) => {
       if (coverKey.current !== k) return;      // 늦게 온 답이 새 답을 덮지 않는다
-      setCovers(r.ok ? (r.data ?? []).filter((c) => !!c.thumb_url) : []);
+      const rows = r.ok ? (r.data ?? []).filter((c) => !!c.thumb_url) : [];
+      /* ★ **겹치면 뒤엣것을 버린다**(§13.172). 실기기에서 광안리와 해운대 카드가
+         5km 화면에서 서로를 덮었다 — 둘 다 못 읽혔다. 내 기록 카드는 처음부터
+         이 거름망이 있었는데(§13.63) **여기에만 없었다.**
+         ★ 점수 순으로 오므로 **먼저 온 것이 이긴다** — 버리는 것은 늘 덜 유명한 쪽이다.
+         ★ 간격을 도(度)가 아니라 **화면 비율**로 잰다. 같은 0.01도라도 줌에 따라
+           화면에서는 전혀 다른 거리다(§13.63 과 같은 이유). */
+      const degPerPx = viewBox ? (viewBox.e - viewBox.w) / size.current.w : 0;
+      const sep = degPerPx * 130;              // 카드 폭 ≈ 118pt + 여백
+      const out: API.PublicCover[] = [];
+      for (const c of rows) {
+        if (out.some((q) => Math.abs(q.lng - c.lng) < sep
+                         && Math.abs(q.lat - c.lat) < sep * 0.8)) continue;
+        out.push(c);
+      }
+      setCovers(out);
     });
   }, [scope, zoom, viewBox, cat]);
 
@@ -1829,7 +1866,7 @@ export function MapTab(
           <Marker key={`ri-${l.code}`} lngLat={[l.cx, l.cy]}>
             <View style={st.lab}>
               <Text style={st.labN}>{l.name}</Text>
-              <Text style={st.labC}>{l.n}곳</Text>
+              <Text style={st.labC}>{shortN(l.n)}곳</Text>
             </View>
           </Marker>
         ))}
@@ -1838,7 +1875,7 @@ export function MapTab(
           <Marker key={`emd-${l.code}`} lngLat={[l.cx, l.cy]}>
             <View style={st.lab}>
               <Text style={st.labN}>{l.name}</Text>
-              <Text style={st.labC}>{l.n}곳</Text>
+              <Text style={st.labC}>{shortN(l.n)}곳</Text>
             </View>
           </Marker>
         ))}
@@ -1847,7 +1884,7 @@ export function MapTab(
           <Marker key={l.region_code} lngLat={[l.cx, l.cy]}>
             <View style={st.lab}>
               <Text style={st.labN}>{l.name}</Text>
-              <Text style={st.labC}>{l.n}곳</Text>
+              <Text style={st.labC}>{shortN(l.n)}곳</Text>
             </View>
           </Marker>
         ))}
@@ -1914,12 +1951,23 @@ export function MapTab(
           <Marker key={`pub-${c.place_id}`} lngLat={[c.lng, c.lat]} anchor="bottom"
                   onPress={() => { cardTapAt.current = Date.now(); setOpenPlace({ id: c.place_id, name: c.name }); }}>
             <View style={st.card}>
-              <Image source={{ uri: c.thumb_url! }} style={st.pubImg} />
+              {/* ★ **사진이 많은 곳이 크게 보인다**(§13.172). 사용자:
+                  *"등록된 사진 양에 따라 점진적으로 확대하면 더 노출되는 방식으로
+                    가는 게 더 좋을 거 같은데."*
+                  순서(어느 것이 먼저 뜨나)는 이미 점수가 정하고 있으니, 여기서는
+                  **한 화면 안에서의 무게**를 사진 수로 준다 — 같은 크기로 늘어놓으면
+                  열 곳이 다 같아 보여서 *"어디가 많이 갔나"* 가 안 읽힌다.
+                  ★ 세 칸뿐이다. 연속으로 키우면 73px 과 76px 을 구별할 수 없고,
+                    그건 차이가 아니라 흔들림으로 보인다. */}
+              <Image source={{ uri: c.thumb_url! }}
+                     style={[st.pubImg,
+                             c.media_count >= 10 ? st.pubBig
+                             : c.media_count >= 3 ? st.pubMid : null]} />
               <View style={st.cardCap}>
                 <Text style={st.cardT} numberOfLines={1}>{c.name}</Text>
                 <Text style={st.pubN} numberOfLines={1}>
-                  {c.visitor_count}명 다녀감
-                  {c.media_count > 1 ? ` · 사진 ${c.media_count}` : ""}
+                  {shortN(c.visitor_count)}명 다녀감
+                  {c.media_count > 1 ? ` · 사진 ${shortN(c.media_count)}` : ""}
                 </Text>
               </View>
               <View style={st.cardPin} />
@@ -2250,6 +2298,8 @@ export function MapTab(
  * ★ 머문 시간이 없으면 **없다고 적는다**(§13.32). 0분이라고 쓰지 않는다.
  */
 function PinSheet({ pin, onClose }: { pin: Pin; onClose: () => void }) {
+  /* 안드로이드 뒤로가기로 닫는다(§13.172) */
+  useBackClose(onClose);
   const cat = CAT[pin.category ?? "etc"] ?? CAT.etc;
   const src = pin.source ? SRC_LABEL[pin.source] : null;
   const ver = pin.verification ? VER_LABEL[pin.verification] : null;
@@ -2639,6 +2689,8 @@ const st = StyleSheet.create({
     borderWidth: 1, borderColor: "rgba(255,255,255,0.28)",
     backgroundColor: "#222",
   },
+  pubMid: { width: 100, height: 100, borderRadius: 24 },
+  pubBig: { width: 118, height: 118, borderRadius: 28 },
   pubN: { color: C.accent, fontSize: 10, lineHeight: 13, fontWeight: "700" },
   cardImg: {
     width: 84, height: 84, borderRadius: 12,

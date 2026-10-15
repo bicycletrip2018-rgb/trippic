@@ -31,6 +31,10 @@ import {
   Image, Pressable, ScrollView, StyleSheet, Text, View,
 } from "react-native";
 import { C, CAT } from "./theme";
+
+/** 한 번에 받는 사진 수. 24는 3열 격자로 8줄 — 한 화면 넘게 스크롤할 만큼이다 */
+const PAGE = 24;
+import { useBackClose } from "./backClose";
 import { driveText } from "./course";
 import * as API from "./api";
 import { useSkeletonPulse, SkelBar, SkelBox } from "./Skeleton";
@@ -65,6 +69,8 @@ export function PlaceSheet(
   const topPad = useTopPad(0);
   const [d, setD] = useState<API.PlaceDetail | null>(null);
   const [shots, setShots] = useState<API.PlaceMedia[] | null>(null);
+  const [more, setMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [fail, setFail] = useState(false);
   const [broken, setBroken] = useState(false);
   /* 격자를 눌렀을 때 **그 자리에서** 크게 본다. 사진 뷰어를 따로 만들지 않는다 —
@@ -92,12 +98,25 @@ export function PlaceSheet(
     });
     /* ★ 사진은 **따로** 받는다. 상세 한 줄이 사진 스물넷을 기다릴 이유가 없다 —
        이름과 주소가 먼저 뜨고 격자가 뒤따라 채워지는 편이 빠르게 느껴진다. */
-    void API.placeMedia(placeId, { limit: 24 }).then((r) => {
-      if (alive) setShots(r.ok ? (r.data ?? []) : []);
+    void API.placeMedia(placeId, { limit: PAGE }).then((r) => {
+      if (!alive) return;
+      const rows = r.ok ? (r.data ?? []) : [];
+      setShots(rows);
+      /* 가득 찼으면 **더 있을 수 있다.** 딱 맞게 끝났는지는 더 받아 봐야 안다 —
+         `media_count` 로 넘겨짚지 않는다(차단·품질로 걸러진 장이 있다). */
+      setMore(rows.length >= PAGE);
     });
     return () => { alive = false; };
   }, [placeId]);
 
+  /* 안드로이드 뒤로가기로 닫는다(§13.172) — 이게 없어서 앱이 꺼졌다 */
+  useBackClose(onClose);
+
+  /* ★ **300장이면 어떻게 되나**(§13.172). 서버는 처음부터 `offset` 을 받고
+     있었는데(014) 앱이 24장을 받고 **거기서 멈췄다.** 끝까지 볼 길이 없었다.
+     ★ 한 번에 다 받지 않는다 — 300장이면 썸네일 300장이 한꺼번에 뜬다.
+       `media_rank`(반응 + 최신성)로 정렬돼 오므로 **앞쪽이 좋은 사진**이고,
+       더 보고 싶은 사람만 더 받는다. */
   const cat = CAT[d?.category ?? "etc"] ?? CAT.etc;
   /* 표지 — 사용자 사진이 이기고, 없으면 기관 사진. **고르는 규칙은 서버에 있다**
      (029 가 top_media_id 를 고른다). 여기서는 있는 것을 쓸 뿐이다. */
@@ -200,7 +219,9 @@ export function PlaceSheet(
             </>
           ) : shots.length ? (
             <>
-              <Text style={s.secT}>이 장소의 사진</Text>
+              <Text style={s.secT}>
+                이 장소의 사진{d?.media_count ? ` ${d.media_count}장` : ""}
+              </Text>
               <View style={s.grid}>
                 {shots.filter((m) => !gone.includes(m.user_id)).map((m) => (
                   <Pressable key={m.media_id} style={s.cell} onPress={() => setBig(m)}>
@@ -212,6 +233,23 @@ export function PlaceSheet(
                   </Pressable>
                 ))}
               </View>
+              {more && (
+                <Pressable style={s.moreBtn} disabled={loadingMore}
+                           onPress={async () => {
+                             setLoadingMore(true);
+                             const r = await API.placeMedia(placeId,
+                               { limit: PAGE, offset: shots.length });
+                             setLoadingMore(false);
+                             if (!r.ok) return;
+                             const rows = r.data ?? [];
+                             setShots([...shots, ...rows]);
+                             setMore(rows.length >= PAGE);
+                           }}>
+                  <Text style={s.moreT}>
+                    {loadingMore ? "불러오는 중…" : "사진 더 보기"}
+                  </Text>
+                </Pressable>
+              )}
             </>
           ) : null}
 
@@ -364,6 +402,11 @@ const s = StyleSheet.create({
   mineOff: { color: C.text, fontSize: 14 },
   secT: { color: C.text, fontSize: 14, fontWeight: "600", marginTop: 22, marginBottom: 10 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  moreBtn: {
+    marginTop: 10, paddingVertical: 12, borderRadius: 12,
+    borderWidth: 1, borderColor: C.line, alignItems: "center",
+  },
+  moreT: { color: C.text, fontSize: 13, fontWeight: "600" },
   cell: { width: "31.5%" },
   cellImg: { width: "100%", aspectRatio: 1, borderRadius: 9, backgroundColor: C.surface },
   cellBy: { color: C.muted, fontSize: 10, marginTop: 3 },
