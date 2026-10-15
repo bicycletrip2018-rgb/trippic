@@ -534,6 +534,20 @@ export const placesInBBox = (
   p_zoom: opts?.zoom ?? null,
 });
 
+/* ★ 상자 안에서 **사람들이 많이 간 곳**(095). 「모두의 지도」가 쓴다 —
+   남의 핀을 점으로만 보여 주면 *"여기 뭔가 있다"* 까지밖에 말하지 못한다. */
+export type PublicCover = {
+  place_id: string; name: string; category: string | null;
+  lng: number; lat: number;
+  thumb_url: string | null; author: string | null;
+  visitor_count: number; media_count: number; score: number;
+};
+
+export const publicCovers = (b: BBox, zoom: number) =>
+  rpc<PublicCover[]>("api_public_covers_in_bbox", {
+    p_w: b.w, p_s: b.s, p_e: b.e, p_n: b.n, p_zoom: zoom,
+  });
+
 /* ── 지역 집계 (§13.49 · 042) ─────────────────────────────────
    ★ **뷰포트로 자르지 않는다.** 핀은 화면으로 잘라 읽지만(031) 지역의 숫자는 다르다 —
      "이 지역 12곳"이 화면을 밀 때마다 8곳이 됐다가 12곳이 되면 그건 거짓말이다.

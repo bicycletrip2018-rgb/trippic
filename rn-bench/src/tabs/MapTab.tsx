@@ -783,6 +783,11 @@ export function MapTab(
      상자를 **상태로** 들면 채워지는 순간 다시 돈다. 그리고 핀을 읽는지 여부와
      경계를 그리는지 여부는 **애초에 다른 질문**이라 같은 상자를 쓸 이유가 없다. */
   const [viewBox, setViewBox] = useState<API.BBox | null>(null);
+  /* ★ 「모두의 지도」에서 **사람들이 많이 간 곳**(§13.171). 남의 핀을 점으로만
+     보여 주면 *"여기 뭔가 있다"* 까지다 — 사용자가 원한 것은 *"내 근처에서
+     사람들이 많이 방문했던 곳을 직관적으로"* 라, 그건 **사진**이어야 한다. */
+  const [covers, setCovers] = useState<API.PublicCover[]>([]);
+  const coverKey = useRef<string>("");
   const [agg, setAgg] = useState<API.RegionAgg[]>([]);
   /* 읍·면·동 집계 — 지금 보고 있는 시군구 하나만 센다(087) */
   const [subAgg, setSubAgg] = useState<API.SubAgg[]>([]);
@@ -1441,6 +1446,26 @@ export function MapTab(
   /* ★ **읍·면·동 띠**(§13.163). 시군구(z<9) 다음 단계다.
      ★ 3,482개를 통째로 소스에 먹이지 않는다 — 화면 상자에 걸치는 것만 추린다.
        그 줌에서는 많아야 수십 개다(양평군 12개). */
+  /* ★ **「모두의 지도」 칩이 이 기능의 스위치다**(§13.170 과 충돌하지 않게).
+     기본 화면은 내 지도라 여기서도 안 켠다. 그 칩을 누르는 것이 곧
+     *"남들이 어디를 갔는지 보겠다"* 는 뜻이다.
+     ★ 집계 줌(z<9)에서는 안 읽는다 — 거기는 지역 숫자가 답하는 자리다. */
+  useEffect(() => {
+    if (scope !== "public" || zoom < Z_REGION || !viewBox) {
+      if (covers.length) setCovers([]);
+      coverKey.current = ""; return;
+    }
+    const band = Math.floor(zoom);
+    const k = `${band}|${viewBox.w.toFixed(2)},${viewBox.s.toFixed(2)},`
+            + `${viewBox.e.toFixed(2)},${viewBox.n.toFixed(2)}|${cat ?? ""}`;
+    if (k === coverKey.current) return;
+    coverKey.current = k;
+    void API.publicCovers(viewBox, band).then((r) => {
+      if (coverKey.current !== k) return;      // 늦게 온 답이 새 답을 덮지 않는다
+      setCovers(r.ok ? (r.data ?? []).filter((c) => !!c.thumb_url) : []);
+    });
+  }, [scope, zoom, viewBox, cat]);
+
   const emdOn = zoom >= Z_REGION && zoom < Z_EMD_END;
 
 
@@ -1876,6 +1901,27 @@ export function MapTab(
                 );
               })()}
               {/* 카드가 가리키는 지점 — 없으면 사진이 공중에 뜬 것처럼 보인다 */}
+              <View style={st.cardPin} />
+            </View>
+          </Marker>
+        ))}
+
+        {/* ★ **남이 간 곳**. 내 카드와 **모양이 달라야 한다** — 같으면 내가 간
+            곳인지 남이 간 곳인지 모른다. 이 앱에서 그건 치명적이다.
+            ★ 날짜 대신 **사람 수**를 적는다. 남의 기록에서 날짜는 내게 뜻이 없고,
+              *"몇 명이나 갔나"* 가 곧 그 카드를 보는 이유다. */}
+        {covers.map((c) => (
+          <Marker key={`pub-${c.place_id}`} lngLat={[c.lng, c.lat]} anchor="bottom"
+                  onPress={() => { cardTapAt.current = Date.now(); setOpenPlace({ id: c.place_id, name: c.name }); }}>
+            <View style={st.card}>
+              <Image source={{ uri: c.thumb_url! }} style={st.pubImg} />
+              <View style={st.cardCap}>
+                <Text style={st.cardT} numberOfLines={1}>{c.name}</Text>
+                <Text style={st.pubN} numberOfLines={1}>
+                  {c.visitor_count}명 다녀감
+                  {c.media_count > 1 ? ` · 사진 ${c.media_count}` : ""}
+                </Text>
+              </View>
               <View style={st.cardPin} />
             </View>
           </Marker>
@@ -2587,6 +2633,13 @@ const st = StyleSheet.create({
     alignItems: "center",
   },
   cardD: { color: C.muted, fontSize: 10, lineHeight: 13 },
+  /* 남의 사진 — **흰 테두리를 안 준다.** 흰 테두리는 «내 기록» 의 표시다 */
+  pubImg: {
+    width: 84, height: 84, borderRadius: 20,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.28)",
+    backgroundColor: "#222",
+  },
+  pubN: { color: C.accent, fontSize: 10, lineHeight: 13, fontWeight: "700" },
   cardImg: {
     width: 84, height: 84, borderRadius: 12,
     borderWidth: 2, borderColor: "rgba(255,255,255,0.92)",
