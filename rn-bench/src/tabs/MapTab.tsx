@@ -1685,6 +1685,22 @@ export function MapTab(
                            && q.lat >= viewBox.s && q.lat <= viewBox.n).length
     : 0;
 
+  /* ★ 저장한 곳으로 **날아간다**(§13.175). `★ 1` 칩이 하는 일 —
+     금색 점이 무엇인지 설명하는 대신 **거기로 데려간다.** 한 곳이면 그 자리로,
+     여러 곳이면 전부 담기는 상자로. §13.157 의 «내 기록 전체 보기» 와 같은 길이다. */
+  const flyToSaves = () => {
+    const rows = saveShown;
+    if (!rows.length) return;
+    let box = [rows[0].lng, rows[0].lat, rows[0].lng, rows[0].lat];
+    for (const q of rows) {
+      box = [Math.min(box[0], q.lng), Math.min(box[1], q.lat),
+             Math.max(box[2], q.lng), Math.max(box[3], q.lat)];
+    }
+    const v = fitView(padPinBox(box), size.current.w, size.current.h,
+                      { top: headH, bottom: SHEET_BOTTOM + SHEET_PEEK }, true);
+    camRef.current?.flyTo({ center: v.center, zoom: v.zoom, duration: 700 });
+  };
+
   /* ★ 요약 한 줄을 **여기서 한 번** 만든다. 시트가 접혀 있을 때 보이는 것이고,
      예전 알약이 하던 말 그대로다 — 자리만 옮겼지 뜻이 바뀌면 안 된다. */
   const summary = why ? why
@@ -1712,6 +1728,43 @@ export function MapTab(
         + (picked ? `  · 눈에 띄는 ${picked.size}곳` : "")
         + (savesHere ? `  · ★ 저장한 곳 ${shortN(savesHere)}` : "")
         + (more ? "  더 있습니다 — 확대하면 더 보입니다" : "");
+
+  /* ── ★ 접힌 시트의 얼굴 (§13.175) ─────────────────────────────────
+     사용자: *"처음엔 그 의도와 내용을 잘 몰랐는데 고도화할 기획 제안해줘."*
+     한 줄에 **집계 · 저장 · 안내** 세 가지가 전보문으로 눌려 있었다
+     (`3개 지역 · 4곳 · ★ 저장한 곳 1 — 확대하면 기록이 보입니다`).
+     읽는 사람이 **세 번 해석해야** 한다.
+     → ① 무엇을 세는지 **제목**으로 먼저 말하고
+       ② 숫자는 **칩**으로 떼어 내고 — 칩은 **눌린다**
+       ③ 안내는 작은 글씨로 내린다.
+     ★ 불러오는 중이거나 오류면 `peek` 을 **안 만든다.** 그때는 셀 것이 없고,
+       할 말은 한 줄이면 된다(그 경로는 `summary` 가 그대로 쓴다). */
+  const scopeTitle = scope === "public" ? "모두의 지도"
+    : scope === "shared" ? "공유 스페이스"
+    : scope === "mine" ? "내가 올린 기록"
+    : "내 여행 기록";
+  const nHere = region ? agg.reduce((k, a) => k + a.n, 0) : pins.length;
+  const peek = (why || busy) ? null : {
+    title: catLabel ? `${scopeTitle} · ${CAT[cat!]?.k ?? cat}` : scopeTitle,
+    chips: [
+      { key: "pins", icon: "🗺", tone: "accent" as const,
+        text: `${shortN(nHere)}곳`,
+        /* 셀 것이 있을 때만 누르게 한다 — 0곳 칩을 눌러 빈 목록을 여는 것은
+           «눌렀는데 아무 일도 안 난다» 와 같다 */
+        onPress: nHere && !region ? () => setSnap(snap === "peek" ? "half" : "peek")
+                                  : undefined },
+      ...(savesHere ? [{ key: "saves", icon: "★", tone: "warn" as const,
+                         text: shortN(savesHere), onPress: flyToSaves }] : []),
+    ],
+    hint: region
+      ? (nHere ? "확대하면 사진이 보입니다" : "아직 기록이 없습니다 — (+) 로 남겨 보세요")
+      : nHere
+        ? (savesHere ? "★ 는 가 보려고 찜해 둔 곳입니다 — 눌러 보세요"
+                     : more ? "더 있습니다 — 확대하면 더 보입니다"
+                            : "위로 올리면 사진으로 봅니다")
+        : (cat ? `이 화면에는 ${CAT[cat]?.k ?? cat} 기록이 없습니다`
+               : "이 화면에는 기록이 없습니다 — 위 갈래를 누르면 가 볼 곳이 보입니다"),
+  };
 
   /* 시트 목록. ★ **지도에 보이는 것과 같은 집합**이다 — 목록과 지도가 다른 것을
      보여 주면 사용자는 둘 중 무엇을 믿어야 할지 모른다. */
@@ -2322,6 +2375,7 @@ export function MapTab(
           snap={snap} onSnap={setSnap}
           onHeight={(h) => { setSheetH(h); onSheetHeight?.(h); }}
           summary={summary}
+          peek={peek}
           items={sheetItems}
           onPick={(id) => {
             const p = pins.find((x) => x.id === id);

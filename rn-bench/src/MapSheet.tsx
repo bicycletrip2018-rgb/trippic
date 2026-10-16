@@ -59,12 +59,23 @@ export type SheetItem = {
 };
 
 export function MapSheet(
-  { snap, onSnap, onHeight, summary, items, onPick }: {
+  { snap, onSnap, onHeight, summary, peek, items, onPick }: {
     snap: Snap;
     onSnap: (s: Snap) => void;
     /** (+) 가 시트 위에 앉으려면 App 이 지금 높이를 알아야 한다. */
     onHeight: (h: number) => void;
+    /** 한 줄 요약. ★ **불러오는 중·오류일 때만** 쓴다 — 그때는 셀 것이 없다. */
     summary: string;
+    /** ★ 접힌 시트의 얼굴(§13.175). 사용자: *"처음엔 그 의도와 내용을 잘 몰랐다."*
+        한 줄에 집계·저장·안내 **세 가지를 전보문으로** 욱여넣고 있었다.
+        → 제목 / 숫자 / 안내를 **갈라 놓고**, 숫자는 **누를 수 있게** 한다.
+          설명하는 대신 **만져 보게** 하는 것이 짧다. */
+    peek?: {
+      title: string;
+      chips: { key: string; icon: string; text: string;
+               tone?: "accent" | "warn"; onPress?: () => void }[];
+      hint?: string;
+    } | null;
     items: SheetItem[];
     onPick: (id: string) => void;
   },
@@ -146,12 +157,40 @@ export function MapSheet(
       {/* 손잡이 — 끄는 것은 여기서만 받는다 */}
       <View {...pan.panHandlers} style={st.grabArea}>
         <View style={st.grab} />
-        <Pressable
-          onPress={() => settle(snap === "peek" ? "half" : "peek")}
-          style={st.sumRow}>
-          <Text style={st.sum} numberOfLines={1}>{summary}</Text>
-          <Text style={st.chev}>{open ? "⌄" : "⌃"}</Text>
-        </Pressable>
+        {peek ? (
+          <View style={st.peek}>
+            <Pressable onPress={() => settle(snap === "peek" ? "half" : "peek")}
+                       style={st.sumRow}>
+              <Text style={st.peekT} numberOfLines={1}>{peek.title}</Text>
+              <Text style={st.chev}>{open ? "⌄" : "⌃"}</Text>
+            </Pressable>
+            {!!peek.chips.length && (
+              <View style={st.chips}>
+                {peek.chips.map((c) => (
+                  /* ★ 누를 수 있는 칩이다. `onPress` 가 없으면 **눌리지 않게**
+                     둔다 — 눌리는 모양인데 아무 일도 안 하면 고장으로 읽힌다. */
+                  <Pressable key={c.key} disabled={!c.onPress} onPress={c.onPress}
+                             style={[st.chip, c.tone === "warn" && st.chipWarn,
+                                     !c.onPress && st.chipFlat]}>
+                    <Text style={[st.chipT, c.tone === "warn" && st.chipTWarn]}>
+                      {c.icon}{" "}{c.text}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+            {!!peek.hint && (
+              <Text style={st.peekH} numberOfLines={2}>{peek.hint}</Text>
+            )}
+          </View>
+        ) : (
+          <Pressable
+            onPress={() => settle(snap === "peek" ? "half" : "peek")}
+            style={st.sumRow}>
+            <Text style={st.sum} numberOfLines={1}>{summary}</Text>
+            <Text style={st.chev}>{open ? "⌄" : "⌃"}</Text>
+          </Pressable>
+        )}
       </View>
 
       {/* ★ 펼쳤을 때만 목록을 만든다. 접힌 채로도 그리면 화면 밖 썸네일 수십 장을
@@ -224,6 +263,24 @@ const st = StyleSheet.create({
   sumRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   sum: { flex: 1, color: C.text, fontSize: 13 },
   chev: { color: C.muted, fontSize: 14, width: 16, textAlign: "center" },
+  /* ── 접힌 시트의 얼굴 (§13.175) ── */
+  peek: { gap: 7 },
+  /* 소제목. **무엇을 세고 있는지**를 먼저 말한다 — 숫자만 있으면 «4곳이 뭐지» 가 된다 */
+  peekT: { flex: 1, color: C.text, fontSize: 13, fontWeight: "700" },
+  chips: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+  chip: {
+    paddingHorizontal: 11, paddingVertical: 6, borderRadius: 999,
+    backgroundColor: "rgba(56,182,255,0.14)",
+    borderWidth: 1, borderColor: "rgba(56,182,255,0.42)",
+  },
+  chipWarn: {
+    backgroundColor: "rgba(224,169,74,0.14)", borderColor: "rgba(224,169,74,0.45)",
+  },
+  /* 못 누르는 칩은 **테두리를 뺀다** — 누를 수 있는 것과 생김새가 같으면 안 된다 */
+  chipFlat: { backgroundColor: "rgba(255,255,255,0.06)", borderColor: "transparent" },
+  chipT: { color: C.accent, fontSize: 12.5, fontWeight: "700" },
+  chipTWarn: { color: C.warn, fontSize: 12.5, fontWeight: "700" },
+  peekH: { color: C.muted, fontSize: 11.5, lineHeight: 16 },
   grid: {
     flexDirection: "row", flexWrap: "wrap", gap: 10,
     paddingHorizontal: 14, paddingTop: 6, paddingBottom: 24,
