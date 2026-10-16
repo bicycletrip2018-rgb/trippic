@@ -314,7 +314,10 @@ function accuracyRing(h: Here, steps = 40): GeoJSON.FeatureCollection {
 const KOREA: [number, number, number, number] = [124.4, 32.9, 132.2, 38.7];
 const BASEMAP_URL = "https://tiles.openfreemap.org/styles/dark";
 const BASEMAP = require("../../assets/basemap-dark.json");
-const NORTH_COVER = require("../../assets/north-cover.json");
+/* ★ **대한민국만 구멍인 덮개**(§13.174). 북한만 덮던 `north-cover` 를 대신한다 —
+   중국·일본·러시아 땅 모양이 우리에게 없어서, 덮을 나라를 하나씩 모으는 대신
+   **뒤집었다.** 만드는 법은 `db/import/make_outside_cover.py` 에 있다. */
+const OUTSIDE_COVER = require("../../assets/outside-cover.json");
 const SOUTH_OUTLINE = require("../../assets/south-outline.json");
 
 /* ★ **한글을 앞에 세운다.** 이 스타일은 `name:latin` 을 먼저 쓰고 비라틴을 뒤에
@@ -366,7 +369,7 @@ function dropNorthDetail(style: any) {
        안 되므로 사이가 벌어져 보이지 않는다.
      ★ 땅 색(`rgb(12,12,12)`)과 **같은 색**이라 덮은 티가 안 난다. 지우는 게
        아니라 **안 그리는 것처럼** 보이게 하는 것이다. 바다는 안 건드린다. */
-  style.sources["north-cover"] = { type: "geojson", data: NORTH_COVER };
+  style.sources["outside-cover"] = { type: "geojson", data: OUTSIDE_COVER };
   /* ★ **글자 겹들보다 아래**에 넣는다. 처음엔 맨 위에 올렸는데 — 그러면 글자까지
      덮여서 좋을 것 같지만 — **해안에 걸친 이름이 반쯤 잘렸다**(「ㅁ흥시」「ㅣ산시」).
      라벨은 점에 붙어 바다 쪽으로 삐져나오기 때문이다. **잘린 글자는 안 지운
@@ -391,16 +394,49 @@ function dropNorthDetail(style: any) {
      ★ 거는 겹은 전과 **같다**(city·town). 넓히면 일본에 일부러 간 사람에게서
        지명을 뺏는다 — §13.130 에서 정한 선을 여기서 바꾸지 않는다. */
   const IN_KOREA: any = ["within", SOUTH_OUTLINE.geometry];
+  /* ★ **덮개를 뒤집고 나니 거는 겹도 늘었다**(§13.174). §13.130 은 *"넓히면 일본에
+     일부러 간 사람에게서 지명을 뺏는다"* 며 city·town 에서 멈췄다. 그 걱정은
+     **`maxBounds` 로 한반도를 벗어날 수 없게 된 지금은 성립하지 않는다** —
+     일부러 갈 수가 없다. 전제가 바뀌면 그때 내린 결정도 다시 본다.
+     ★ `place-admin`(§13.168 에서 내가 넣은 겹)에는 `island`·`hamlet` 이 들어 있어
+       남의 섬 이름이 샌다. **내가 만든 겹을 내가 안 걸고 있었다.** */
   for (const l of style.layers) {
-    if (!["place_city", "place_city_large", "place_town"].includes(l.id)) continue;
+    if (!["place_city", "place_city_large", "place_town",
+          "place_other", "place_suburb", "place_village",
+          "place-admin", "mountain-peak"].includes(l.id)) continue;
     l.filter = ["all", l.filter, IN_KOREA];
   }
 
+  /* ★ **바다 이름은 남기고 호수 이름은 뺀다**(§13.174). 사용자 화면에 「쑹화호」가
+     떠 있었다 — 중국 호수다. 그런데 같은 겹에 「황해」·「동해」도 있고, 그건
+     **남겨야 한다**(바다는 우리 outline 밖이라 `within` 으로는 같이 죽는다).
+     ★ 타일을 열어 보고 가를 거리를 찾았다: `class` 가 `sea`·`lake`·`bay` 로 온다.
+       바다(`sea`)는 어디 것이든 두고, 나머지는 우리 안의 것만 둔다.
+       (실측: 「아리아케해」는 `class=lake` 로 들어와 있어 같이 걸러진다.) */
+  for (const l of style.layers) {
+    if (l.id !== "water_name") continue;
+    l.filter = ["all", l.filter,
+      ["any", ["==", ["get", "class"], "sea"], IN_KOREA]];
+  }
+
   const i = style.layers.findIndex((l: any) => String(l.id).startsWith("place_"));
-  style.layers.splice(i < 0 ? style.layers.length : i, 0, {
-    id: "north-cover", type: "fill", source: "north-cover",
-    paint: { "fill-color": "rgb(12,12,12)", "fill-antialias": false },
-  });
+  /* ★ 덮개는 **바다까지 같이 덮는다**(사각형에서 우리만 뺐으니 당연하다).
+     그래서 **물을 덮개 위에 한 번 더 그린다** — 바깥 땅은 평평해지고 바다는
+     그대로 파랗다. §13.128 은 *"바다는 안 건드린다"* 고 적었는데, 그건 덮개가
+     **땅 모양일 때** 할 수 있는 말이었다. 방법이 바뀌면 약속을 지키는 방법도
+     바뀐다 — 약속 자체는 그대로다.
+     ★ 물 겹을 **복사**한다. 원본을 옮기면 우리 땅 쪽 물이 덮개 밑으로 내려가
+       강이 사라진다(원본은 `region-base` 위에 있어야 한다). */
+  const water = style.layers.find((l: any) => l.id === "water");
+  style.layers.splice(i < 0 ? style.layers.length : i, 0,
+    {
+      id: "outside-cover", type: "fill", source: "outside-cover",
+      paint: { "fill-color": "rgb(12,12,12)", "fill-antialias": false },
+    },
+    ...(water ? [{
+      ...water, id: "outside-water",
+      paint: { ...(water.paint ?? {}), "fill-color": WATER },
+    }] : []));
   return style;
 }
 
