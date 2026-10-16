@@ -31,6 +31,7 @@ import { TIDY } from "./src/remind";
 import { readPending, type Pending } from "./src/pending";
 import { newPhotosSince } from "./src/album";
 import { C } from "./src/theme";
+import { useBackClose } from "./src/backClose";
 import { QualityCalib } from "./src/dev/QualityCalib";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useStatusBarHeight } from "./src/safeArea";
@@ -54,6 +55,11 @@ export default function App() {
 function AppInner() {
   if (CALIB) return <QualityCalib />;
   const [tab, setTab] = useState<Tab>("map");
+  /* ★ **다른 탭에서 뒤로가기는 지도로 돌아온다**(§13.173). 안드로이드에서 탭은
+     «들어간 곳» 으로 읽히므로, 「소식」을 보다 뒤로가기를 누르면 **앱이 꺼지는
+     것이 아니라** 처음 화면으로 돌아와야 한다. 지도 탭에서 한 번 더 누르면
+     그때 나간다 — 그건 안드로이드의 정상 동작이라 막지 않는다. */
+  useBackClose(() => setTab("map"), tab !== "map");
   const [ready, setReady] = useState(false);
   /* ★ 약관 동의 (§13.136). `null` 은 **아직 모른다** — 모르는 동안 화면을 그리면
      동의한 사람에게 약관이 깜빡이고, 안 한 사람에게는 앱이 먼저 보인다. */

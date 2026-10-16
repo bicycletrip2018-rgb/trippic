@@ -1634,13 +1634,30 @@ export function MapTab(
   const n = { mine: 0, shared: 0, other: 0 } as Record<string, number>;
   for (const p of pins) n[p.source ?? "other"] = (n[p.source ?? "other"] ?? 0) + 1;
 
+  /* ★ **금색 점에 이름을 준다**(§13.173). 사용자: *"광안리 위치에 저 점 표시는
+     왜 처음 보는 점(핀) 표시로 나오는지 확인해줘."*
+     그건 고장이 아니라 **직전에 누른 「★ 저장」**이 만든 표시다(§13.104). 다만
+     이름(`save-label`)은 z14 부터라, 전국 화면에서는 **설명 없는 금색 점**이었다.
+     §13.104 는 *"멀리서 눈에 걸리라고 둔다"* 고 적었는데 — 눈에는 걸렸고 **뜻이
+     안 걸렸다.** 둘은 다른 일이다.
+     ★ 라벨을 멀리까지 켜지 않는다(전국에서 찜한 곳 이름이 다 뜨면 그게 덮는다).
+       대신 **시트가 세어 준다** — 거기는 이미 "무엇이 보이는지" 를 적는 자리다.
+     ★ 화면 안의 것만 센다. `saves` 는 뷰포트를 안 따라다녀서(§13.104) 전부 들고
+       있는데, 그걸 그대로 적으면 **안 보이는 것까지 센다.** */
+  const savesHere = viewBox
+    ? saveShown.filter((q) => q.lng >= viewBox.w && q.lng <= viewBox.e
+                           && q.lat >= viewBox.s && q.lat <= viewBox.n).length
+    : 0;
+
   /* ★ 요약 한 줄을 **여기서 한 번** 만든다. 시트가 접혀 있을 때 보이는 것이고,
      예전 알약이 하던 말 그대로다 — 자리만 옮겼지 뜻이 바뀌면 안 된다. */
   const summary = why ? why
     : busy ? "불러오는 중"
     : region
       ? (agg.length
-          ? `${catLabel}${agg.length}개 지역 · ${agg.reduce((k, a) => k + a.n, 0)}곳 — 확대하면 기록이 보입니다`
+          ? `${catLabel}${shortN(agg.length)}개 지역 · ${shortN(agg.reduce((k, a) => k + a.n, 0))}곳`
+            + (savesHere ? `  · ★ 저장한 곳 ${shortN(savesHere)}` : "")
+            + " — 확대하면 기록이 보입니다"
           : cat ? `${CAT[cat]?.k ?? cat} 기록이 아직 없습니다` : "아직 기록이 없습니다")
     : pins.length === 0
       ? `${into ? `${into} — ` : ""}` + (
@@ -1657,6 +1674,7 @@ export function MapTab(
            n.shared ? `함께 ${n.shared}곳` : null,
            n.other ? `남 ${n.other}곳` : null].filter(Boolean).join(" · ")
         + (picked ? `  · 눈에 띄는 ${picked.size}곳` : "")
+        + (savesHere ? `  · ★ 저장한 곳 ${shortN(savesHere)}` : "")
         + (more ? "  더 있습니다 — 확대하면 더 보입니다" : "");
 
   /* 시트 목록. ★ **지도에 보이는 것과 같은 집합**이다 — 목록과 지도가 다른 것을
@@ -1788,7 +1806,16 @@ export function MapTab(
             물려받은 값인데, 그 숫자가 "전국이 보인다"를 뜻하는지는 기기 크기와
             배경 데이터에 따라 달라진다 — 실제로 경계 파일을 바꾸자 전국이 잘렸다.
             bounds 는 의도 그 자체라 흔들리지 않는다. */}
-        <Camera ref={camRef} minZoom={minZ ?? undefined}
+        {/* ★ **한반도 밖으로 못 나간다**(§13.173). 사용자: *"국내 여행 기록지인데
+            해외 다른 나라까지 지도가 굳이 다 표기되어 있네? 우리나라 위주로 잘라서
+            보여줬으면 좋겠어."*
+            `minZoom` 은 **얼마나 멀리** 를 막아 왔지만(§13.130) **어디로** 는 안
+            막았다 — 그래서 중국·일본까지 밀고 갈 수 있었다. 그 화면은 이 앱이
+            아무것도 답해 줄 수 없는 자리다(우리 데이터가 한 줄도 없다).
+            ★ `maxBounds` 는 **중심**을 가둔다. 가장자리에 이웃 나라가 조금 걸리는
+              것은 못 막는다 — 지구가 그렇게 생겼다. 막는 것은 *"밀고 가서 그쪽만
+              보는 것"* 이고, 그걸로 충분하다. */}
+        <Camera ref={camRef} minZoom={minZ ?? undefined} maxBounds={KOREA}
                 initialViewState={{ bounds: KOREA }} />
 
         <GeoJSONSource id="sgg" data={SGG as any}>
