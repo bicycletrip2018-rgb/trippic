@@ -1343,9 +1343,17 @@ export function MapTab(
          `null` 이면 `minSep = 0` 이 되어 8장이 한 덩어리로 겹친다. */
     const degPerPx = viewBox ? (viewBox.e - viewBox.w) / size.current.w : 0;
     const minSep = degPerPx * 110;                 // 카드 폭 ≈ 96pt + 여백
+    /* ★ **같은 장소에 카드를 두 장 그리지 않는다**(§13.176). 「모두의 지도」에서는
+       남의 공개 핀이 `pins` 로도 오고, 그 장소의 표지가 `covers` 로도 온다 —
+       둘 다 카드라서 **해운대해수욕장 위에 사진 두 장이 겹쳐** 캡션이 서로를
+       덮었다(사용자 화면). 표지 쪽이 *"N명 다녀감"* 까지 말하므로 **그쪽을 남긴다.**
+       ★ 내 기록은 안 뺀다 — 같은 해변이라도 «내가 간 것» 과 «남들이 간 곳» 은
+         다른 말이고, 흰 테두리로 구별된다(§13.171). */
+    const coveredPlaces = new Set(covers.map((c) => c.place_id));
     const out: Pin[] = [];
     for (const p of [...withPhoto].sort((a, b) => b.like_count - a.like_count)) {
       if (out.length >= MAX_CARDS) break;
+      if (p.source !== "mine" && p.place_id && coveredPlaces.has(p.place_id)) continue;
       if (out.some((q) => Math.abs(q.lng - p.lng) < minSep
                        && Math.abs(q.lat - p.lat) < minSep * 0.8)) continue;
       out.push(p);
@@ -1749,10 +1757,16 @@ export function MapTab(
     chips: [
       { key: "pins", icon: "🗺", tone: "accent" as const,
         text: `${shortN(nHere)}곳`,
-        /* 셀 것이 있을 때만 누르게 한다 — 0곳 칩을 눌러 빈 목록을 여는 것은
-           «눌렀는데 아무 일도 안 난다» 와 같다 */
-        onPress: nHere && !region ? () => setSnap(snap === "peek" ? "half" : "peek")
-                                  : undefined },
+        /* ★ **줌에 따라 하는 일이 다르다**(§13.176). 사용자: *"'4곳'을 누르면
+           아무 변화가 없어."* 전국 줌에서는 목록을 열 핀이 없어서(집계만 있다)
+           `onPress` 를 **안 줬는데**, 그 줌이야말로 *"내가 다녀온 데가 어디어디냐"*
+           를 묻는 자리다 — **거기로 데려간다**(§13.157 의 «내 기록 전체 보기»와
+           같은 길, 버튼이 이미 있던 그것이다).
+           ★ 가까이서는 목록을 편다. 셀 것이 없으면 둘 다 안 한다 —
+             0곳 칩을 눌러 빈 목록을 여는 것은 «아무 일도 안 난다» 와 같다. */
+        onPress: !nHere ? undefined
+          : region ? () => flyToAgg(agg)
+                   : () => setSnap(snap === "peek" ? "half" : "peek") },
       ...(savesHere ? [{ key: "saves", icon: "★", tone: "warn" as const,
                          text: shortN(savesHere), onPress: flyToSaves }] : []),
     ],
