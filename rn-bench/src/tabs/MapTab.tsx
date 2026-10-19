@@ -731,6 +731,11 @@ const toFeature = (r: any): GeoJSON.Feature | null => {
       /* ★ 레이어를 **끼웠다 뺐다 하지 않는다**(§13.47 에서 앱이 죽었다).
          고른 것과 아닌 것을 `top` 한 칸으로 구분하고 **paint 로만** 달리 그린다. */
       top: r.__top ? 1 : 0,
+      /* ★ **사진이 있는데 카드 자리를 못 얻은 핀**(§13.177). 사용자:
+         *"이미지가 맨 왼쪽 하나만 안 보이는데 이게 좀 아쉬워."*
+         카드끼리 겹치면 하나를 버리는데(§13.63), 버려진 쪽은 **그냥 점**이 되어
+         *"여기 사진이 있다"* 는 사실까지 같이 사라졌다. 점을 테두리로 구분한다. */
+      shot: r.__shot ? 1 : 0,
     },
   };
 };
@@ -1475,7 +1480,8 @@ export function MapTab(
       /* ★ 카드로 뽑힌 핀은 점을 **끈다.** 같은 기록을 카드와 점으로 두 번
          그리면 카드 밑에 점이 삐져나와 지저분하다. */
       .filter((p) => !cardIds.has(p.id))
-      .map((p) => toFeature({ ...p, __top: !picked || picked.has(p.id) }))
+      .map((p) => toFeature({ ...p, __top: !picked || picked.has(p.id),
+                              __shot: !!p.media_thumb }))
       .filter(Boolean) as GeoJSON.Feature[],
   };
 
@@ -2220,6 +2226,23 @@ export function MapTab(
                    "circle-stroke-width": ["case", ["==", ["get", "top"], 1], 1.5, 0.8] as any,
                    "circle-stroke-color": "rgba(255,255,255,0.85)",
                  }} />
+          {/* ★ **사진이 있다는 표시**(§13.177). 카드로 뽑힌 핀은 애초에 이 소스에
+              없으므로(위 `filter`), 여기 남은 `shot=1` 은 **겹침에 밀린 것**뿐이다.
+              ★ 카드의 흰 테두리와 **같은 흰색**을 쓴다 — 같은 뜻(사진이 있다)에
+                다른 색을 쓰면 둘이 같은 것을 말하는지 알 수 없다(§13.104 의 금색과
+                같은 규칙).
+              ★ 겹을 **끼웠다 빼지 않는다**(§13.47 에서 앱이 죽었다). 늘 그리고
+                `shot=0` 이면 **두께가 0** 이라 아무것도 안 그려진다. */}
+          <Layer id="pin-shot" type="circle"
+                 paint={{
+                   "circle-radius": ["+", PIN_R, 3.2] as any,
+                   "circle-color": "rgba(0,0,0,0)",
+                   "circle-stroke-width":
+                     ["case", ["==", ["get", "shot"], 1], 1.8, 0] as any,
+                   "circle-stroke-color": "rgba(255,255,255,0.92)",
+                   "circle-stroke-opacity":
+                     ["case", ["==", ["get", "top"], 1], 1, 0.6] as any,
+                 } as any} />
         </GeoJSONSource>
 
         {/* ★ 내 위치는 **맨 위**에 그린다. 핀이나 상호에 가리면 "내가 어디냐"에
