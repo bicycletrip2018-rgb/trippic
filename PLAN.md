@@ -1677,7 +1677,8 @@ TourAPI      5만   →  관광지·자연·문화시설 + 이미지         상
 - [x] ~~폴리곤 사진 클리핑의 실제 성능 검증~~ → **해소.** `prototype/` 참조. 아틀라스 방식으로 성립
 - [x] ~~RN(GL Native) 이식 검증~~ → **API 수준 완료.** `rn-port/FINDINGS.md` 참조.
       `ImageSource`(file:// 필수) + Skia 오프스크린으로 성립하며, 이식 코드가 타입 검사를 통과한다.
-      momdeal의 expo 54 / RN 0.81.5가 MapLibre RN 11.3.10 요구사항을 이미 충족한다
+      **참고하던 다른 Expo 앱**(트립픽과 무관)의 expo 54 / RN 0.81.5 가
+      MapLibre RN 11.3.10 요구사항을 이미 충족한다
 - [x] ~~네이티브 실행 검증~~ → **iOS 시뮬레이터 완료.** `rn-port/FINDINGS.md` 2차.
       `MakeOffscreen`은 4096까지 성공, `ImageSource`가 Skia 산출물을 렌더한다.
       **인코딩은 WEBP q80으로 확정** (PNG 대비 파일 4.7배 작고 알파 유지).
