@@ -27,7 +27,7 @@
 
 ---
 
-## 1. 버전 — momdeal이 이미 요구사항을 충족한다
+## 1. 버전 — **참고한 다른 Expo 앱**이 이미 요구사항을 충족한다
 
 | 패키지 | 최신 | 비고 |
 |---|---|---|
@@ -38,7 +38,7 @@ MapLibre RN 11.3.10의 peerDependencies:
 ```
 expo >= 54.0.0 · react >= 19.1.0 · react-native >= 0.80.0
 ```
-momdeal 현재: **expo ~54.0.32 · react 19.1.0 · react-native 0.81.5** → **그대로 충족.**
+참고 앱(트립픽과 무관한 다른 프로젝트) 당시 버전: **expo ~54.0.32 · react 19.1.0 · react-native 0.81.5** → **그대로 충족.**
 업그레이드 없이 붙일 수 있다. Expo config plugin(`app.plugin.js` → `withMapLibre`)도 제공한다.
 
 > 단, 네이티브 모듈이므로 **Expo Go로는 안 된다.** dev client 빌드가 필요하다.
