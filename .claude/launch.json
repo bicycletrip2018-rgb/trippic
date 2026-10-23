@@ -2,6 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     { "name": "trippic-proto", "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "3011", "--directory", "prototype"], "port": 3011 }
+      "runtimeArgs": ["-m", "http.server", "3011", "--directory", "prototype"], "port": 3011 },
+    { "name": "trippic-site", "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "3020", "--directory", "website"], "port": 3020 },
+    { "name": "trippic-app", "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "rn-bench", "run", "start"], "port": 8081, "autoPort": true }
   ]
 }
