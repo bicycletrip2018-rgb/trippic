@@ -188,7 +188,7 @@ https://bicycletrip2018-rgb.github.io/trippic-web/support.html
 **끝났는지 확인**: 아래를 터미널에 붙여 `"apple":true` 가 나오면 됩니다.
 
 ```bash
-curl -s "https://ziwsvnkxytqifkfhiulu.supabase.co/auth/v1/settings" -H "apikey: $(grep ANON_KEY /Users/nohhyeseong/PROJECTS/new_app_plan/rn-bench/.env.local | cut -d= -f2)" | grep -o '"apple":[a-z]*'
+curl -s "https://ziwsvnkxytqifkfhiulu.supabase.co/auth/v1/settings" -H "apikey: $(grep ANON_KEY /Users/nohhyeseong/PROJECTS/trippic/rn-bench/.env.local | cut -d= -f2)" | grep -o '"apple":[a-z]*'
 ```
 
 ---
@@ -224,7 +224,7 @@ https://expo.dev/signup 에서 무료로 만드십시오.
 > **진짜 위험은 서명뿐**입니다 — 아래 ★ 를 보십시오.
 
 ```bash
-cd /Users/nohhyeseong/PROJECTS/new_app_plan/rn-bench
+cd /Users/nohhyeseong/PROJECTS/trippic/rn-bench
 eas init                       # 프로젝트를 Expo 에 연결 (한 번만)
 ```
 

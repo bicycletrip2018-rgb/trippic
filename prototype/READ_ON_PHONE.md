@@ -11,7 +11,7 @@ http://192.168.219.103:3012/index.html
 ## 서버 켜기 (맥에서)
 
 ```bash
-cd /Users/nohhyeseong/PROJECTS/new_app_plan/prototype && /usr/bin/python3 -m http.server 3012 --bind 0.0.0.0
+cd /Users/nohhyeseong/PROJECTS/trippic/prototype && /usr/bin/python3 -m http.server 3012 --bind 0.0.0.0
 ```
 
 ★ **반드시 `/usr/bin/python3`** 를 씁니다. Homebrew python 은 macOS 방화벽에
