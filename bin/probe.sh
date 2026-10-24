@@ -62,7 +62,10 @@ api_defined() {
   grep -rhoE 'function +public\.(api_[a-z0-9_]+)' "$ROOT/db/migrations" 2>/dev/null \
     | sed -E 's/.*public\.//' | sort -u
 }
+# 부르는 모양은 둘이다 — rpc("api_x") 와 fetch(`…/rest/v1/rpc/api_x`).
+# ★ 둘째를 안 보면 invite.html 의 api_invite_preview 가 «아무도 안 부른다»로 잡혔다.
+#   백틱으로 감싼 `api_x` 는 **주석**이라 세지 않는다(features.tsv ★★ 와 같은 함정).
 api_called() {
-  grep -rhoE '"(api_[a-z0-9_]+)"' "$ROOT/rn-bench/src" "$ROOT/website" 2>/dev/null \
-    | tr -d '"' | sort -u
+  grep -rhoE '"api_[a-z0-9_]+"|/rpc/api_[a-z0-9_]+' "$ROOT/rn-bench/src" "$ROOT/website" 2>/dev/null \
+    | sed -E 's#^/rpc/##' | tr -d '"' | sort -u
 }
