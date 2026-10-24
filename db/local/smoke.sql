@@ -3256,5 +3256,73 @@ begin
   raise notice '  OK   ★★ 좌표계 표에 벽이 서 있다 — anon 이 지우면 앱 전체가 멈춘다(§13.152)';
 end $$;
 
+-- ── 34. 닉네임 — 운영자 행세 금지 + 이름 때문에 로그인이 안 막힌다 (100) ──
+\echo '── 34. 닉네임 (100) ──'
+-- ★ 재는 것 둘: ① 사칭 이름이 **어느 길로도** 안 들어가나(함수·직접 update),
+--   ② 소셜을 이을 때 이름이 규칙에 걸려도 **연결 자체는 성공하나**(099 뒤로 깨져 있었다).
+reset role; select pg_temp.login(null);
+insert into auth.users (id, email) values
+  ('ab000000-0000-0000-0000-000000000001', 'nick1@t.io'),
+  ('ab000000-0000-0000-0000-000000000002', 'nick2@t.io'),
+  ('ab000000-0000-0000-0000-000000000003', 'nick3@t.io'),
+  ('ab000000-0000-0000-0000-000000000004', 'nick4@t.io')
+on conflict (id) do nothing;
+
+-- ② 소셜 연결 — 1글자 · 21자 이상 · 사칭 이름은 **건너뛰고**, 보통 이름은 가져온다
+do $$
+declare n text;
+begin
+  insert into auth.identities (user_id, provider, identity_data) values
+    ('ab000000-0000-0000-0000-000000000001', 'kakao', '{"name":"훈"}'),
+    ('ab000000-0000-0000-0000-000000000002', 'apple', '{"full_name":"Christopher Alexander Montgomery"}'),
+    ('ab000000-0000-0000-0000-000000000003', 'kakao', '{"name":"트립픽 공식"}'),
+    ('ab000000-0000-0000-0000-000000000004', 'kakao', '{"name":"  김  여행  "}');
+  raise notice '  OK   ★★ 이름이 규칙에 걸려도 소셜 연결은 성공한다 — 099 뒤로 1글자·긴 이름이 로그인을 막았다';
+exception when check_violation then
+  raise exception 'FAIL  ★★ 소셜 이름 하나 때문에 연결이 실패한다(%)', sqlerrm;
+end $$;
+select pg_temp.ok(
+  (select count(*) from public.profiles
+    where id in ('ab000000-0000-0000-0000-000000000001',
+                 'ab000000-0000-0000-0000-000000000002',
+                 'ab000000-0000-0000-0000-000000000003')
+      and nickname = handle) = 3,
+  '못 쓰는 소셜 이름은 건너뛰고 자동 handle 로 남는다');
+select pg_temp.ok(
+  (select nickname from public.profiles where id = 'ab000000-0000-0000-0000-000000000004') = '김 여행',
+  '보통 소셜 이름은 공백을 정리해 가져온다');
+
+set role authenticated;
+select pg_temp.login('ab000000-0000-0000-0000-000000000004');
+
+-- ① 사칭 — 함수로도, 직접 update 로도 안 들어간다
+do $$
+declare bad text;
+begin
+  foreach bad in array array['트립픽 운영팀', '트 립 픽', 'TripPic', '관리자김', 'admin_kim',
+                             'kimSTAFF', '공식계정', 'Official-Trip', '고객센터'] loop
+    begin
+      perform public.api_set_nickname(bad);
+      raise exception 'FAIL  ★ 사칭 이름이 들어갔다: %', bad;
+    exception when invalid_parameter_value then null;
+    end;
+  end loop;
+  raise notice '  OK   ★ 사칭 이름 9개가 api_set_nickname 에서 막힌다';
+end $$;
+do $$
+begin
+  update public.profiles set nickname = '트립픽운영자'
+   where id = 'ab000000-0000-0000-0000-000000000004';
+  raise exception 'FAIL  ★★ 직접 update 로 사칭 이름이 들어갔다 — 표 제약이 없다';
+exception when check_violation then
+  raise notice '  OK   ★★ 직접 update 로도 사칭 이름이 안 들어간다(표 제약)';
+end $$;
+
+-- 걸리면 안 되는 이름 — 단어 **가운데**의 admin, 흔한 한국어 이름
+select pg_temp.ok(public.api_set_nickname('badminton러버') = 'badminton러버',
+  '가운데에 admin 이 든 이름(badminton)은 막지 않는다');
+select pg_temp.ok(public.api_set_nickname('여행  좋아') = '여행 좋아',
+  '보통 닉네임은 공백을 정리해 저장한다');
+
 reset role;
 rollback;   -- 아무것도 남기지 않는다
