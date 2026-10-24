@@ -1,0 +1,62 @@
+# 기능 인벤토리 — **코드를 재는 기준표** (§13.184)
+#
+# ★ 왜 이 파일이 있나 — §13.183 의 A-1 기능 표를 **손으로 썼다.** 35줄짜리
+#   산문이었고, 화면 하나만 붙여도 틀려진다. 산문은 측정의 사본이고 사본은 썩는다.
+#   → 기대 상태를 여기 적고, `bin/status.sh` 가 **그때그때 재서** 표를 만든다.
+#
+# ★ 그리고 `bin/doc-drift.sh` 가 **기대 ≠ 실제** 를 CI 에서 막는다.
+#   누가 댓글 화면을 붙이면 CI 가 *"commentui: 없음→있음. 이 표와 문서를 고쳐라"*
+#   라고 말한다. 그게 이 파일의 본론이다 — 표가 아니라 **경보**다.
+#
+# ★ «있음» 의 기준은 **앱에서 그 길로 갈 수 있다** 다. 서버만 있는 것은
+#   서버 줄과 화면 줄을 **따로** 둔다(commentsrv / commentui 처럼).
+#   §13.180 에서 «표만 있고 길이 없었다» 를 당했기 때문이다.
+#
+# 범위:  src = rn-bench/src   ·   db = db/migrations   ·   web = website
+#        srcdb = src + db
+#
+# 칸은 **탭**으로 가른다:  키 <TAB> 이름 <TAB> 기대 <TAB> 범위 <TAB> 정규식
+#
+# ★★ 이 표가 틀리는 **첫째 이유: 주석을 센다.** 처음 돌렸을 때 `clippoly` 가
+#   «있음» 으로 나왔다. 걸린 자리는 `MapTab.tsx:626` 의 **주석**이었다 —
+#   *"`fill-pattern` 을 **뺀다**"* 고 적은 줄이다. **없다고 설명하는 주석이
+#   있다는 증거로 잡혔다.** 이 저장소는 주석에 설계 근거를 길게 적으므로
+#   이 함정이 특히 잘 걸린다.
+#   → **살아 있는 코드에만 나오는 모양**으로 적는다:
+#       나쁨:  fill-pattern          (주석의 `fill-pattern` 에도 걸린다)
+#       좋음:  "fill-pattern"        (paint 객체의 키에만 걸린다)
+#       좋음:  VIDEO_MAX_SEC *= *15  (선언문에만 걸린다)
+#       좋음:  api_comment_add       (rpc 이름은 주석에 잘 안 적힌다 — 다만 확인할 것)
+#   패턴을 더하거나 고쳤으면 `./bin/status.sh --offline` 을 돌려 **왜 그렇게
+#   나왔는지 한 번 눈으로 확인**하라. grep 해 보면 1초다.
+#
+video15	15초 클립 업로드	있음	src	VIDEO_MAX_SEC *= *15
+storage	사진 저장소 = Supabase Storage	있음	src	storage/v1/object
+r2	사진 저장소 = Cloudflare R2	없음	srcdb	cloudflare|r2\.dev|R2_(BUCKET|KEY|URL)
+webviewer	비로그인 웹 뷰어	없음	src	webViewer|WebViewer
+conquer	정복률	있음	src	정복률
+badge	성취 뱃지	없음	src	achievement|뱃지 획득|badgeEarned|earnedBadge
+yeartl	연도 타임라인 슬라이더	없음	src	yearSlider|연도 타임라인|timelineYear
+pushremote	멤버 업로드 푸시 알림	없음	src	getExpoPushTokenAsync|getDevicePushTokenAsync
+pushlocal	주간 로컬 알림 (푸시 아님)	있음	src	scheduleNotificationAsync
+spaceinvite	스페이스 초대 링크 만들기	있음	src	inviteLink
+spacejoin	스페이스 참여 (초대 수락)	없음	src	api_join_space
+commentsrv	댓글 — 서버	있음	db	api_comment_add
+commentui	댓글 — 앱 화면	없음	src	api_comments|api_comment_add
+nicksrv	닉네임 바꾸기 — 서버	있음	db	api_set_nickname
+nickui	닉네임 바꾸기 — 앱 화면	없음	src	api_set_nickname
+like	좋아요 누르기	없음	src	api_like|toggleLike|onLike
+profilemap	@누구의 지도 (개인 프로필)	없음	src	api_profile_map|누구의 지도
+tripfilter	여행별 체크박스 필터	없음	src	tripFilter|여행별 필터
+tripintent	글 3계층 — 여행 취지	없음	src	여행 취지|tripIntent
+placenote	글 3계층 — 장소 한 줄	있음	src	saveNote
+caption	글 3계층 — 사진 캡션	있음	src	caption
+gps	GPS 내 위치	있음	src	watchPositionAsync
+scalebar	지도 축척 막대	있음	src	scaleBar|축척
+exposecap	노출 3장 상한	없음	src	EXPOSE_MAX|노출 상한|MAX_EXPOSE
+clippoly	사진으로 채운 폴리곤	없음	src	"fill-pattern"|atlasFill
+water	강·하천·호수 표시	있음	src	water_name|waterway
+search	지역·장소 통합 검색	있음	src	api_search
+covers	모두의 지도 표지 사진	있음	src	api_public_covers_in_bbox|coverLog
+report	신고·차단	있음	src	ReportSheet|api_block
+deluser	계정·기록 지우기	있음	src	DangerZone
