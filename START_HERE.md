@@ -75,7 +75,7 @@ grep -n "지금 찾는 주제" PLAN.md
 ./bin/doc-drift.sh                # "문서 표류 없음" = 문서가 코드와 같다 (2초)
 ./db/local/verify.sh              # "표류 없음" = 코드와 서버가 같다 (문서 표류도 같이 본다)
 cd rn-bench && npx tsc --noEmit   # 타입
-ls db/migrations/*.sql | wc -l    # 100 (2026-10-24 기준)
+ls db/migrations/*.sql | wc -l    # 101 (2026-10-24 기준)
 ```
 
 ★ `.env` 와 `rn-bench/.env.local` 은 **git 에 없습니다**(비밀값).

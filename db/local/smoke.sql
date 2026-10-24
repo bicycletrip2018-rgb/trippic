@@ -3324,5 +3324,19 @@ select pg_temp.ok(public.api_set_nickname('badminton러버') = 'badminton러버'
 select pg_temp.ok(public.api_set_nickname('여행  좋아') = '여행 좋아',
   '보통 닉네임은 공백을 정리해 저장한다');
 
+-- ── 35. 안 부르는 api_* 에 상태 태그 (101) ──────────────────────────
+\echo '── 35. api 상태 태그 (101) ──'
+-- ★ 재는 것: 태그가 **기존 설계 주석을 지우지 않고** 앞에 붙었나.
+--   덮어쓰면 그 함수를 왜 만들었는지가 사라진다.
+select pg_temp.ok(
+  (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname like 'api\_%'
+      and obj_description(p.oid, 'pg_proc') ~ '^\[(화면 대기|운영 화면 없음|내부용|스크립트용|분석용|대체됨|미연결 기능|예비)\]') = 30,
+  '안 부르는 api_* 30개에 상태 태그가 붙었다');
+select pg_temp.ok(
+  obj_description('public.api_join_space(text)'::regprocedure, 'pg_proc')
+    like '%초대 코드로 스페이스 합류%',
+  '태그가 기존 설계 주석을 지우지 않았다(앞에 붙였다)');
+
 reset role;
 rollback;   -- 아무것도 남기지 않는다
