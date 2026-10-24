@@ -19,7 +19,22 @@ https://bicycletrip2018-rgb.github.io/trippic-web/support.html
 앱의 `마이 → 이용약관` 에서 눌러 열리는 것까지 확인했습니다.
 **바꾸고 싶으시면 말씀만 하시면 됩니다** — 시행일을 올리고 다시 올립니다.
 
-### → **지금 하실 것은 3단계(Apple Developer 등록)입니다.**
+### → **지금 하실 것 (2026-10-24 기준)**
+
+**3~9단계는 끝났습니다.** 아이폰 앱이 **이미 App Store Connect 에 올라가 있습니다.**
+남은 것은 **셋**입니다:
+
+| | 무엇 | 어디서 |
+|---|---|---|
+| **①** | TestFlight 내부 테스팅 그룹 만들고 **본인 아이폰에 설치** | App Store Connect → `트립픽` → TestFlight (9단계) |
+| | ★ 「처리 중」에서 멈춰 있으면 → **무료 앱 계약 동의** | → `계약, 세금 및 금융 거래` (4단계) |
+| **②** | App ID 에 `Sign in with Apple` 이 켜졌는지 **눈으로 확인** | developer.apple.com (6-1단계) |
+| **③** | 테스터 다섯 분 → 피드백 → 심사 제출 | 10·10.5·11단계 |
+
+★ **안드로이드로 내시려면 이 체크리스트에 그 길이 없습니다.**
+  이관 패키지의 `1-계정이관-체크리스트.md` **§8 Google Play** 를 보십시오 —
+  개발자 계정이 있는지조차 확인되지 않았습니다(§13.183 C-9).
+  **첫 출시를 어디로 할지는 정한 적이 없습니다**(§13.183 C-7).
 
 ---
 
@@ -90,10 +105,12 @@ https://bicycletrip2018-rgb.github.io/trippic-web/support.html
 
 ---
 
-## ✅ 3단계 · Apple Developer 등록 — **결제까지 끝남** (2026-10-04)
+## ✅ 3단계 · Apple Developer 등록 — **승인까지 끝남** (결제 10-04 · 승인 10-07)
 
 `개인/개인사업자`(= Individual / Sole Proprietor) 로 등록하고, 사업자번호 대신
-**생년월일**을 넣어 결제까지 마쳤다. **승인 대기 중.**
+**생년월일**을 넣어 결제까지 마쳤다. **승인이 났다** —
+2026-10-07 에 Team ID `6999MFYUR7` 가 발급되고 iOS 배포 빌드가 서명됐다
+(멤버십이 없으면 불가능한 일이다. §13.183 C-8).
 
 - 승인 메일 제목: `Welcome to the Apple Developer Program` (**스팸함도 볼 것**)
 - 중간에 **신분증 확인**을 요청할 수 있다 → 아이폰 **Apple Developer** 앱이 가장 빠르다
@@ -109,7 +126,18 @@ https://bicycletrip2018-rgb.github.io/trippic-web/support.html
   영어만 적어 두면 못 찾는다.
 
 
-## 4단계 · App Store Connect 에 앱 만들기 (15분)
+## ✅ 4단계 · App Store Connect 에 앱 만들기 — **앱은 만들어졌다** (2026-10-07)
+
+```
+ASC 앱 ID 6820066253 · 번들 app.trippic · 1.0.0 (1) 올라가 있음
+```
+
+★ **「무료 앱 계약 동의」만 확인이 안 됐습니다** — 아래 3번입니다.
+  TestFlight 가 「처리 중」에서 멈춰 있으면 그것 때문입니다.
+
+<details><summary>처음에 어떻게 했나 (끝남)</summary>
+
+### 처음 만들 때 넣은 값
 
 1. https://appstoreconnect.apple.com → `나의 앱`(My Apps) → `＋` → `신규 앱`(New App)
 2. 아래대로 입력
@@ -129,9 +157,16 @@ https://bicycletrip2018-rgb.github.io/trippic-web/support.html
 
 **끝났는지 확인**: 앱 목록에 `트립픽` 이 보이고, 계약 상태가 `활성` 이면 됩니다.
 
+</details>
+
 ---
 
-## 5단계 · 번들 ID 만들기 (5분 · 4단계에서 목록에 없었을 때만)
+## ✅ 5단계 · 번들 ID 만들기 — **끝남**
+
+`app.trippic` 으로 **배포 빌드가 실제로 서명됐다**(2026-10-07). 이 단계는 지났다.
+아래는 다시 만들어야 할 때를 위해 남겨 둔다.
+
+<details><summary>다시 만들어야 하면 (접힘)</summary>
 
 1. https://developer.apple.com/account/resources/identifiers/list
 2. `＋` → `App IDs` → `App` → Continue
@@ -139,9 +174,16 @@ https://bicycletrip2018-rgb.github.io/trippic-web/support.html
 4. **Capabilities 에서 `Sign in with Apple` 체크** ← 빠뜨리면 애플 로그인이 안 됩니다
 5. Continue → Register
 
+</details>
+
 ---
 
-## 6단계 · 애플 로그인 켜기 (5분)
+## 6단계 · 애플 로그인 켜기 — **6-2 는 끝남 · 6-1 은 확인 안 함**
+
+| | 상태 |
+|---|---|
+| **6-1** App ID 에 `Sign in with Apple` | **아마 켜져 있다 — 직접 보지는 않았다.** `app.json` 에 `usesAppleSignIn: true` 가 있고 빌드가 성공했다(EAS 가 프로비저닝할 때 capability 를 자동으로 켠다). **개발자 포털을 열어 눈으로 확인하는 것이 남았다** |
+| **6-2** Supabase 에 Apple provider 켜기 | **✅ 끝남** — 2026-10-24 에 재서 확인했다: `"apple":true` · `"kakao":true` |
 
 ★ **이게 없으면 심사에서 반려됩니다.** 카카오 로그인이 있으면 애플도 있어야 한다는
   규정(4.8)입니다.
@@ -193,7 +235,12 @@ curl -s "https://ziwsvnkxytqifkfhiulu.supabase.co/auth/v1/settings" -H "apikey: 
 
 ---
 
-## 7단계 · 빌드 도구 준비 (10분)
+## ✅ 7단계 · 빌드 도구 준비 — **끝남**
+
+`eas whoami` → `nohhyeseong` / `bicycletrip2018@gmail.com` / Role **Owner**.
+이 기계의 CLI 는 로그인돼 있다. 아래는 **새 기계에서 다시 할 때** 쓴다.
+
+<details><summary>새 기계에서 처음 깔 때 (접힘)</summary>
 
 ```bash
 mkdir -p ~/.npm-global && npm config set prefix ~/.npm-global && npm install -g eas-cli
@@ -212,9 +259,17 @@ https://expo.dev/signup 에서 무료로 만드십시오.
 
 **끝났는지 확인**: `eas whoami` 가 계정 이름을 찍으면 됩니다.
 
+</details>
+
 ---
 
-## 8단계 · 첫 빌드 (30분 · 대부분 기다림)
+## ✅ 8단계 · 첫 빌드 — **끝남** (iOS production, 2026-10-07)
+
+환경변수 3개도 **EAS 에 들어가 있다** — `eas env:list --environment production` 로
+확인된다(`EXPO_PUBLIC_SUPABASE_URL` · `..._ANON_KEY` · `..._INVITE_BASE`).
+아래는 **새 계정으로 옮긴 뒤** 다시 할 때 쓴다 — 환경변수는 **안 따라온다.**
+
+<details><summary>처음 뚫을 때 쓴 명령 (접힘)</summary>
 
 ★ 이 단계는 **제가 옆에서 같이** 할 수 있습니다. 명령만 실행해 주시면 됩니다.
 
@@ -251,21 +306,40 @@ eas build --profile production --platform ios
 ★ 첫 빌드는 **서명 문제로 한 번 실패하는 일이 흔합니다.** 실패해도 당황하지
   마시고 로그를 저에게 보여 주십시오 — 대부분 설정 한 줄입니다.
 
+</details>
+
 ---
 
-## 9단계 · TestFlight 에 올리기 (20분)
+## ✅ 9단계 · TestFlight 에 올리기 — **올리는 것은 끝났습니다** (2026-10-07)
 
-```bash
-eas submit --profile production --platform ios
 ```
+제출: 8869b69d-d032-45cb-a99c-47e241e673ff · iOS · finished
+     2026-10-07 22:40 · ASC 앱 6820066253 · 1.0.0 (1)
+```
+
+`eas submit --profile production --platform ios` 가 **이미 한 번 끝까지 돌았습니다.**
+`eas submit:list` 로 언제든 다시 보실 수 있습니다.
+
+### 남은 것 — App Store Connect 를 **열어야** 보이는 세 가지
 
 올라간 뒤 App Store Connect → `트립픽` → **TestFlight** 탭:
 
 1. **수출 규정** 을 묻습니다 → **`아니요`** (표준 HTTPS 만 씁니다)
+   ★ `app.json` 에 `ITSAppUsesNonExemptEncryption: false` 를 박아 뒀으므로
+     **안 물을 수도 있습니다**(#32). 물으면 `아니요` 입니다
 2. `내부 테스팅` → `＋` → 그룹 만들기 → 본인 추가
 3. 본인 아이폰에 **TestFlight** 앱을 깔고 초대 메일의 링크를 누르면 설치됩니다
 
 **끝났는지 확인**: 본인 아이폰에서 **트립픽**이 열리면 됩니다.
+
+★ **「처리 중」에서 멈춰 있다면** 4단계의 **무료 앱 계약 동의**를 안 한 것입니다
+  (App Store Connect → `계약, 세금 및 금융 거래`). 제출은 돌았으니 다른 원인은
+  거의 없습니다.
+
+★ **이 칸이 한동안 ✅ 없이 있었습니다**(2026-10-24 에 고쳤습니다). 제출 사실이
+  이관 패키지의 체크리스트에만 적혀 있어서, **저장소를 읽는 사람에게는 「안 한
+  일」** 로 보였습니다 — 저도 그렇게 말하고 있었습니다(§13.183 C-8).
+  **상태는 이 파일에만 적습니다.** 다른 문서는 여기를 가리키기만 합니다.
 
 ★ **여기까지가 1차 목표**입니다. 여기서 한 번 직접 써 보시고, 이상한 곳을
   저에게 말씀해 주시면 고칩니다.
