@@ -1,8 +1,11 @@
-<!-- 이 파일은 `bin/status.sh` 가 만든다. 손으로 고치지 마라 — 다음 실행에 덮인다. -->
+<!-- 이 파일은 `bin/status.sh` 가 만든다. 손으로 고치지 마라 — 다음 실행에 덮인다.
+     돌리면 생성 시각·브랜치 때문에 **늘 바뀐 것으로 뜬다.** 그건 정상이다 —
+     내용이 달라진 게 없으면 `git checkout -- STATUS.md` 로 버리고,
+     실제로 달라졌으면(기능이 늘었다거나) **그때만** 커밋한다. -->
 # 지금 상태 — **재서 쓴 것**
 
 ```
-생성: 2026-10-24 15:17 KST   ·   bin/status.sh --offline
+생성: 2026-10-24 15:20 KST   ·   bin/status.sh --offline
 ```
 
 > **이 파일이 지금 사실이다.** `PLAN.md` 의 §0·§5·§6·§12 는 **기획 당시의
@@ -79,18 +82,19 @@ api_set_nickname api_trips_in_view api_villages_in_bbox
 ## 3. git
 
 ```
-브랜치     chore/status-and-doc-drift
-커밋       f8fdac4 2026-10-24 feat: 상태를 산문으로 적지 않고 **재서** 만든다 + 문서 표류를 CI 가 막는다
-작업본     1 개 변경/미추적
+브랜치     chore/status-noise
+커밋       20dc24c 2026-10-24 feat: 상태를 재서 만들고 문서 표류를 CI 가 막는다 + 저장소에만 없던 invite.html (§13.184) (#66)
+작업본     2 개 변경/미추적
 stash      0개
 원격       https://github.com/bicycletrip2018-rgb/trippic.git
 
 원격이 모르는 브랜치 (로컬에만 있는 것):
   bicycletrip2018-rgb/bream
+  chore/status-noise
   policy-fill
 
 작업 폴더(worktree):
-  /Users/nohhyeseong/PROJECTS/trippic               f8fdac4 [chore/status-and-doc-drift]
+  /Users/nohhyeseong/PROJECTS/trippic               20dc24c [chore/status-noise]
   /Users/nohhyeseong/orca/workspaces/trippic/bream  f845f50 [bicycletrip2018-rgb/bream]
 ```
 
