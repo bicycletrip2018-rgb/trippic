@@ -3338,5 +3338,88 @@ select pg_temp.ok(
     like '%초대 코드로 스페이스 합류%',
   '태그가 기존 설계 주석을 지우지 않았다(앞에 붙였다)');
 
+-- ── 36. 댓글 **함수**를 실제 사용자로 — 스페이스에 공유된 기록 (098) ──
+\echo '── 36. 댓글 함수 (098) ──'
+-- ★ 재는 것: 20절은 **표에 직접** insert 해서 정책을 쟀다. 화면이 부를 것은 함수다.
+--   함수를 authenticated 로 부르는 줄이 없어서, 099 처럼 «있는데 사용자는 못 쓰는»
+--   상태인지 몰랐다(§13.185). 특히 soft delete 는 update 후 줄이 SELECT 정책
+--   (`deleted_at is null`)을 벗어나므로 RLS 와 부딪힐 수 있다 — 재 봐야 안다.
+reset role; select pg_temp.login(null);
+insert into auth.users (id, email) values
+  ('ac000000-0000-0000-0000-00000000000a', 'cmt-a@t.io'),   -- 기록 주인 · 방장
+  ('ac000000-0000-0000-0000-00000000000b', 'cmt-b@t.io'),   -- 같은 방 멤버
+  ('ac000000-0000-0000-0000-00000000000c', 'cmt-c@t.io')    -- 남남
+on conflict (id) do nothing;
+insert into public.spaces (id, type, title, owner_id)
+  values ('ac000000-0000-0000-0000-0000000005ac', 'shared', 'ZZ댓글방',
+          'ac000000-0000-0000-0000-00000000000a');
+insert into public.space_members (space_id, user_id, role) values
+  ('ac000000-0000-0000-0000-0000000005ac', 'ac000000-0000-0000-0000-00000000000a', 'owner'),
+  ('ac000000-0000-0000-0000-0000000005ac', 'ac000000-0000-0000-0000-00000000000b', 'member')
+on conflict do nothing;
+insert into public.pins (id, user_id, geom, visited_at, is_public, verification, memo)
+  values ('ac000000-0000-0000-0000-0000000001a0', 'ac000000-0000-0000-0000-00000000000a',
+          ST_SetSRID(ST_MakePoint(127.1, 37.5), 4326), now(), false, 'manual', 'ZZ댓글기록');
+insert into public.pin_spaces (pin_id, space_id)
+  values ('ac000000-0000-0000-0000-0000000001a0', 'ac000000-0000-0000-0000-0000000005ac');
+set role authenticated;
+
+-- ① 멤버가 함수로 단다 → 함수로 읽힌다 → 수가 오른다
+select pg_temp.login('ac000000-0000-0000-0000-00000000000b');
+select pg_temp.ok(
+  (select body from public.api_comment_add('ac000000-0000-0000-0000-0000000001a0', '  여기 또 가자  ')) = '여기 또 가자',
+  '★ 같은 방 멤버가 api_comment_add 로 댓글을 단다(앞뒤 공백은 턴다)');
+select pg_temp.ok(
+  (select count(*) from public.api_comments('ac000000-0000-0000-0000-0000000001a0')) = 1
+  and (select bool_and(is_mine) from public.api_comments('ac000000-0000-0000-0000-0000000001a0')),
+  'api_comments 로 읽힌다 — 내 것이라고 표시된다');
+select pg_temp.ok(
+  (select comment_count from public.pins where id = 'ac000000-0000-0000-0000-0000000001a0') = 1,
+  '함수로 단 댓글도 핀의 댓글 수를 올린다');
+
+-- ② 방 주인에게도 보이고, 남의 댓글은 못 지운다
+select pg_temp.login('ac000000-0000-0000-0000-00000000000a');
+select pg_temp.ok(
+  (select count(*) from public.api_comments('ac000000-0000-0000-0000-0000000001a0')) = 1,
+  '같은 방의 기록 주인에게 보인다');
+select pg_temp.ok(
+  public.api_comment_remove((select id from public.comments
+                              where pin_id = 'ac000000-0000-0000-0000-0000000001a0' limit 1)) = false,
+  '★ 남의 댓글은 지워지지 않는다(false)');
+
+-- ③ 남남은 못 읽고 못 단다
+select pg_temp.login('ac000000-0000-0000-0000-00000000000c');
+select pg_temp.ok(
+  (select count(*) from public.api_comments('ac000000-0000-0000-0000-0000000001a0')) = 0,
+  '★ 방 밖의 사람에게는 함수로도 안 보인다');
+do $$ begin
+  begin
+    perform public.api_comment_add('ac000000-0000-0000-0000-0000000001a0', '끼어들기');
+    raise exception 'FAIL  ★ 방 밖의 사람이 api_comment_add 로 댓글을 달았다';
+  exception when insufficient_privilege then
+    raise notice '  OK   ★ 방 밖의 사람은 api_comment_add 로도 못 단다(정책이 막는다)';
+  end;
+end $$;
+
+-- ④ 공백만 → 표의 길이 제약이 거절한다
+select pg_temp.login('ac000000-0000-0000-0000-00000000000b');
+do $$ begin
+  begin
+    perform public.api_comment_add('ac000000-0000-0000-0000-0000000001a0', '   ');
+    raise exception 'FAIL  공백만 적은 댓글이 들어갔다';
+  exception when check_violation then
+    raise notice '  OK   공백만 적은 댓글은 표의 제약이 거절한다';
+  end;
+end $$;
+
+-- ⑤ 내 댓글을 지운다 — soft delete 가 RLS 와 안 부딪히나
+select pg_temp.ok(
+  public.api_comment_remove((select id from public.api_comments('ac000000-0000-0000-0000-0000000001a0') limit 1)) = true,
+  '★★ 내 댓글은 api_comment_remove 로 지워진다(soft delete)');
+select pg_temp.ok(
+  (select count(*) from public.api_comments('ac000000-0000-0000-0000-0000000001a0')) = 0
+  and (select comment_count from public.pins where id = 'ac000000-0000-0000-0000-0000000001a0') = 0,
+  '지운 댓글은 목록에서 빠지고 댓글 수도 내려간다');
+
 reset role;
 rollback;   -- 아무것도 남기지 않는다
