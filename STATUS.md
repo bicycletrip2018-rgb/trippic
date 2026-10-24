@@ -2,7 +2,7 @@
 # 지금 상태 — **재서 쓴 것**
 
 ```
-생성: 2026-10-24 15:03 KST   ·   bin/status.sh --offline
+생성: 2026-10-24 15:17 KST   ·   bin/status.sh --offline
 ```
 
 > **이 파일이 지금 사실이다.** `PLAN.md` 의 §0·§5·§6·§12 는 **기획 당시의
@@ -80,18 +80,17 @@ api_set_nickname api_trips_in_view api_villages_in_bbox
 
 ```
 브랜치     chore/status-and-doc-drift
-커밋       3155a18 2026-10-24 wip: status/doc-drift
-작업본     2 개 변경/미추적
+커밋       f8fdac4 2026-10-24 feat: 상태를 산문으로 적지 않고 **재서** 만든다 + 문서 표류를 CI 가 막는다
+작업본     1 개 변경/미추적
 stash      0개
 원격       https://github.com/bicycletrip2018-rgb/trippic.git
 
 원격이 모르는 브랜치 (로컬에만 있는 것):
   bicycletrip2018-rgb/bream
-  chore/status-and-doc-drift
   policy-fill
 
 작업 폴더(worktree):
-  /Users/nohhyeseong/PROJECTS/trippic               3155a18 [chore/status-and-doc-drift]
+  /Users/nohhyeseong/PROJECTS/trippic               f8fdac4 [chore/status-and-doc-drift]
   /Users/nohhyeseong/orca/workspaces/trippic/bream  f845f50 [bicycletrip2018-rgb/bream]
 ```
 
@@ -101,7 +100,7 @@ stash      0개
 |---|---|
 | Metro / Expo 개발 서버 | 없음 |
 | Gradle 데몬 | 없음 |
-| 로컬 검증 PostgreSQL (포트 55432) | 없음 |
+| 로컬 검증 PostgreSQL (포트 55432) | **열려 있다** |
 | adb 서버 (포트 5037) | 없음 |
 | prototype 정적 서버 (포트 3011) | 없음 |
 | website 정적 서버 (포트 3020) | 없음 |

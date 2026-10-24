@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- ★ 초대 코드는 **주소에 실려 있다**(`?invite=…`). 바깥으로 나가는 요청에
+     주소가 묻어 나가면 그 코드를 남이 줍는다 — 코드 하나면 남의 스페이스에
+     들어올 수 있다. 그래서 ① 레퍼러를 끊고 ② **바깥 자원을 아예 안 쓴다**
+     (글꼴 CDN 도 안 부른다. 시스템 글꼴이면 충분하다). -->
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<title>초대 — 트립픽</title>
+<style>
+:root{
+  color-scheme:light;
+  --g100:#F2F4F6; --g200:#E5E8EB; --g400:#B0B8C1; --g500:#8B95A1;
+  --g600:#6B7684; --g700:#4E5968; --g900:#191F28;
+  --blue:#0A7CC9; --mint:#0F8A50;
+  --font:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#fff;color:var(--g900);font:400 17px/1.65 var(--font);
+     letter-spacing:-.012em;word-break:keep-all;-webkit-font-smoothing:antialiased}
+.wrap{max-width:560px;margin:0 auto;padding:clamp(28px,7vw,64px) clamp(20px,5vw,32px) 64px}
+.brand{display:flex;align-items:center;gap:9px;color:var(--g700);font-weight:700;font-size:15px;letter-spacing:-.02em}
+.mark{width:26px;height:26px;border-radius:8px;background:var(--g900);display:grid;place-items:center}
+.card{margin-top:clamp(24px,5vw,40px);border:1px solid var(--g200);border-radius:24px;
+      padding:clamp(24px,5vw,36px);box-shadow:0 2px 4px rgba(25,31,40,.03),0 24px 64px -24px rgba(25,31,40,.14)}
+.eyebrow{color:var(--blue);font-weight:700;font-size:13.5px;letter-spacing:-.01em}
+h1{font-size:clamp(24px,5.2vw,32px);line-height:1.3;letter-spacing:-.035em;margin:10px 0 0}
+.meta{margin-top:14px;color:var(--g600);font-size:15px}
+.meta b{color:var(--g900);font-weight:700}
+.what{margin-top:22px;padding-top:20px;border-top:1px solid var(--g100);color:var(--g700);font-size:15.5px}
+.what li{margin:7px 0}
+.act{margin-top:26px}
+.btn{display:block;text-align:center;background:var(--g900);color:#fff;text-decoration:none;
+     padding:16px;border-radius:14px;font-weight:700;font-size:16px}
+.note{margin-top:14px;color:var(--g500);font-size:14px;line-height:1.6}
+.bad{color:var(--g700)}
+.foot{margin-top:28px;font-size:14px}
+.foot a{color:var(--g600)}
+.sk{background:var(--g100);border-radius:7px;height:14px;animation:p 1.4s ease-in-out infinite}
+@keyframes p{0%,100%{opacity:.5}50%{opacity:1}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">
+    <span class="mark"><svg width="16" height="16" viewBox="0 0 32 32" aria-hidden="true"><path d="M7.5 23 L12.5 15 L18 18.5 L23.5 10" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="23.5" cy="10" r="3.4" fill="#3EE08F" stroke="#fff" stroke-width="1.6"/></svg></span>
+    TRIPPIC
+  </div>
+
+  <div class="card" id="card">
+    <div class="sk" style="width:38%"></div>
+    <div class="sk" style="width:72%;height:26px;margin-top:12px"></div>
+    <div class="sk" style="width:52%;margin-top:16px"></div>
+  </div>
+
+  <p class="foot"><a href="./">트립픽이 어떤 앱인지 보기 →</a></p>
+</div>
+
+<script>
+/* ★ 공개 키다(`sb_publishable_…`). 앱에도 들어 있고 **공개하라고 만든 키**다 —
+     이 키로 할 수 있는 일은 서버가 함수마다 따로 막는다(초대 미리보기는 열려 있고,
+     합류·운영자 기능은 전부 거절한다. 실제로 때려 보고 확인했다). */
+const SUPA = "https://ziwsvnkxytqifkfhiulu.supabase.co";
+const KEY  = "sb_publishable_BDEM2XY-5mw4NzjrgvfVgA_hkO3thwF";
+
+/* ★ 앱을 받을 수 있게 되면 **이 한 줄만** 채우면 된다(TestFlight 또는 스토어 주소).
+     비워 두면 "아직 열지 않았다"고 **정직하게** 말한다 — 없는 버튼을 만들지 않는다. */
+const APP_LINK = "";
+
+const el = document.getElementById("card");
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+function show(html) { el.innerHTML = html; }
+
+function bad(why) {
+  show(`<p class="eyebrow">초대</p>
+        <h1>${esc(why)}</h1>
+        <p class="note bad">링크가 바뀌었거나 보낸 분이 링크를 새로 만들었을 수 있습니다.
+        보내신 분께 한 번만 다시 부탁드려 주세요.</p>`);
+}
+
+function ok(d) {
+  /* ★ **무엇을 수락하는지 먼저 보인다**(§13.38). 모르고 계정부터 만들게 하면
+     순서만 바꾼 것이지 설명한 것이 아니다. */
+  const already = d.already
+    ? `<p class="note">이미 들어와 계십니다. 앱에서 바로 보실 수 있습니다.</p>` : "";
+  const act = APP_LINK
+    ? `<div class="act"><a class="btn" href="${esc(APP_LINK)}">앱에서 수락하기</a>
+       <p class="note">앱에서 이 링크를 한 번 더 열면 합류됩니다.</p></div>`
+    /* ★ 없는 것을 있는 척하지 않는다. 스토어 버튼을 만들어 두고 눌리면
+         아무 일도 안 나는 것이 가장 나쁘다(§13.67 의 "죽은 버튼"). */
+    : `<div class="act"><p class="note"><b>아직 앱을 받으실 수 없습니다.</b>
+       출시 준비 중이라, 지금은 이 스페이스가 있다는 것만 보여 드립니다.
+       보내신 분께 언제 열리는지 물어봐 주세요.</p></div>`;
+  show(`<p class="eyebrow">함께 채운 지도에 초대받으셨습니다</p>
+        <h1>${esc(d.title)}</h1>
+        <p class="meta"><b>${d.members}</b>명이 함께 있고,
+           ${d.pins ? `기록이 <b>${d.pins}</b>개 쌓여 있습니다.` : `아직 기록은 없습니다.`}</p>
+        <ul class="what">
+          <li>수락하면 이 스페이스의 <b>지도와 기록을 함께</b> 보게 됩니다.</li>
+          <li>내가 올린 사진도 <b>여기 있는 분들에게 보입니다.</b></li>
+          <li>언제든 나갈 수 있고, <b>올린 기록은 남습니다.</b></li>
+        </ul>
+        ${already}${act}`);
+}
+
+(async () => {
+  const code = new URLSearchParams(location.search).get("invite");
+  if (!code) {
+    show(`<p class="eyebrow">초대</p>
+          <h1>초대 링크로 들어와 주세요</h1>
+          <p class="note">받으신 링크를 그대로 열면 어떤 스페이스인지 보여 드립니다.</p>`);
+    return;
+  }
+  try {
+    const r = await fetch(`${SUPA}/rest/v1/rpc/api_invite_preview`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: KEY, Authorization: `Bearer ${KEY}` },
+      body: JSON.stringify({ p_code: code }),
+    });
+    const d = await r.json();
+    if (!r.ok || !d || d.ok !== true) { bad(d?.why || "초대 링크가 유효하지 않습니다"); return; }
+    ok(d);
+  } catch {
+    /* ★ 망이 끊긴 것과 **틀린 코드**는 다르다. 섞어서 말하면 멀쩡한 링크를 받은
+         사람이 "내 링크가 잘못됐나" 하고 포기한다. */
+    show(`<p class="eyebrow">초대</p>
+          <h1>지금은 확인하지 못했습니다</h1>
+          <p class="note bad">연결이 불안정한 것 같습니다. 잠시 뒤 다시 열어 주세요.
+          링크 자체는 그대로 쓰실 수 있습니다.</p>`);
+  }
+})();
+</script>
+</body>
+</html>
