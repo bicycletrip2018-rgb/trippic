@@ -11,6 +11,7 @@
 import * as FileSystem from "expo-file-system/legacy";
 import { measurePhoto } from "./photoQuality";
 import { singleFlight } from "./singleFlight";
+import { nicknameWhy } from "./nickname";
 
 export const CFG = {
   url: "",        // app.json extra 또는 아래 setConfig 로 주입
@@ -463,6 +464,26 @@ export const unblockUser = (userId: string) =>
 export type Blocked = { user_id: string; nickname: string | null; created_at: string };
 export const blockedList = () =>
   rpc<Blocked[]>("api_blocks").then((r) => (r.ok ? r.data ?? [] : []));
+
+/** 내 닉네임(099). ★ 처음 가입하면 자동 handle(`user0c5c`)이 그대로 들어 있다 —
+    그게 「모두의 지도」에서 `@user` 로 보이던 이유다(§13.180).
+    ★ handle 을 같이 받는다 — «아직 자동 이름인가» 를 `user…` 모양으로 **짐작하지 않고**
+      서버가 쓰는 기준(`nickname = handle`, 044)으로 본다. */
+export type MyName = { nickname: string; handle: string };
+export const myNickname = () =>
+  SESSION.user_id
+    ? select<MyName[]>("profiles",
+        `id=eq.${SESSION.user_id}&select=nickname,handle`)
+        .then((r) => (r.ok ? r.data?.[0] ?? null : null))
+    : Promise.resolve(null);
+
+/** 닉네임 바꾸기(099·100). ★ 규칙은 **서버 한 곳**이 정한다 — 거절 사유는
+    `nicknameWhy` 가 사람 말로 바꾼다. 원문을 화면에 그대로 올리지 않는다. */
+export const setNickname = (name: string) =>
+  rpc<string>("api_set_nickname", { p_name: name })
+    .then((r) => (r.ok
+      ? { ok: true as const, name: r.data ?? name }
+      : { ok: false as const, why: nicknameWhy(r.error) }));
 
 export const publicRecords = (limit = 200) =>
   select<any[]>("pins",
