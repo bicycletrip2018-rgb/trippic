@@ -39,6 +39,7 @@ import { driveText } from "./course";
 import * as API from "./api";
 import { useSkeletonPulse, SkelBar, SkelBox } from "./Skeleton";
 import { ReportSheet, type Target } from "./ReportSheet";
+import { PinDetail } from "./PinDetail";
 
 const ymd = (iso: string) => iso.slice(0, 10).replace(/-/g, ".");
 const md = (iso: string) => iso.slice(5, 10).replace("-", ".");
@@ -79,6 +80,9 @@ export function PlaceSheet(
   /* 남의 사진이 보이는 자리에는 신고·차단이 있어야 한다(§13.135) */
   const [target, setTarget] = useState<Target>(null);
   const [gone, setGone] = useState<string[]>([]);
+  /* 크게 본 사진의 **기록 하나**를 연다(§13.190). 사진마다 `pin_id` 를 처음부터
+     받고 있었는데 그 기록으로 가는 길이 없었다. */
+  const [record, setRecord] = useState<string | null>(null);
   /* ★ 저장은 **눌리자마자** 바뀐다(낙관적). 서버를 기다리면 한 박자 늦게 켜져
      *"안 눌렸나"* 하고 두 번 누르게 된다. 실패하면 되돌리고 이유를 적는다. */
   const [saved, setSaved] = useState<boolean | null>(null);
@@ -308,7 +312,20 @@ export function PlaceSheet(
               <Text style={s.bigMoreT}>⋯</Text>
             </Pressable>
           )}
+          {/* ★ «이 사진을 누가 왜 올렸나» 로 가는 길(§13.190). 배경을 누르면 닫히는
+              자리라 이 버튼도 전파를 막는다. */}
+          <Pressable style={s.bigRecord} hitSlop={8}
+                     onPress={(e) => { e.stopPropagation(); setRecord(big.pin_id); }}>
+            <Text style={s.bigRecordT}>이 기록 보기 ›</Text>
+          </Pressable>
         </Pressable>
+      ) : null}
+
+      {/* 장소 시트 **위에** 뜬다. 같은 장소로 가는 버튼(`onOpenPlace`)은 안 준다 —
+          눌러 봐야 지금 이 화면이다. 뒤로가기는 나중에 등록한 쪽(이 기록)이 먼저 받는다. */}
+      {record ? (
+        <PinDetail pinId={record} onClose={() => setRecord(null)}
+                   onBlocked={(uid) => { setGone((g) => [...g, uid]); setBig(null); }} />
       ) : null}
 
       <ReportSheet
@@ -359,6 +376,11 @@ const s = StyleSheet.create({
              borderRadius: 19, backgroundColor: "rgba(0,0,0,0.45)",
              alignItems: "center", justifyContent: "center" },
   bigMoreT: { color: "#fff", fontSize: 19, lineHeight: 21 },
+  /* ★ 절대배치하지 않는다 — 사진 높이가 화면마다 달라 바닥에 박으면 사진이나 캡션을
+     덮는다. 캡션 바로 아래 **흐름에** 둔다(bigWrap 의 gap 이 띄운다). */
+  bigRecord: { paddingVertical: 10, paddingHorizontal: 18, borderRadius: 20,
+               backgroundColor: "rgba(0,0,0,0.55)", borderWidth: 1, borderColor: "rgba(255,255,255,0.25)" },
+  bigRecordT: { color: "#fff", fontSize: 13.5, fontWeight: "600" },
   root: {
     position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
     backgroundColor: C.bg,

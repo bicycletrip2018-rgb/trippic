@@ -5,7 +5,7 @@
 # 지금 상태 — **재서 쓴 것**
 
 ```
-생성: 2026-10-26 13:50 KST   ·   bin/status.sh
+생성: 2026-10-26 13:57 KST   ·   bin/status.sh
 ```
 
 > **이 파일이 지금 사실이다.** `PLAN.md` 의 §0·§5·§6·§12 는 **기획 당시의
@@ -21,11 +21,11 @@
 | | |
 |---|---|
 | 탭 | **4개** — 지도 · 갈 곳 · 소식 · 마이 |
-| 앱 소스 | `rn-bench/src` 53개 파일 · 11403줄 |
+| 앱 소스 | `rn-bench/src` 54개 파일 · 11706줄 |
 | 마이그레이션 | **102개** · 마지막 `102_comment_remove_definer.sql` · 다음 번호 **103** |
-| `api_*` 함수 | DB 정의 76개 · 앱/웹 호출 47개 |
+| `api_*` 함수 | DB 정의 76개 · 앱/웹 호출 49개 |
 
-★ **아무도 안 부르는 `api_*` 가 29 개**다. 그중 일부는 «대체됨»이고 일부는
+★ **아무도 안 부르는 `api_*` 가 27 개**다. 그중 일부는 «대체됨»이고 일부는
   «화면이 아직 없음»이다 — 둘은 다르다(§13.182). 목록:
 
 ```
@@ -33,10 +33,10 @@ api_comment_add api_comment_remove api_comments api_is_near_home
 api_join_space api_map_clusters api_map_overview api_map_places 
 api_mark_closed api_mod_remove_pin api_mod_unsuspend_user 
 api_operator_grant api_operator_list api_operator_log api_operator_revoke 
-api_orientation_mix api_pin_detail api_pin_media api_pin_publish_summary 
-api_place_months api_place_search api_places_near api_record_pick 
-api_report_history api_report_note api_report_reopen api_rotate_invite 
-api_trips_in_view api_villages_in_bbox
+api_orientation_mix api_pin_publish_summary api_place_months 
+api_place_search api_places_near api_record_pick api_report_history 
+api_report_note api_report_reopen api_rotate_invite api_trips_in_view 
+api_villages_in_bbox
 ```
 
 ## 2. 기능 — **기대와 실제**
@@ -61,6 +61,8 @@ api_trips_in_view api_villages_in_bbox
 | 댓글 — 앱 화면 | 없음 | 없음 | ✓ |
 | 닉네임 바꾸기 — 서버 | 있음 | 있음 | ✓ |
 | 닉네임 바꾸기 — 앱 화면 | 있음 | 있음 | ✓ |
+| 남의 기록 하나 보기 — 서버 | 있음 | 있음 | ✓ |
+| 남의 기록 하나 보기 — 앱 화면 | 있음 | 있음 | ✓ |
 | 좋아요 누르기 | 없음 | 없음 | ✓ |
 | @누구의 지도 (개인 프로필) | 없음 | 없음 | ✓ |
 | 여행별 체크박스 필터 | 없음 | 없음 | ✓ |
@@ -82,9 +84,9 @@ api_trips_in_view api_villages_in_bbox
 ## 3. git
 
 ```
-브랜치     feat/nickname-edit
-커밋       d9fa5b2 2026-10-26 feat(app): 닉네임 바꾸기 — 마이 → 계정 칸 (§13.189)
-작업본     깨끗
+브랜치     feat/pin-detail
+커밋       29fece1 2026-10-26 feat(app): 닉네임 바꾸기 — 마이 → 계정 칸 (11월 묶음 1번) (#73)
+작업본     6 개 변경/미추적
 stash      0개
 원격       https://github.com/bicycletrip2018-rgb/trippic.git
 
@@ -93,7 +95,7 @@ stash      0개
   policy-fill
 
 작업 폴더(worktree):
-  /Users/nohhyeseong/PROJECTS/trippic               d9fa5b2 [feat/nickname-edit]
+  /Users/nohhyeseong/PROJECTS/trippic               29fece1 [feat/pin-detail]
   /Users/nohhyeseong/orca/workspaces/trippic/bream  f845f50 [bicycletrip2018-rgb/bream]
 ```
 
