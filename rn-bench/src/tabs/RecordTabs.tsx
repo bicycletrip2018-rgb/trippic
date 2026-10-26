@@ -8,9 +8,10 @@ import { useCallback, useEffect, useState } from "react";
 import { useTopPad } from "../safeArea";
 import {
   ActivityIndicator, Image, Pressable, RefreshControl, ScrollView,
-  StyleSheet, Text, View,
+  StyleSheet, Text, TextInput, View,
   Linking,
 } from "react-native";
+import { nicknameProblem, tidyNickname } from "../nickname";
 import * as API from "../api";
 import { C, CAT } from "../theme";
 import { DayCourse } from "../DayCourse";
@@ -240,7 +241,12 @@ export function MyTab({ authTick = 0 }: { authTick?: number }) {
   const photos = rows.reduce((n, p) => n + (p.media?.length ?? 0), 0);
 
   return (
+    /* ★ 닉네임 칸이 생기면서 키보드가 이 화면에 들어왔다(§13.189).
+         `handled` — 키보드가 떠 있을 때 «저장» 을 누르면 첫 탭이 키보드 닫기로
+         먹히지 않고 바로 눌린다. iOS 는 키보드만큼 아래 여백을 스스로 늘린다
+         (안드로이드는 Modal 밖이라 `adjustResize` 가 듣는다, §13.166). */
     <ScrollView style={s.wrap} contentContainerStyle={{ paddingBottom: 110 }}
+      keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets
       refreshControl={<RefreshControl refreshing={busy} onRefresh={load} tintColor={C.muted} />}>
       <Text style={[s.h1, { paddingTop: topPad }]}>마이</Text>
 
@@ -368,6 +374,7 @@ export function MyTab({ authTick = 0 }: { authTick?: number }) {
               {linked.length ? `${linked.map(API.provName).join("·")} 계정` : "임시 계정"}
               {" "}{uid.slice(0, 8)}…
             </Text>
+            <NicknameEdit tick={authTick} uid={uid} />
             {/* ★ "준비 중"을 **박아 두지 않는다.** provider 를 켜면 바로 위에 버튼이
                 뜨는데 이 줄은 여전히 준비 중이라고 말해 화면이 자기모순이 된다
                 (카카오를 켜고 실제로 그랬다). 켜진 것을 보고 말한다.
@@ -444,6 +451,91 @@ export function MyTab({ authTick = 0 }: { authTick?: number }) {
 }
 
 /**
+ * 닉네임 바꾸기 (099 · 100 · §13.189)
+ *
+ * ★ 지금 모든 사용자가 `@user` 다 — 자동 handle 이 그대로 남았고 **바꿀 길이 없었다**
+ *   (§13.180). 「모두의 지도」·소식·차단 목록이 전부 이 이름을 쓴다.
+ * ★ «계정» 칸 안에 둔다. 따로 화면을 열면 모달 안 키보드를 다시 다뤄야 하고
+ *   (§13.166 — 안드로이드 `adjustResize` 는 Modal 안에서 안 듣는다), 이건 한 줄이다.
+ * ★ 금칙어는 화면이 판정하지 **않는다** — 서버 한 곳(100)이 정하고, 거절 사유만
+ *   사람 말로 옮긴다(`nickname.ts`). 길이만 미리 말한다.
+ */
+function NicknameEdit({ tick, uid }: { tick: number; uid: string }) {
+  const [me, setMe] = useState<API.MyName | null>(null);
+  /* null = 안 고치는 중. 빈 글자("")와 구별해야 한다 — 다 지운 것도 고치는 중이다 */
+  const [draft, setDraft] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  /* ★ 소셜을 이으면 서버가 그쪽 이름을 넣는다(044) — 돌아온 순간 다시 읽는다 */
+  useEffect(() => {
+    let live = true;
+    void API.myNickname().then((n) => { if (live) setMe(n); });
+    return () => { live = false; };
+  }, [tick, uid]);
+
+  const problem = draft === null ? null : nicknameProblem(draft);
+  async function save() {
+    if (draft === null || problem || busy) return;
+    setBusy(true); setMsg(null);
+    const r = await API.setNickname(tidyNickname(draft));
+    setBusy(false);
+    /* ★ 실패하면 **고치던 글자를 남긴다.** 지우면 다시 다 적어야 한다 */
+    if (!r.ok) { setMsg(r.why); return; }
+    setMe((m) => (m ? { ...m, nickname: r.name } : m));
+    setDraft(null);
+    setMsg("바꿨습니다. 내 기록에 이 이름이 보입니다.");
+  }
+
+  if (!me) return null;          // 못 읽었으면 그리지 않는다 — 빈 이름 옆 «바꾸기» 는 고장으로 읽힌다
+  const auto = me.nickname === me.handle;
+  return (
+    <View style={s.nick}>
+      {draft === null ? (
+        <View style={s.nickRow}>
+          <Text style={s.boxV} numberOfLines={1}>
+            닉네임 <Text style={s.b}>{me.nickname}</Text>
+          </Text>
+          <Pressable hitSlop={10} onPress={() => { setDraft(auto ? "" : me.nickname); setMsg(null); }}>
+            <Text style={s.unblock}>바꾸기</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <>
+          <TextInput
+            value={draft} onChangeText={setDraft} autoFocus
+            maxLength={40}                      /* 서버는 20. 붙여 넣은 긴 글을 잘라 먹지 않고 «길다» 고 말한다 */
+            placeholder="다른 사람에게 보일 이름"
+            placeholderTextColor={C.muted}
+            returnKeyType="done" onSubmitEditing={save}
+            style={s.nickIn} />
+          <View style={s.nickRow}>
+            <Text style={problem && draft ? s.warn : s.cardS}>
+              {problem && draft ? problem : "2~20자 · 운영자로 오해받을 이름은 쓸 수 없습니다"}
+            </Text>
+            <View style={{ flexDirection: "row", gap: 16 }}>
+              <Pressable hitSlop={10} onPress={() => { setDraft(null); setMsg(null); }}>
+                <Text style={s.erase}>그만두기</Text>
+              </Pressable>
+              <Pressable hitSlop={10} onPress={save} disabled={!!problem || busy}>
+                <Text style={[s.unblock, (!!problem || busy) && { opacity: 0.4 }]}>
+                  {busy ? "저장 중…" : "저장"}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </>
+      )}
+      {/* ★ 자동 이름이면 **그 사실을 말한다.** 안 적으면 `user0c5c` 가 내가 정한
+          이름인 줄 알고 넘어간다 — 그게 지금까지 모두가 `@user` 였던 이유다. */}
+      {auto && draft === null && (
+        <Text style={s.cardS}>아직 자동으로 붙은 이름입니다. 「모두의 지도」에 이렇게 보입니다.</Text>
+      )}
+      {!!msg && <Text style={msg.startsWith("바꿨") ? s.cardS : s.warn}>{msg}</Text>}
+    </View>
+  );
+}
+
+/**
  * 약관·개인정보·문의 (§13.136)
  *
  * ★ 심사가 요구하는 **공개된 연락처**가 여기다. 그리고 동의한 약관을 **나중에
@@ -513,6 +605,10 @@ const s = StyleSheet.create({
   blockedN: { color: C.text, fontSize: 14 },
   unblock: { color: C.accent, fontSize: 13, fontWeight: "600" },
   siteLink: { color: C.muted, fontSize: 12.5, textDecorationLine: "underline" },
+  nick: { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.line, gap: 6 },
+  nickRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  nickIn: { color: C.text, fontSize: 14, paddingVertical: 9, paddingHorizontal: 12, borderRadius: 11,
+            borderWidth: 1, borderColor: C.accent, backgroundColor: "rgba(255,255,255,0.04)" },
   erase: { color: C.muted, fontSize: 12.5, paddingHorizontal: 4 },
   wrap: { flex: 1, backgroundColor: C.bg },
   h1: { color: C.text, fontSize: 19, fontWeight: "700", paddingHorizontal: 18 },
