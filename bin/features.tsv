@@ -45,6 +45,8 @@ commentsrv	댓글 — 서버	있음	db	api_comment_add
 commentui	댓글 — 앱 화면	없음	src	api_comments|api_comment_add
 nicksrv	닉네임 바꾸기 — 서버	있음	db	api_set_nickname
 nickui	닉네임 바꾸기 — 앱 화면	있음	src	api_set_nickname
+pindetailsrv	남의 기록 하나 보기 — 서버	있음	db	api_pin_detail
+pindetailui	남의 기록 하나 보기 — 앱 화면	있음	src	"api_pin_detail"
 like	좋아요 누르기	없음	src	api_like|toggleLike|onLike
 profilemap	@누구의 지도 (개인 프로필)	없음	src	api_profile_map|누구의 지도
 tripfilter	여행별 체크박스 필터	없음	src	tripFilter|여행별 필터

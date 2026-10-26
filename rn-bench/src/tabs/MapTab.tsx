@@ -35,6 +35,7 @@ import * as API from "../api";
 import { whereAmI, watchHere, watchHeading, type Here } from "../live";
 import { MapSheet, SHEET_PEEK, SHEET_BOTTOM, useSheetHalf, type Snap } from "../MapSheet";
 import { PlaceSheet } from "../PlaceSheet";
+import { PinDetail } from "../PinDetail";
 import { useBackClose } from "../backClose";
 import { sawCover, openedCover, researchedCover, flushCovers } from "../coverLog";
 import { MapSearch, type Hit } from "../MapSearch";
@@ -823,6 +824,8 @@ export function MapTab(
      표지 카드는 전부 핀이라(§13.63) 핀이 없는 장소는 눌 곳 자체가 없었고,
      `갈 곳` 에서 날아와도(§13.74) 도착해서 열 것이 없었다. */
   const [openPlace, setOpenPlace] = useState<{ id: string; name: string } | null>(null);
+  /* 기록 하나를 전면으로(§13.190). 핀 시트는 바텀시트라 사진 한 장 높이뿐이다 */
+  const [record, setRecord] = useState<string | null>(null);
   /* ★ 지도 위에 떠 있는 것들의 높이를 **잰다**(§13.95). 상수로 박으면 칩이 한 줄
      늘거나 글꼴이 바뀔 때 조용히 틀어진다 — 그러면 "다 보인다"는 약속이 깨진다. */
   const [headH, setHeadH] = useState(116);
@@ -2402,7 +2405,8 @@ export function MapTab(
           }} />
       )}
 
-      {open && <PinSheet pin={open} onClose={() => setOpen(null)} />}
+      {open && <PinSheet pin={open} onClose={() => setOpen(null)}
+                         onMore={() => setRecord(open.id)} />}
 
       {/* ★ 요약은 이제 **바텀시트의 접힌 상태**다(§13.66). 알약과 시트가 같은
           자리를 다투면 둘 다 반쯤 보인다 — 하나로 합쳤다.
@@ -2429,6 +2433,13 @@ export function MapTab(
             빼앗을 이유가 없다.
           ★ 거리(`distM`)도 안 넘긴다. 지도는 그 값을 모르고, 여기서 새로 재면
             `갈 곳` 카드와 같은 곳을 다르게 말한다(§13.34). 모르면 그 줄을 비운다. */}
+      {/* ★ 장소 시트보다 **먼저** 그린다 — 기록에서 «이 장소 보기» 를 누르면 장소가
+          기록 **위에** 떠야 한다. 닫으면 보던 기록으로 돌아온다. */}
+      {record && (
+        <PinDetail pinId={record} onClose={() => setRecord(null)}
+                   onBlocked={() => { setOpen(null); }}
+                   onOpenPlace={(p) => setOpenPlace(p)} />
+      )}
       {openPlace && (
         <PlaceSheet
           placeId={openPlace.id} fallbackName={openPlace.name}
@@ -2451,7 +2462,7 @@ export function MapTab(
  *   누르면 아무 일도 안 나는 버튼은 없느니만 못하다.
  * ★ 머문 시간이 없으면 **없다고 적는다**(§13.32). 0분이라고 쓰지 않는다.
  */
-function PinSheet({ pin, onClose }: { pin: Pin; onClose: () => void }) {
+function PinSheet({ pin, onClose, onMore }: { pin: Pin; onClose: () => void; onMore?: () => void }) {
   /* 안드로이드 뒤로가기로 닫는다(§13.172) */
   useBackClose(onClose);
   const cat = CAT[pin.category ?? "etc"] ?? CAT.etc;
@@ -2498,6 +2509,14 @@ function PinSheet({ pin, onClose }: { pin: Pin; onClose: () => void }) {
              (위 정렬의 마지막 기준으로 쓴다) 표시만 하지 않는다. */
         ].filter(Boolean).join(" · ")}
       </Text>
+
+      {/* ★ 이 시트는 **누구의 기록인지·어느 장소인지·사진이 더 있는지**를 안 적는다
+          (바텀시트라 자리가 없다). 그걸 묻는 사람을 위한 한 줄(§13.190). */}
+      {onMore ? (
+        <Pressable onPress={onMore} hitSlop={8} style={st.more}>
+          <Text style={st.moreT}>기록 자세히 보기 ›</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -2903,6 +2922,8 @@ const st = StyleSheet.create({
   photo: { width: "100%", borderRadius: 11, backgroundColor: "#0B0C10" },
   none: { color: C.muted, fontSize: 12, paddingVertical: 10 },
   memo: { color: C.text, fontSize: 13.5, lineHeight: 19, marginTop: 9 },
+  more: { marginTop: 10, alignSelf: "flex-start", paddingVertical: 4 },
+  moreT: { color: C.accent, fontSize: 13, fontWeight: "600" },
   meta: { color: C.muted, fontSize: 11.5, marginTop: 8 },
   warn: { color: C.warn, fontSize: 12 },
 });

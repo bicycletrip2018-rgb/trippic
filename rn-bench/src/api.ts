@@ -917,6 +917,36 @@ export type PlaceMedia = {
   like_count: number; save_count: number; rank: number;
 };
 
+/** 기록 하나(098). ★ 보이는 범위는 서버 정책(`pins_read`, 072)이 정한다 —
+    공개·내 것·내 스페이스. 안 보이는 기록은 **빈 결과**로 온다(오류가 아니다).
+    그래서 `null` 은 *"없거나, 지웠거나, 공개를 거뒀거나, 차단했다"* 를 다 뜻한다 —
+    화면은 그 넷을 가르지 않고 «볼 수 없다» 고만 말한다(가르면 남의 사정을 흘린다). */
+export type PinDetail = {
+  id: string; lng: number; lat: number;
+  category: string | null; memo: string | null; place_label: string | null;
+  visited_at: string | null; stay_sec: number | null;
+  verification: string | null; is_public: boolean; is_mine: boolean;
+  user_id: string; author: string | null;
+  place_id: string | null; place_name: string | null; place_address: string | null;
+  region_name: string | null;
+  comment_count: number; like_count: number; save_count: number; media_count: number;
+};
+export const pinDetail = (id: string) =>
+  rpc<PinDetail[]>("api_pin_detail", { p_pin: id })
+    .then((r) => (r.ok ? { ok: true as const, data: r.data?.[0] ?? null }
+                       : { ok: false as const, data: null }));
+
+/** 그 기록의 사진(098). ★ 남의 기록이면 **공개 가능한 장만** 온다 — 품질에 걸린
+    사진까지 보이는 것은 내 기록뿐이다(031 의 지도 카드와 같은 규칙). */
+export type PinMedia = {
+  media_id: string; url: string; thumb_url: string; poster_url: string | null;
+  type: string; width: number | null; height: number | null;
+  caption: string | null; taken_at: string | null;
+};
+export const pinMedia = (id: string) =>
+  rpc<PinMedia[]>("api_pin_media", { p_pin: id })
+    .then((r) => (r.ok ? r.data ?? [] : null));
+
 export const placeMedia = (id: string, opts?: { limit?: number; offset?: number }) =>
   rpc<PlaceMedia[]>("api_place_media", {
     p_place: id, p_orientation: null,
