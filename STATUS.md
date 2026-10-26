@@ -5,7 +5,7 @@
 # 지금 상태 — **재서 쓴 것**
 
 ```
-생성: 2026-10-26 13:49 KST   ·   bin/status.sh --offline
+생성: 2026-10-26 13:50 KST   ·   bin/status.sh
 ```
 
 > **이 파일이 지금 사실이다.** `PLAN.md` 의 §0·§5·§6·§12 는 **기획 당시의
@@ -83,8 +83,8 @@ api_trips_in_view api_villages_in_bbox
 
 ```
 브랜치     feat/nickname-edit
-커밋       805398d 2026-10-26 fix(db): 102 내 댓글을 못 지우던 것 + 댓글 함수를 실제 사용자로 재는 smoke 36절 (#72)
-작업본     6 개 변경/미추적
+커밋       d9fa5b2 2026-10-26 feat(app): 닉네임 바꾸기 — 마이 → 계정 칸 (§13.189)
+작업본     깨끗
 stash      0개
 원격       https://github.com/bicycletrip2018-rgb/trippic.git
 
@@ -93,7 +93,7 @@ stash      0개
   policy-fill
 
 작업 폴더(worktree):
-  /Users/nohhyeseong/PROJECTS/trippic               805398d [feat/nickname-edit]
+  /Users/nohhyeseong/PROJECTS/trippic               d9fa5b2 [feat/nickname-edit]
   /Users/nohhyeseong/orca/workspaces/trippic/bream  f845f50 [bicycletrip2018-rgb/bream]
 ```
 
@@ -112,13 +112,21 @@ stash      0개
 
 ## 5. 서버 · 출시 · 웹
 
-`--offline` 이라 **재지 않았다.** `./bin/status.sh` 로 다시 돌려라.
+| 무엇 | 상태 |
+|---|---|
+| 소셜 로그인 (Supabase provider) | "apple":true "kakao":true |
+| Supabase 프로젝트 | `ziwsvnkxytqifkfhiulu` |
+| 약관·초대 페이지 | terms:200 privacy:200 support:200 invite:200 |
+| 그 주소 | `https://bicycletrip2018-rgb.github.io/trippic-web/` |
+| Expo 계정 | `nohhyeseong` |
+| 최근 빌드 30건 | Android canceled 3 · Android finished 15 · iOS finished 1 |
+| 가장 최근 | Android finished 10/19/2026, |
+| **스토어 제출** | iOS finished 10/7/2026, |
+| 서버 표류 (코드 ↔ 실서버) | `./db/local/verify.sh` 로 본다 — 여기서는 안 돌린다(30초) |
 
 ## 6. 이 파일이 **재지 못한 것**
 
 ★ 비워 두면 **못 잰 것이 사실로 둔갑한다.** 아래는 «모른다 + 어디를 열면 보이나» 다.
-
-- 이 절 전체 — `--offline` 으로 돌렸다. 네트워크 없이 다시 돌리면 빈다.
 
 **명령으로는 영영 못 재는 것** — 사람이 열어 봐야 한다:
 
